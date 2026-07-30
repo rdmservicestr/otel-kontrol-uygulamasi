@@ -1,0 +1,1444 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+<title>Otel Kontrol Listesi</title>
+
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#16323A" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Kontrol Listesi" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<link rel="icon" href="icon-192.png" />
+
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<style>
+  html, body { margin: 0; padding: 0; background: #EDEAE2; min-height: 100%; }
+  #root { min-height: 100vh; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script>
+/* ------------------------------------------------------------------
+   TARAYICI DEPOLAMA UYUMU (window.storage şimi)
+   Bu uygulama Claude Artifacts ortamındaki window.storage API'sini
+   kullanacak şekilde yazıldı. Bağımsız bir web sitesi olarak
+   çalışabilmesi için burada aynı API, tarayıcının localStorage'ı
+   üzerinden yeniden oluşturuluyor.
+   NOT: Bu veriler yalnızca bu telefonda/tarayıcıda saklanır, başka
+   cihazlarla veya kullanıcılarla otomatik olarak paylaşılmaz.
+-------------------------------------------------------------------*/
+window.storage = {
+  async get(key) {
+    const v = localStorage.getItem(key);
+    return v !== null ? { key, value: v } : null;
+  },
+  async set(key, value) {
+    localStorage.setItem(key, value);
+    return { key, value };
+  },
+  async delete(key) {
+    localStorage.removeItem(key);
+    return { key, deleted: true };
+  },
+  async list(prefix) {
+    const keys = Object.keys(localStorage).filter((k) => !prefix || k.startsWith(prefix));
+    return { keys, prefix };
+  },
+};
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("service-worker.js").catch(() => {});
+  });
+}
+</script>
+
+<script type="text/babel" data-presets="react,env">
+const { useState, useEffect, useRef } = React;
+
+/* ------------------------------------------------------------------
+   VERİ TANIMLARI
+   Yeni otel eklemek için OTELLER_BASLANGIC, yeni kullanıcı eklemek için
+   KULLANICILAR_BASLANGIC, yeni departman/kontrol listesi eklemek için
+   DEPARTMAN_LISTELERI dizilerini güncellemeniz yeterlidir.
+-------------------------------------------------------------------*/
+
+const OTELLER_BASLANGIC = [{ code: "5555", name: "RDM Hotels Blue" }];
+
+const KULLANICILAR_BASLANGIC = [
+  {
+    hotelCode: "5555",
+    userCode: "6666",
+    password: "7777",
+    name: "ERDEM",
+    department: "Önbüro",
+  },
+];
+
+const DEPARTMAN_LISTELERI = {
+  Önbüro: [
+    "Misafir giriş kapısı ve çevresi düzenli mi?",
+    "Şelale çalışıyor mu, havuz temiz mi?",
+    "Bayraklar çekili ve düzenli mi?",
+    "Otopark ve Club Car park alanı düzenli mi?",
+    "Yeterli aydınlatma var mı?",
+    "Güvenlik görevlisi yerinde mi?",
+    "Personel giriş kapısı ve çevresi düzenli mi?",
+    "Kapı kapalı tutuluyor mu?",
+    "Personel servisleri temiz mi? Zamanında kalkıyor mu?",
+  ],
+};
+
+const BASLANGIC_SAATI = 8; // 08:00
+const BITIS_SAATI = 16; // 16:00
+
+// TEST AMAÇLI: Bu değeri true yaptığınızda 08:00-16:00 zaman kısıtlaması
+// devre dışı kalır, liste her zaman düzenlenebilir olur. Gerçek kullanıma
+// geçerken bunu tekrar false yapmayı unutmayın.
+const ZAMANLAMA_DEVRE_DISI = true;
+
+const JSPDF_URL = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+
+// Backend'i (server.js) deploy ettikten sonra buraya adresini yazın, örn:
+// "https://otel-kontrol-servisi.onrender.com/gun-sonu-raporu"
+// Boş bırakılırsa uygulama otomatik olarak "PDF indir + e-posta taslağı aç" yöntemini kullanır.
+const BACKEND_URL = "";
+
+/* ------------------------------------------------------------------
+   YARDIMCI FONKSİYONLAR
+-------------------------------------------------------------------*/
+
+async function safeGet(key, shared) {
+  try {
+    const res = await window.storage.get(key, shared);
+    return res || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function bugunTarihi() {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function pencereDurumu() {
+  if (ZAMANLAMA_DEVRE_DISI) return "aktif";
+  const simdi = new Date();
+  const saat = simdi.getHours() + simdi.getMinutes() / 60;
+  if (saat < BASLANGIC_SAATI) return "once";
+  if (saat >= BITIS_SAATI) return "sonra";
+  return "aktif";
+}
+
+function formatTarih(iso) {
+  const d = new Date(iso);
+  return d.toLocaleString("tr-TR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatTarihSadece(dateStr) {
+  const [y, m, d] = dateStr.split("-");
+  return `${d}.${m}.${y}`;
+}
+
+/* ------------------------------------------------------------------
+   ANA UYGULAMA
+-------------------------------------------------------------------*/
+
+function App() {
+  const [screen, setScreen] = useState("login"); // login | home | checklist | history
+  const [hazirlaniyor, setHazirlaniyor] = useState(true);
+  const [, setTick] = useState(0); // saat 08:00/16:00 sınırını canlı takip etmek için
+
+  // Giriş alanları
+  const [hotelCode, setHotelCode] = useState("");
+  const [userCode, setUserCode] = useState("");
+  const [password, setPassword] = useState("");
+  const [girisHatasi, setGirisHatasi] = useState("");
+  const [girisYukleniyor, setGirisYukleniyor] = useState(false);
+
+  const [currentUser, setCurrentUser] = useState(null);
+  const [record, setRecord] = useState(null); // bugünün kontrol listesi kaydı
+  const [kayitYukleniyor, setKayitYukleniyor] = useState(false);
+  const [listeHatasi, setListeHatasi] = useState("");
+  const [bitiriliyor, setBitiriliyor] = useState(false);
+  const [tamamlandiMesaji, setTamamlandiMesaji] = useState(false);
+
+  // Geçmiş
+  const [gecmisKayitlar, setGecmisKayitlar] = useState([]);
+  const [gecmisYukleniyor, setGecmisYukleniyor] = useState(false);
+
+  // Gün sonu raporu
+  const [raporPaneliAcik, setRaporPaneliAcik] = useState(false);
+  const [raporEposta, setRaporEposta] = useState("");
+  const [raporMesaj, setRaporMesaj] = useState("");
+  const [raporIsleniyor, setRaporIsleniyor] = useState(false);
+
+  const fileInputRefs = useRef({});
+  const autosaveTimer = useRef(null);
+
+  useEffect(() => {
+    seedData();
+    const script = document.createElement("script");
+    script.src = JSPDF_URL;
+    document.body.appendChild(script);
+    const zamanlayici = setInterval(() => setTick((x) => x + 1), 60000);
+    return () => clearInterval(zamanlayici);
+  }, []);
+
+  async function seedData() {
+    for (const h of OTELLER_BASLANGIC) {
+      const mevcut = await safeGet(`hotels:${h.code}`, true);
+      if (!mevcut) await window.storage.set(`hotels:${h.code}`, JSON.stringify(h), true);
+    }
+    for (const u of KULLANICILAR_BASLANGIC) {
+      const mevcut = await safeGet(`users:${u.hotelCode}:${u.userCode}`, true);
+      if (!mevcut)
+        await window.storage.set(`users:${u.hotelCode}:${u.userCode}`, JSON.stringify(u), true);
+    }
+    setHazirlaniyor(false);
+  }
+
+  function digitInput(value, setter) {
+    setter(value.replace(/\D/g, "").slice(0, 4));
+  }
+
+  async function handleLogin() {
+    setGirisHatasi("");
+    if (hotelCode.length !== 4 || userCode.length !== 4 || password.length !== 4) {
+      setGirisHatasi("Otel kodu, kullanıcı kodu ve şifre 4 haneli olmalıdır.");
+      return;
+    }
+    setGirisYukleniyor(true);
+    const hotelRes = await safeGet(`hotels:${hotelCode}`, true);
+    if (!hotelRes) {
+      setGirisHatasi("Otel kodu bulunamadı.");
+      setGirisYukleniyor(false);
+      return;
+    }
+    const userRes = await safeGet(`users:${hotelCode}:${userCode}`, true);
+    if (!userRes) {
+      setGirisHatasi("Kullanıcı kodu bulunamadı.");
+      setGirisYukleniyor(false);
+      return;
+    }
+    const hotel = JSON.parse(hotelRes.value);
+    const user = JSON.parse(userRes.value);
+    if (user.password !== password) {
+      setGirisHatasi("Şifre hatalı.");
+      setGirisYukleniyor(false);
+      return;
+    }
+    const tamUser = { ...user, hotelName: hotel.name };
+    setCurrentUser(tamUser);
+    setGirisYukleniyor(false);
+    setScreen("home");
+    await bugununKaydiniYukle(tamUser);
+  }
+
+  function handleLogout() {
+    setCurrentUser(null);
+    setRecord(null);
+    setHotelCode("");
+    setUserCode("");
+    setPassword("");
+    setRaporPaneliAcik(false);
+    setRaporMesaj("");
+    setScreen("login");
+  }
+
+  async function bugununKaydiniYukle(user) {
+    setKayitYukleniyor(true);
+    const tarih = bugunTarihi();
+    const key = `checklist:${user.hotelCode}:${user.department}:${tarih}`;
+    const mevcut = await safeGet(key, true);
+    if (mevcut) {
+      setRecord(JSON.parse(mevcut.value));
+      setKayitYukleniyor(false);
+      return;
+    }
+    const sablon = DEPARTMAN_LISTELERI[user.department];
+    if (!sablon) {
+      setRecord(null);
+      setKayitYukleniyor(false);
+      return;
+    }
+    setRecord({
+      key,
+      date: tarih,
+      hotelCode: user.hotelCode,
+      hotelName: user.hotelName,
+      department: user.department,
+      userCode: user.userCode,
+      userName: user.name,
+      tasks: sablon.map((text, i) => ({ id: i + 1, text, status: null, aciklama: "", photo: null })),
+      tamamlandiMi: false,
+      tamamlanmaZamani: null,
+      sonGuncelleme: new Date().toISOString(),
+    });
+    setKayitYukleniyor(false);
+  }
+
+  // Otomatik kaydetme: kontrol listesi ekranındayken her değişiklikte
+  // kısa bir gecikmeyle arka planda kaydeder. "Bitir" tuşuna basılmasa da
+  // veriler kaybolmaz; 08:00-16:00 arasında istediği zaman kaldığı yerden devam edebilir.
+  useEffect(() => {
+    if (!record || screen !== "checklist") return;
+    if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+    autosaveTimer.current = setTimeout(() => {
+      window.storage.set(
+        record.key,
+        JSON.stringify({ ...record, sonGuncelleme: new Date().toISOString() }),
+        true
+      );
+    }, 600);
+    return () => clearTimeout(autosaveTimer.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [record]);
+
+  function setStatus(id, status) {
+    setRecord((prev) => ({
+      ...prev,
+      tasks: prev.tasks.map((t) =>
+        t.id === id ? { ...t, status: t.status === status ? null : status } : t
+      ),
+    }));
+  }
+
+  function setAciklama(id, value) {
+    setRecord((prev) => ({
+      ...prev,
+      tasks: prev.tasks.map((t) => (t.id === id ? { ...t, aciklama: value } : t)),
+    }));
+  }
+
+  function removePhoto(id) {
+    setRecord((prev) => ({
+      ...prev,
+      tasks: prev.tasks.map((t) => (t.id === id ? { ...t, photo: null } : t)),
+    }));
+  }
+
+  function handlePhotoSelect(id, file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const maxW = 700;
+        const scale = Math.min(1, maxW / img.width);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.6);
+        setRecord((prev) => ({
+          ...prev,
+          tasks: prev.tasks.map((t) => (t.id === id ? { ...t, photo: dataUrl } : t)),
+        }));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function handleBitir() {
+    setListeHatasi("");
+    setBitiriliyor(true);
+    const guncel = {
+      ...record,
+      tamamlandiMi: true,
+      tamamlanmaZamani: new Date().toISOString(),
+      sonGuncelleme: new Date().toISOString(),
+    };
+    try {
+      await window.storage.set(guncel.key, JSON.stringify(guncel), true);
+      setRecord(guncel);
+      setTamamlandiMesaji(true);
+      setTimeout(() => setTamamlandiMesaji(false), 2500);
+    } catch (e) {
+      setListeHatasi("Kaydetme sırasında bir hata oluştu. Lütfen tekrar deneyin.");
+    }
+    setBitiriliyor(false);
+  }
+
+  async function gecmisiGetir() {
+    setGecmisYukleniyor(true);
+    setGecmisKayitlar([]);
+    try {
+      const liste = await window.storage.list(
+        `checklist:${currentUser.hotelCode}:${currentUser.department}:`,
+        true
+      );
+      const keys = (liste && liste.keys) || [];
+      const kayitlar = [];
+      for (const k of keys.slice(-31)) {
+        const r = await safeGet(k, true);
+        if (r) {
+          try {
+            kayitlar.push(JSON.parse(r.value));
+          } catch (e) {}
+        }
+      }
+      kayitlar.sort((a, b) => (a.date < b.date ? 1 : -1));
+      setGecmisKayitlar(kayitlar);
+    } catch (e) {
+      setGecmisKayitlar([]);
+    }
+    setGecmisYukleniyor(false);
+  }
+
+  function gecmiseGit() {
+    setScreen("history");
+    gecmisiGetir();
+  }
+
+  /* ---------------- PDF OLUŞTURMA ---------------- */
+
+  function jsPdfHazirMi() {
+    return typeof window !== "undefined" && window.jspdf && window.jspdf.jsPDF;
+  }
+
+  function pdfOlustur(kayit) {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 40;
+    let y = margin;
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(16);
+    doc.text("Otel Departman Kontrol Listesi", margin, y);
+    y += 22;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+    doc.text(`Otel: ${kayit.hotelName}  (Kod: ${kayit.hotelCode})`, margin, y);
+    y += 16;
+    doc.text(`Departman: ${kayit.department}`, margin, y);
+    y += 16;
+    doc.text(`Tarih: ${formatTarihSadece(kayit.date)}`, margin, y);
+    y += 16;
+    doc.text(`Kontrol eden: ${kayit.userName} (Kullanıcı Kodu: ${kayit.userCode})`, margin, y);
+    y += 16;
+    const durumYazi = kayit.tamamlandiMi ? "Tamamlandı" : "Süre içinde tamamlanmadı / otomatik kaydedildi";
+    doc.text(`Durum: ${durumYazi}`, margin, y);
+    y += 26;
+
+    kayit.tasks.forEach((t) => {
+      if (y + 40 > pageHeight - margin) {
+        doc.addPage();
+        y = margin;
+      }
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      const baslikSatirlari = doc.splitTextToSize(`${t.id}. ${t.text}`, pageWidth - margin * 2);
+      doc.text(baslikSatirlari, margin, y);
+      y += baslikSatirlari.length * 14;
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      const durum = t.status === "olumlu" ? "OLUMLU" : t.status === "olumsuz" ? "OLUMSUZ" : "İşaretlenmedi";
+      doc.text(`Durum: ${durum}`, margin, y);
+      y += 14;
+
+      if (t.aciklama) {
+        const aciklamaSatirlari = doc.splitTextToSize(`Açıklama: ${t.aciklama}`, pageWidth - margin * 2);
+        if (y + aciklamaSatirlari.length * 13 > pageHeight - margin) {
+          doc.addPage();
+          y = margin;
+        }
+        doc.text(aciklamaSatirlari, margin, y);
+        y += aciklamaSatirlari.length * 13;
+      }
+
+      if (t.photo) {
+        if (y + 110 > pageHeight - margin) {
+          doc.addPage();
+          y = margin;
+        }
+        try {
+          doc.addImage(t.photo, "JPEG", margin, y, 100, 100);
+        } catch (e) {}
+        y += 112;
+      }
+      y += 8;
+    });
+
+    return doc;
+  }
+
+  async function raporOlusturVeGonder(kayit) {
+    setRaporMesaj("");
+    if (!kayit) {
+      setRaporMesaj("Bu gün için kaydedilmiş bir kontrol listesi bulunamadı.");
+      return;
+    }
+    if (!jsPdfHazirMi()) {
+      setRaporMesaj("PDF oluşturucu henüz hazırlanıyor, birkaç saniye sonra tekrar deneyin.");
+      return;
+    }
+    setRaporIsleniyor(true);
+    try {
+      const doc = pdfOlustur(kayit);
+      const dosyaAdi = `kontrol-listesi-${kayit.hotelCode}-${kayit.date}.pdf`;
+      const konuMetni = `${kayit.hotelName} - ${kayit.department} Kontrol Listesi - ${formatTarihSadece(kayit.date)}`;
+
+      if (BACKEND_URL) {
+        // Gerçek sunucu tarafı e-posta servisi bağlıysa: PDF hiçbir manuel işlem
+        // gerektirmeden doğrudan alıcıya gönderilir.
+        if (!raporEposta.trim()) {
+          setRaporMesaj("Lütfen alıcı e-posta adresini girin.");
+          setRaporIsleniyor(false);
+          return;
+        }
+        const pdfBase64 = doc.output("datauristring").split(",")[1];
+        const yanit = await fetch(BACKEND_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            to: raporEposta.trim(),
+            subject: konuMetni,
+            hotelName: kayit.hotelName,
+            department: kayit.department,
+            date: kayit.date,
+            fileName: dosyaAdi,
+            pdfBase64,
+          }),
+        });
+        if (yanit.ok) {
+          setRaporMesaj("E-posta başarıyla gönderildi.");
+        } else {
+          setRaporMesaj("Sunucu e-postayı gönderirken bir hata döndürdü.");
+        }
+      } else {
+        // Sunucu henüz bağlanmadıysa: PDF indirilir ve e-posta taslağı manuel ek için açılır.
+        doc.save(dosyaAdi);
+        if (raporEposta.trim()) {
+          const konu = encodeURIComponent(konuMetni);
+          const govde = encodeURIComponent(
+            `Merhaba,\n\n${formatTarihSadece(kayit.date)} tarihli ${kayit.department} departmanı kontrol listesi PDF olarak cihaza indirildi.\nLütfen e-posta uygulamasında az önce indirilen "${dosyaAdi}" dosyasını bu mesaja ekleyip gönderin.\n\nOtel: ${kayit.hotelName}\nKontrol eden: ${kayit.userName}`
+          );
+          window.location.href = `mailto:${raporEposta.trim()}?subject=${konu}&body=${govde}`;
+          setRaporMesaj("PDF indirildi ve e-posta uygulamanız açıldı. Lütfen indirilen dosyayı mesaja ekleyip gönderin.");
+        } else {
+          setRaporMesaj("PDF indirildi. E-posta ile göndermek için önce alıcı adresini girin.");
+        }
+      }
+    } catch (e) {
+      setRaporMesaj("Rapor oluşturulurken bir hata oluştu.");
+    }
+    setRaporIsleniyor(false);
+  }
+
+  const durum = pencereDurumu();
+  const tamamlanan = record ? record.tasks.filter((t) => t.status).length : 0;
+  const toplamMadde = record ? record.tasks.length : 0;
+  const duzenlenebilir = durum === "aktif";
+
+  return (
+    <div style={styles.sayfaDisi}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+        * { box-sizing: border-box; }
+        .telefon-govde { font-family: 'Inter', sans-serif; }
+        .baslik-font { font-family: 'Sora', sans-serif; }
+        input:focus, textarea:focus, button:focus-visible {
+          outline: 2px solid #B08D3E;
+          outline-offset: 2px;
+        }
+        .kod-input::placeholder { color: #A9A398; letter-spacing: 0.3em; }
+        @media (prefers-reduced-motion: reduce) {
+          * { transition: none !important; animation: none !important; }
+        }
+      `}</style>
+
+      <div className="telefon-govde" style={styles.telefonCerceve}>
+        <div style={styles.durumCubugu}>
+          <span>{new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}</span>
+          <span style={{ letterSpacing: 2 }}>●●●●</span>
+        </div>
+
+        {hazirlaniyor ? (
+          <div style={styles.merkezYukleniyor}>Hazırlanıyor…</div>
+        ) : screen === "login" ? (
+          <GirisEkrani
+            hotelCode={hotelCode}
+            userCode={userCode}
+            password={password}
+            setHotelCode={(v) => digitInput(v, setHotelCode)}
+            setUserCode={(v) => digitInput(v, setUserCode)}
+            setPassword={(v) => digitInput(v, setPassword)}
+            hata={girisHatasi}
+            yukleniyor={girisYukleniyor}
+            onGiris={handleLogin}
+          />
+        ) : screen === "home" ? (
+          <AnaSayfa
+            user={currentUser}
+            record={record}
+            kayitYukleniyor={kayitYukleniyor}
+            durum={durum}
+            tamamlanan={tamamlanan}
+            toplamMadde={toplamMadde}
+            onBaslat={() => setScreen("checklist")}
+            onGecmis={gecmiseGit}
+            onCikis={handleLogout}
+            raporPaneliAcik={raporPaneliAcik}
+            setRaporPaneliAcik={setRaporPaneliAcik}
+            raporEposta={raporEposta}
+            setRaporEposta={setRaporEposta}
+            raporMesaj={raporMesaj}
+            raporIsleniyor={raporIsleniyor}
+            onRaporGonder={() => raporOlusturVeGonder(record)}
+          />
+        ) : screen === "checklist" ? (
+          <KontrolListesiEkrani
+            user={currentUser}
+            record={record}
+            duzenlenebilir={duzenlenebilir}
+            durum={durum}
+            hata={listeHatasi}
+            tamamlanan={tamamlanan}
+            bitiriliyor={bitiriliyor}
+            tamamlandiMesaji={tamamlandiMesaji}
+            setStatus={setStatus}
+            setAciklama={setAciklama}
+            onPhotoSelect={handlePhotoSelect}
+            onRemovePhoto={removePhoto}
+            onBitir={handleBitir}
+            onGeri={() => setScreen("home")}
+            fileInputRefs={fileInputRefs}
+          />
+        ) : screen === "history" ? (
+          <GecmisEkrani
+            kayitlar={gecmisKayitlar}
+            yukleniyor={gecmisYukleniyor}
+            onGeri={() => setScreen("home")}
+            onPdf={(k) => raporOlusturVeGonder(k)}
+            jsPdfHazirMi={jsPdfHazirMi}
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------
+   EKRAN BİLEŞENLERİ
+-------------------------------------------------------------------*/
+
+function GirisEkrani({
+  hotelCode,
+  userCode,
+  password,
+  setHotelCode,
+  setUserCode,
+  setPassword,
+  hata,
+  yukleniyor,
+  onGiris,
+}) {
+  return (
+    <div style={styles.icerik}>
+      <div style={styles.anahtarKart}>
+        <div style={styles.anahtarUst}>
+          <span style={styles.anahtarEtiket}>OTEL KONTROL SİSTEMİ</span>
+          <div style={styles.manyetikSerit} />
+        </div>
+        <div className="baslik-font" style={styles.anahtarBaslik}>
+          Departman Kontrol Listesi
+        </div>
+      </div>
+
+      <div style={{ marginTop: 28 }}>
+        <Etiket>OTEL KODU</Etiket>
+        <input
+          className="kod-input"
+          style={styles.kodInput}
+          inputMode="numeric"
+          placeholder="0000"
+          maxLength={4}
+          value={hotelCode}
+          onChange={(e) => setHotelCode(e.target.value)}
+        />
+
+        <Etiket>KULLANICI KODU</Etiket>
+        <input
+          className="kod-input"
+          style={styles.kodInput}
+          inputMode="numeric"
+          placeholder="0000"
+          maxLength={4}
+          value={userCode}
+          onChange={(e) => setUserCode(e.target.value)}
+        />
+
+        <Etiket>ŞİFRE</Etiket>
+        <input
+          className="kod-input"
+          style={styles.kodInput}
+          inputMode="numeric"
+          type="password"
+          placeholder="••••"
+          maxLength={4}
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+
+        {hata && <div style={styles.hataKutusu}>{hata}</div>}
+
+        <button
+          style={{ ...styles.anaButon, marginTop: 20, opacity: yukleniyor ? 0.7 : 1 }}
+          onClick={onGiris}
+          disabled={yukleniyor}
+        >
+          {yukleniyor ? "Giriş yapılıyor…" : "Giriş Yap"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AnaSayfa({
+  user,
+  record,
+  kayitYukleniyor,
+  durum,
+  tamamlanan,
+  toplamMadde,
+  onBaslat,
+  onGecmis,
+  onCikis,
+  raporPaneliAcik,
+  setRaporPaneliAcik,
+  raporEposta,
+  setRaporEposta,
+  raporMesaj,
+  raporIsleniyor,
+  onRaporGonder,
+}) {
+  let durumYazisi = "";
+  let durumRengi = "#6B7280";
+  if (durum === "once") {
+    durumYazisi = "Bugünkü kontrol listesi henüz başlamadı (08:00'de açılır)";
+  } else if (durum === "aktif") {
+    durumYazisi = `Devam ediyor · ${tamamlanan}/${toplamMadde} madde işaretlendi`;
+    durumRengi = "#B08D3E";
+  } else {
+    durumYazisi = record
+      ? `Süre doldu (16:00) · ${tamamlanan}/${toplamMadde} madde ile kaydedildi`
+      : "Süre doldu (16:00) · bugün için kayıt oluşturulmadı";
+    durumRengi = "#B7472A";
+  }
+
+  return (
+    <div style={styles.icerik}>
+      <div style={styles.anahtarKart}>
+        <div style={styles.anahtarUst}>
+          <span style={styles.anahtarEtiket}>{user.hotelName}</span>
+          <div style={styles.manyetikSerit} />
+        </div>
+        <div className="baslik-font" style={styles.anahtarBaslik}>
+          Hoş geldiniz, {user.name}
+        </div>
+        <div style={styles.anahtarAltBilgi}>
+          Otel Kodu {user.hotelCode} · Kullanıcı {user.userCode}
+        </div>
+        <div style={styles.departmanRozeti}>{user.department}</div>
+      </div>
+
+      <div style={styles.durumKarti}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, color: "#6B7280" }}>
+          BUGÜN · 08:00 – 16:00
+        </div>
+        <div style={{ fontSize: 14, fontWeight: 600, color: durumRengi, marginTop: 4 }}>
+          {kayitYukleniyor ? "Yükleniyor…" : durumYazisi}
+        </div>
+      </div>
+
+      <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 12 }}>
+        <button
+          style={{ ...styles.anaButon, opacity: durum === "once" ? 0.5 : 1 }}
+          onClick={onBaslat}
+          disabled={durum === "once"}
+        >
+          {durum === "aktif" ? "Kontrol Listesini Aç" : durum === "once" ? "Henüz Başlamadı" : "Bugünün Listesini Görüntüle"}
+        </button>
+        <button style={styles.ikincilButon} onClick={onGecmis}>
+          Geçmiş Kayıtlar
+        </button>
+
+        <button
+          style={styles.ucuncuButon}
+          onClick={() => setRaporPaneliAcik((a) => !a)}
+        >
+          📄 Gün Sonu Raporunu Oluştur ve E-posta ile Gönder
+        </button>
+
+        {raporPaneliAcik && (
+          <div style={styles.raporPaneli}>
+            <Etiket>YÖNETİCİ E-POSTA ADRESİ</Etiket>
+            <input
+              style={styles.epostaInput}
+              type="email"
+              placeholder="ornek@rdmhotels.com"
+              value={raporEposta}
+              onChange={(e) => setRaporEposta(e.target.value)}
+            />
+            <button
+              style={{ ...styles.anaButon, marginTop: 12, opacity: raporIsleniyor ? 0.7 : 1 }}
+              onClick={onRaporGonder}
+              disabled={raporIsleniyor}
+            >
+              {raporIsleniyor ? "Hazırlanıyor…" : "PDF Oluştur ve Gönder"}
+            </button>
+            {raporMesaj && <div style={styles.bilgiKutusu}>{raporMesaj}</div>}
+            <div style={styles.notMetni}>
+              Not: Tarayıcı güvenliği nedeniyle e-posta dosya eki otomatik eklenemez;
+              PDF cihaza indirilir ve e-posta uygulamanız hazır bir taslakla açılır,
+              dosyayı eklemeniz yeterlidir.
+            </div>
+          </div>
+        )}
+
+        <button style={styles.metinButon} onClick={onCikis}>
+          Çıkış Yap
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function KontrolListesiEkrani({
+  user,
+  record,
+  duzenlenebilir,
+  durum,
+  hata,
+  tamamlanan,
+  bitiriliyor,
+  tamamlandiMesaji,
+  setStatus,
+  setAciklama,
+  onPhotoSelect,
+  onRemovePhoto,
+  onBitir,
+  onGeri,
+  fileInputRefs,
+}) {
+  if (!record) {
+    return (
+      <div style={styles.icerik}>
+        <div style={styles.hataKutusu}>
+          "{user.department}" departmanı için tanımlı bir kontrol listesi bulunamadı.
+        </div>
+        <button style={{ ...styles.ikincilButon, marginTop: 16 }} onClick={onGeri}>
+          Ana Sayfaya Dön
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={styles.icerik}>
+      <div style={styles.listeUstBaslik}>
+        <button style={styles.geriButon} onClick={onGeri} aria-label="Geri">
+          ←
+        </button>
+        <div>
+          <div className="baslik-font" style={styles.listeBaslikYazi}>
+            {user.department} Kontrol Listesi
+          </div>
+          <div style={styles.ilerlemeYazi}>
+            {tamamlanan} / {record.tasks.length} madde işaretlendi
+            {!duzenlenebilir && "  ·  Süre doldu, salt okunur"}
+          </div>
+        </div>
+      </div>
+
+      <div style={styles.ilerlemeCubugu}>
+        <div
+          style={{
+            ...styles.ilerlemeDoluluk,
+            width: `${(tamamlanan / record.tasks.length) * 100}%`,
+          }}
+        />
+      </div>
+
+      {tamamlandiMesaji && <div style={styles.basariMesaji}>✓ Kontrol listesi kaydedildi</div>}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: 14 }}>
+        {record.tasks.map((t) => (
+          <div key={t.id} style={styles.gorevKarti}>
+            <div style={styles.gorevUst}>
+              <div
+                style={{
+                  ...styles.gorevNumara,
+                  background:
+                    t.status === "olumlu" ? "#2F7D5C" : t.status === "olumsuz" ? "#B7472A" : "#EFEAE0",
+                  color: t.status ? "#fff" : "#16323A",
+                }}
+              >
+                {t.id}
+              </div>
+              <div style={styles.gorevMetin}>{t.text}</div>
+            </div>
+
+            <div style={styles.secimSatiri}>
+              <label
+                style={{
+                  ...styles.secimKutusu,
+                  ...(t.status === "olumlu" ? styles.secimAktifOlumlu : {}),
+                  opacity: duzenlenebilir ? 1 : 0.6,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={t.status === "olumlu"}
+                  disabled={!duzenlenebilir}
+                  onChange={() => setStatus(t.id, "olumlu")}
+                  style={styles.gizliCheckbox}
+                />
+                OLUMLU
+              </label>
+              <label
+                style={{
+                  ...styles.secimKutusu,
+                  ...(t.status === "olumsuz" ? styles.secimAktifOlumsuz : {}),
+                  opacity: duzenlenebilir ? 1 : 0.6,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={t.status === "olumsuz"}
+                  disabled={!duzenlenebilir}
+                  onChange={() => setStatus(t.id, "olumsuz")}
+                  style={styles.gizliCheckbox}
+                />
+                OLUMSUZ
+              </label>
+            </div>
+
+            <textarea
+              placeholder={t.status === "olumsuz" ? "Açıklama girin (zorunlu)" : "Açıklama (isteğe bağlı)"}
+              value={t.aciklama}
+              disabled={!duzenlenebilir}
+              onChange={(e) => setAciklama(t.id, e.target.value)}
+              style={styles.aciklamaAlani}
+              rows={2}
+            />
+
+            <div style={styles.fotografSatiri}>
+              <input
+                ref={(el) => (fileInputRefs.current[t.id] = el)}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                style={{ display: "none" }}
+                onChange={(e) => onPhotoSelect(t.id, e.target.files[0])}
+              />
+              <button
+                style={{ ...styles.fotoButon, opacity: duzenlenebilir ? 1 : 0.6 }}
+                disabled={!duzenlenebilir}
+                onClick={() => fileInputRefs.current[t.id] && fileInputRefs.current[t.id].click()}
+              >
+                {t.photo ? "Fotoğrafı Değiştir" : "📷 Fotoğraf Ekle"}
+              </button>
+              {t.photo && (
+                <div style={styles.fotoOnizlemeSarmalayici}>
+                  <img src={t.photo} alt={`Görev ${t.id} fotoğrafı`} style={styles.fotoOnizleme} />
+                  {duzenlenebilir && (
+                    <button
+                      style={styles.fotoSilButon}
+                      onClick={() => onRemovePhoto(t.id)}
+                      aria-label="Fotoğrafı kaldır"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {hata && <div style={{ ...styles.hataKutusu, marginTop: 16 }}>{hata}</div>}
+
+      {duzenlenebilir ? (
+        <button
+          style={{ ...styles.anaButon, marginTop: 20, marginBottom: 24, opacity: bitiriliyor ? 0.7 : 1 }}
+          onClick={onBitir}
+          disabled={bitiriliyor}
+        >
+          {bitiriliyor ? "Kaydediliyor…" : "Bitir ve Kaydet"}
+        </button>
+      ) : (
+        <div style={{ ...styles.bilgiKutusu, marginTop: 20, marginBottom: 24 }}>
+          İşaretlemeleriniz otomatik olarak kaydedildi. 08:00–16:00 dışında düzenleme yapılamaz.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GecmisEkrani({ kayitlar, yukleniyor, onGeri, onPdf, jsPdfHazirMi }) {
+  return (
+    <div style={styles.icerik}>
+      <div style={styles.listeUstBaslik}>
+        <button style={styles.geriButon} onClick={onGeri} aria-label="Geri">
+          ←
+        </button>
+        <div className="baslik-font" style={styles.listeBaslikYazi}>
+          Geçmiş Kayıtlar
+        </div>
+      </div>
+
+      {yukleniyor ? (
+        <div style={styles.merkezYukleniyor}>Yükleniyor…</div>
+      ) : kayitlar.length === 0 ? (
+        <div style={{ color: "#6B7280", marginTop: 24, fontSize: 14 }}>
+          Bu departman için henüz kayıtlı bir kontrol listesi bulunmuyor.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 16 }}>
+          {kayitlar.map((k, i) => {
+            const olumsuz = k.tasks.filter((t) => t.status === "olumsuz").length;
+            const isaretli = k.tasks.filter((t) => t.status).length;
+            return (
+              <div key={i} style={styles.gecmisKarti}>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <strong style={{ color: "#16323A" }}>{formatTarihSadece(k.date)}</strong>
+                  <span style={{ fontSize: 12, color: "#6B7280" }}>{k.userName}</span>
+                </div>
+                <div style={{ fontSize: 12, color: "#6B7280", marginTop: 4 }}>
+                  {isaretli}/{k.tasks.length} madde · {k.tamamlandiMi ? "Tamamlandı" : "Süre içinde tamamlanmadı"}
+                </div>
+                <div
+                  style={{
+                    marginTop: 6,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: olumsuz > 0 ? "#B7472A" : "#2F7D5C",
+                  }}
+                >
+                  {olumsuz > 0 ? `${olumsuz} olumsuz madde` : "Tüm maddeler olumlu"}
+                </div>
+                <button
+                  style={styles.kucukPdfButon}
+                  onClick={() => onPdf(k)}
+                  title={jsPdfHazirMi() ? "" : "PDF oluşturucu hazırlanıyor"}
+                >
+                  📄 PDF Oluştur
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Etiket({ children }) {
+  return <div style={styles.etiket}>{children}</div>;
+}
+
+/* ------------------------------------------------------------------
+   STİLLER
+-------------------------------------------------------------------*/
+
+const styles = {
+  sayfaDisi: {
+    minHeight: "100%",
+    width: "100%",
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "flex-start",
+    background: "transparent",
+    padding: "16px 0",
+  },
+  telefonCerceve: {
+    width: 390,
+    maxWidth: "100%",
+    minHeight: 720,
+    background: "#F6F5F1",
+    borderRadius: 32,
+    boxShadow: "0 20px 60px rgba(22,50,58,0.18)",
+    overflow: "hidden",
+    border: "1px solid #E2DCCC",
+  },
+  durumCubugu: {
+    display: "flex",
+    justifyContent: "space-between",
+    padding: "10px 22px 6px",
+    fontSize: 12,
+    color: "#16323A",
+    fontWeight: 600,
+  },
+  icerik: {
+    padding: "8px 20px 20px",
+  },
+  merkezYukleniyor: {
+    padding: 60,
+    textAlign: "center",
+    color: "#6B7280",
+  },
+  anahtarKart: {
+    background: "linear-gradient(135deg, #16323A 0%, #1E4550 100%)",
+    borderRadius: 20,
+    padding: "18px 20px 20px",
+    color: "#fff",
+    position: "relative",
+    overflow: "hidden",
+  },
+  anahtarUst: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  anahtarEtiket: {
+    fontSize: 11,
+    letterSpacing: 1.5,
+    color: "#C9B27A",
+    fontWeight: 600,
+  },
+  manyetikSerit: {
+    width: 40,
+    height: 8,
+    borderRadius: 3,
+    background: "linear-gradient(90deg, #B08D3E, #E4C976)",
+  },
+  anahtarBaslik: {
+    fontSize: 19,
+    fontWeight: 700,
+    marginTop: 14,
+  },
+  anahtarAltBilgi: {
+    fontSize: 12,
+    color: "#B7C4C7",
+    marginTop: 6,
+  },
+  departmanRozeti: {
+    display: "inline-block",
+    marginTop: 12,
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: 0.5,
+    background: "rgba(176,141,62,0.25)",
+    color: "#E4C976",
+    padding: "4px 10px",
+    borderRadius: 999,
+  },
+  durumKarti: {
+    background: "#fff",
+    border: "1px solid #E2DCCC",
+    borderRadius: 14,
+    padding: "12px 16px",
+    marginTop: 14,
+  },
+  etiket: {
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: 1,
+    color: "#6B7280",
+    marginTop: 16,
+    marginBottom: 6,
+  },
+  kodInput: {
+    width: "100%",
+    fontSize: 22,
+    fontWeight: 600,
+    letterSpacing: "0.4em",
+    padding: "12px 14px",
+    borderRadius: 12,
+    border: "1.5px solid #E2DCCC",
+    background: "#fff",
+    color: "#16323A",
+    textAlign: "center",
+  },
+  epostaInput: {
+    width: "100%",
+    fontSize: 14,
+    padding: "10px 12px",
+    borderRadius: 10,
+    border: "1.5px solid #E2DCCC",
+    background: "#fff",
+    color: "#16323A",
+  },
+  hataKutusu: {
+    marginTop: 14,
+    background: "#FBEAE5",
+    color: "#B7472A",
+    fontSize: 13,
+    padding: "10px 14px",
+    borderRadius: 10,
+    fontWeight: 500,
+  },
+  bilgiKutusu: {
+    background: "#EDF3F0",
+    color: "#2F7D5C",
+    fontSize: 12,
+    padding: "10px 14px",
+    borderRadius: 10,
+    marginTop: 10,
+    fontWeight: 500,
+  },
+  basariMesaji: {
+    background: "#EDF3F0",
+    color: "#2F7D5C",
+    fontSize: 13,
+    padding: "10px 14px",
+    borderRadius: 10,
+    marginTop: 12,
+    fontWeight: 600,
+    textAlign: "center",
+  },
+  notMetni: {
+    fontSize: 11,
+    color: "#8A6A22",
+    marginTop: 10,
+    lineHeight: 1.4,
+  },
+  anaButon: {
+    width: "100%",
+    padding: "14px 16px",
+    borderRadius: 14,
+    border: "none",
+    background: "#16323A",
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  ikincilButon: {
+    width: "100%",
+    padding: "14px 16px",
+    borderRadius: 14,
+    border: "1.5px solid #16323A",
+    background: "transparent",
+    color: "#16323A",
+    fontSize: 15,
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  ucuncuButon: {
+    width: "100%",
+    padding: "14px 16px",
+    borderRadius: 14,
+    border: "1.5px dashed #B08D3E",
+    background: "#FBF7EC",
+    color: "#8A6A22",
+    fontSize: 14,
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  raporPaneli: {
+    background: "#fff",
+    border: "1px solid #E2DCCC",
+    borderRadius: 14,
+    padding: 16,
+  },
+  metinButon: {
+    width: "100%",
+    padding: "10px 16px",
+    borderRadius: 14,
+    border: "none",
+    background: "transparent",
+    color: "#B7472A",
+    fontSize: 14,
+    fontWeight: 600,
+    cursor: "pointer",
+  },
+  listeUstBaslik: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    paddingTop: 10,
+  },
+  geriButon: {
+    width: 36,
+    height: 36,
+    borderRadius: "50%",
+    border: "1px solid #E2DCCC",
+    background: "#fff",
+    fontSize: 16,
+    cursor: "pointer",
+    flexShrink: 0,
+  },
+  listeBaslikYazi: {
+    fontSize: 17,
+    fontWeight: 700,
+    color: "#16323A",
+  },
+  ilerlemeYazi: {
+    fontSize: 12,
+    color: "#6B7280",
+    marginTop: 2,
+  },
+  ilerlemeCubugu: {
+    height: 6,
+    background: "#E2DCCC",
+    borderRadius: 999,
+    marginTop: 14,
+    overflow: "hidden",
+  },
+  ilerlemeDoluluk: {
+    height: "100%",
+    background: "linear-gradient(90deg, #B08D3E, #E4C976)",
+    transition: "width 0.3s ease",
+  },
+  gorevKarti: {
+    background: "#fff",
+    borderRadius: 16,
+    border: "1px solid #E2DCCC",
+    padding: 14,
+  },
+  gorevUst: {
+    display: "flex",
+    gap: 10,
+    alignItems: "flex-start",
+  },
+  gorevNumara: {
+    width: 26,
+    height: 26,
+    borderRadius: "50%",
+    fontSize: 12,
+    fontWeight: 700,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  gorevMetin: {
+    fontSize: 14,
+    color: "#16323A",
+    fontWeight: 500,
+    lineHeight: 1.4,
+    paddingTop: 3,
+  },
+  secimSatiri: {
+    display: "flex",
+    gap: 8,
+    marginTop: 12,
+  },
+  secimKutusu: {
+    flex: 1,
+    textAlign: "center",
+    padding: "9px 0",
+    borderRadius: 10,
+    border: "1.5px solid #E2DCCC",
+    fontSize: 12,
+    fontWeight: 700,
+    letterSpacing: 0.5,
+    color: "#6B7280",
+    cursor: "pointer",
+    userSelect: "none",
+  },
+  secimAktifOlumlu: {
+    background: "#2F7D5C",
+    borderColor: "#2F7D5C",
+    color: "#fff",
+  },
+  secimAktifOlumsuz: {
+    background: "#B7472A",
+    borderColor: "#B7472A",
+    color: "#fff",
+  },
+  gizliCheckbox: {
+    display: "none",
+  },
+  aciklamaAlani: {
+    width: "100%",
+    marginTop: 10,
+    padding: "10px 12px",
+    borderRadius: 10,
+    border: "1.5px solid #E2DCCC",
+    fontSize: 13,
+    fontFamily: "'Inter', sans-serif",
+    resize: "none",
+    color: "#16323A",
+  },
+  fotografSatiri: {
+    marginTop: 10,
+  },
+  fotoButon: {
+    padding: "9px 14px",
+    borderRadius: 10,
+    border: "1.5px dashed #B08D3E",
+    background: "#FBF7EC",
+    color: "#8A6A22",
+    fontSize: 12,
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  fotoOnizlemeSarmalayici: {
+    position: "relative",
+    display: "inline-block",
+    marginTop: 10,
+  },
+  fotoOnizleme: {
+    width: 90,
+    height: 90,
+    objectFit: "cover",
+    borderRadius: 10,
+    border: "1px solid #E2DCCC",
+  },
+  fotoSilButon: {
+    position: "absolute",
+    top: -6,
+    right: -6,
+    width: 22,
+    height: 22,
+    borderRadius: "50%",
+    border: "none",
+    background: "#B7472A",
+    color: "#fff",
+    fontSize: 11,
+    cursor: "pointer",
+  },
+  gecmisKarti: {
+    background: "#fff",
+    border: "1px solid #E2DCCC",
+    borderRadius: 14,
+    padding: 14,
+  },
+  kucukPdfButon: {
+    marginTop: 10,
+    padding: "7px 12px",
+    borderRadius: 8,
+    border: "1px solid #E2DCCC",
+    background: "#F6F5F1",
+    color: "#16323A",
+    fontSize: 11,
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+};
+
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
