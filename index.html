@@ -16,15 +16,31 @@
 
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
 
 <style>
-  html, body { margin: 0; padding: 0; background: #EDEAE2; min-height: 100%; }
+  html, body { margin: 0; padding: 0; background: #EDEAE2; min-height: 100%; font-family: sans-serif; }
   #root { min-height: 100vh; }
+  #hataKutusu {
+    display: none;
+    max-width: 600px;
+    margin: 24px auto;
+    padding: 16px 18px;
+    background: #FBEAE5;
+    border: 1px solid #E3B7AA;
+    border-radius: 12px;
+    color: #7A2A17;
+    font-size: 13px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  #hataKutusu b { display:block; margin-bottom:6px; font-size:14px; }
 </style>
 </head>
 <body>
 <div id="root"></div>
+<div id="hataKutusu"><b>Bir hata oluştu:</b><span id="hataMetni"></span></div>
 
 <script>
 /* ------------------------------------------------------------------
@@ -55,14 +71,27 @@ window.storage = {
   },
 };
 
+function hataGoster(mesaj) {
+  var kutu = document.getElementById("hataKutusu");
+  var metin = document.getElementById("hataMetni");
+  if (kutu && metin) {
+    metin.textContent = mesaj;
+    kutu.style.display = "block";
+  }
+}
+
+window.addEventListener("error", function (e) {
+  hataGoster((e.message || "Bilinmeyen hata") + "\n" + (e.filename ? (e.filename + ":" + e.lineno) : ""));
+});
+
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("service-worker.js").catch(() => {});
+  window.addEventListener("load", function () {
+    navigator.serviceWorker.register("service-worker.js").catch(function () {});
   });
 }
 </script>
 
-<script type="text/babel" data-presets="react,env">
+<script id="uygulama-kaynak-kodu" type="text/plain">
 const { useState, useEffect, useRef } = React;
 
 /* ------------------------------------------------------------------
@@ -1438,7 +1467,18 @@ const styles = {
 };
 
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
+</script>
+
+<script>
+try {
+  var kaynakKod = document.getElementById("uygulama-kaynak-kodu").textContent;
+  var sonuc = Babel.transform(kaynakKod, { presets: ["react", "env"] });
+  (0, eval)(sonuc.code);
+} catch (hata) {
+  console.error(hata);
+  hataGoster((hata && hata.message) ? hata.message : String(hata));
+}
 </script>
 </body>
 </html>
