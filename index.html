@@ -43,15 +43,6 @@
 <div id="hataKutusu"><b>Bir hata oluştu:</b><span id="hataMetni"></span></div>
 
 <script>
-/* ------------------------------------------------------------------
-   TARAYICI DEPOLAMA UYUMU (window.storage şimi)
-   Bu uygulama Claude Artifacts ortamındaki window.storage API'sini
-   kullanacak şekilde yazıldı. Bağımsız bir web sitesi olarak
-   çalışabilmesi için burada aynı API, tarayıcının localStorage'ı
-   üzerinden yeniden oluşturuluyor.
-   NOT: Bu veriler yalnızca bu telefonda/tarayıcıda saklanır, başka
-   cihazlarla veya kullanıcılarla otomatik olarak paylaşılmaz.
--------------------------------------------------------------------*/
 window.storage = {
   async get(key) {
     const v = localStorage.getItem(key);
@@ -111,6 +102,13 @@ const KULLANICILAR_BASLANGIC = [
     name: "ERDEM",
     department: "Önbüro",
   },
+  {
+    hotelCode: "5555",
+    userCode: "6667",
+    password: "7778",
+    name: "ONUR",
+    department: "Housekeeping",
+  },
 ];
 
 const DEPARTMAN_LISTELERI = {
@@ -124,6 +122,18 @@ const DEPARTMAN_LISTELERI = {
     "Personel giriş kapısı ve çevresi düzenli mi?",
     "Kapı kapalı tutuluyor mu?",
     "Personel servisleri temiz mi? Zamanında kalkıyor mu?",
+  ],
+  Housekeeping: [
+    "Kat arabası hazır mı?",
+    "In house listesi hazır mı?",
+    "Departure listesi hazır mı?",
+    "Arrival listesi hazır mı?",
+    "Çarşafları ve yastık kılıflarını değiştir.",
+    "Yatağı düzgün ve gergin şekilde yap.",
+    "Mobilyaların, komodinlerin ve TV ünitesinin tozunu al.",
+    "Aynaları ve cam yüzeyleri sil.",
+    "Halıları süpür, köşe ve kenarlarda kir bırakma.",
+    "Çöp kutularını boşalt ve poşetini yenile.",
   ],
 };
 
