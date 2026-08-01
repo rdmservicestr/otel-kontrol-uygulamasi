@@ -113,15 +113,30 @@ const KULLANICILAR_BASLANGIC = [
 
 const DEPARTMAN_LISTELERI = {
   Önbüro: [
-    "Misafir giriş kapısı ve çevresi düzenli mi?",
-    "Şelale çalışıyor mu, havuz temiz mi?",
-    "Bayraklar çekili ve düzenli mi?",
-    "Otopark ve Club Car park alanı düzenli mi?",
-    "Yeterli aydınlatma var mı?",
-    "Güvenlik görevlisi yerinde mi?",
-    "Personel giriş kapısı ve çevresi düzenli mi?",
-    "Kapı kapalı tutuluyor mu?",
-    "Personel servisleri temiz mi? Zamanında kalkıyor mu?",
+    "Info board, Logbook, mail okunur, kontroller yapılır.",
+    "Uyandırma listesi Otomatik/Manüeller kontrol edilir.",
+    "Trace raporu çekilip kontrolü yapılır.",
+    "Kasa raporu alınır, depozitler ve ödemeler kontrol edilir. Kasa eksiksiz teslim alınır.",
+    "Lobby müzik ses ayarı ve lobby ışıklandırması kontrol edilir.",
+    "Döviz ve Exchange kurları Sedna'dan ve TCMB web sitesinden kontrol edilir.",
+    "Belldesk Form deske bırakınız ve yazılan işlerin yapıldığını takip ediniz.",
+    "Gün içinde girecek olan odaların uçak iniş saatleri girilir.",
+    "House use ve Comp konaklamaları yazınız, gelecek olan rezervasyonları kontrol ediniz.",
+    "VİP konaklamaları yazınız, gelecek olan rezervasyon bilgilerini ve set up bilgilendirmelerini kontrol ediniz.",
+    "Saat 12:00'ye kadar Check Out yapacak misafirlerin odalarını boşaltmaları sağlanır.",
+    "Saat 12:00'den sonra Late Check Out yapacak odaların sebeplerini CO Remarks'a yazınız. HK'yı bilgilendiriniz.",
+    "Sedna/CRM/Fast Guest Update/Check Out işlemini yapınız. İşlemi onaylayınız.",
+    "Arrival oda blokajlarını, misafir isteklerini, yatak durumlarını kontrol ediniz.",
+    "Check In işlemleri için Card Cover, Room Key, Havlu kartı, bileklikleri hazır ediniz. Eksik malzemeyi depodan çekiniz.",
+    "Check In sonrası misafir bilgilerinin Sedna ve KBS'ye aktarılmasını sağlayınız.",
+    "Kayıt edilen misafir istek, şikayet ve önerilerinin takibini yapınız.",
+    "Discrepant raporu çekilip kontrolü yaparak FOM'a onaylatınız.",
+    "Yapılan oda değişikliklerini kontrol ediniz ve Housekeeping departmanına bilgi veriniz.",
+    "Gün içerisinde yapılan Early C-Out ve Extension'ları Satış departmanına mail olarak bildiriniz.",
+    "Sedna \"Checkin List With All Guest\" raporu ile Voucher, Rezervasyon, Sedna kontrolünü yapınız.",
+    "Kredi kartı POS cihazından detaylı ara rapor geçiniz.",
+    "Shift'inde yarım kalan veya takip edilmesi gereken işleri B shiftine yazılı olarak aktarınız.",
+    "Önbüro Müdürüne aktarmanız gereken bilgileri mutlaka ileterek shift'ten ayrılınız.",
   ],
   Housekeeping: [
     "Kat arabası hazır mı?",
@@ -139,10 +154,35 @@ const DEPARTMAN_LISTELERI = {
 
 // Belirli bir departmanın belirli bir maddesi için saatli hatırlatma tanımı.
 // Format: { "Departman": { maddeNumarası: "SS:DD" } }
-// Şu an: Önbüro departmanının 2. maddesi ("Şelale çalışıyor mu, havuz temiz mi?")
-// saat 09:00'a kadar işaretlenmezse hatırlatma gösterilir/bildirim gönderilir.
+// Şu an: Önbüro departmanının 24 maddesinin her biri için, aşağıdaki kontrol
+// saatine kadar işaretlenmezse hatırlatma gösterilir/bildirim gönderilir.
 const HATIRLATMALAR = {
-  Önbüro: { 2: "09:00" },
+  Önbüro: {
+    1: "08:10",
+    2: "08:15",
+    3: "08:20",
+    4: "08:25",
+    5: "08:30",
+    6: "08:35",
+    7: "08:40",
+    8: "08:45",
+    9: "08:50",
+    10: "08:55",
+    11: "09:00",
+    12: "09:05",
+    13: "09:10",
+    14: "09:15",
+    15: "09:20",
+    16: "09:25",
+    17: "09:30",
+    18: "09:35",
+    19: "09:40",
+    20: "09:45",
+    21: "09:50",
+    22: "09:55",
+    23: "10:00",
+    24: "10:05",
+  },
 };
 
 const BASLANGIC_SAATI = 8; // 08:00
@@ -360,11 +400,18 @@ function App() {
     const mevcut = await safeGet(key, true);
     if (mevcut) {
       const veri = JSON.parse(mevcut.value);
-      veri.tasks = veri.tasks.map((t) => ({ zaman: null, ...t }));
-      veri.remindedTasks = veri.remindedTasks || [];
-      setRecord(veri);
-      setKayitYukleniyor(false);
-      return;
+      const guncelSablon = DEPARTMAN_LISTELERI[user.department] || [];
+      const eskiListeyleUyumsuz =
+        !veri.tasks || veri.tasks.length !== guncelSablon.length;
+      if (!eskiListeyleUyumsuz) {
+        veri.tasks = veri.tasks.map((t) => ({ zaman: null, ...t }));
+        veri.remindedTasks = veri.remindedTasks || [];
+        setRecord(veri);
+        setKayitYukleniyor(false);
+        return;
+      }
+      // Kontrol listesi güncellendiği için (madde sayısı değişti), bu güne ait
+      // eski kayıt yeni şablona göre sıfırdan oluşturuluyor.
     }
     const sablon = DEPARTMAN_LISTELERI[user.department];
     if (!sablon) {
