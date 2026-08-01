@@ -28,15 +28,30 @@ const KULLANICILAR_BASLANGIC = [
 
 const DEPARTMAN_LISTELERI = {
   Önbüro: [
-    "Misafir giriş kapısı ve çevresi düzenli mi?",
-    "Şelale çalışıyor mu, havuz temiz mi?",
-    "Bayraklar çekili ve düzenli mi?",
-    "Otopark ve Club Car park alanı düzenli mi?",
-    "Yeterli aydınlatma var mı?",
-    "Güvenlik görevlisi yerinde mi?",
-    "Personel giriş kapısı ve çevresi düzenli mi?",
-    "Kapı kapalı tutuluyor mu?",
-    "Personel servisleri temiz mi? Zamanında kalkıyor mu?",
+    "Info board, Logbook, mail okunur, kontroller yapılır.",
+    "Uyandırma listesi Otomatik/Manüeller kontrol edilir.",
+    "Trace raporu çekilip kontrolü yapılır.",
+    "Kasa raporu alınır, depozitler ve ödemeler kontrol edilir. Kasa eksiksiz teslim alınır.",
+    "Lobby müzik ses ayarı ve lobby ışıklandırması kontrol edilir.",
+    "Döviz ve Exchange kurları Sedna'dan ve TCMB web sitesinden kontrol edilir.",
+    "Belldesk Form deske bırakınız ve yazılan işlerin yapıldığını takip ediniz.",
+    "Gün içinde girecek olan odaların uçak iniş saatleri girilir.",
+    "House use ve Comp konaklamaları yazınız, gelecek olan rezervasyonları kontrol ediniz.",
+    "VİP konaklamaları yazınız, gelecek olan rezervasyon bilgilerini ve set up bilgilendirmelerini kontrol ediniz.",
+    "Saat 12:00'ye kadar Check Out yapacak misafirlerin odalarını boşaltmaları sağlanır.",
+    "Saat 12:00'den sonra Late Check Out yapacak odaların sebeplerini CO Remarks'a yazınız. HK'yı bilgilendiriniz.",
+    "Sedna/CRM/Fast Guest Update/Check Out işlemini yapınız. İşlemi onaylayınız.",
+    "Arrival oda blokajlarını, misafir isteklerini, yatak durumlarını kontrol ediniz.",
+    "Check In işlemleri için Card Cover, Room Key, Havlu kartı, bileklikleri hazır ediniz. Eksik malzemeyi depodan çekiniz.",
+    "Check In sonrası misafir bilgilerinin Sedna ve KBS'ye aktarılmasını sağlayınız.",
+    "Kayıt edilen misafir istek, şikayet ve önerilerinin takibini yapınız.",
+    "Discrepant raporu çekilip kontrolü yaparak FOM'a onaylatınız.",
+    "Yapılan oda değişikliklerini kontrol ediniz ve Housekeeping departmanına bilgi veriniz.",
+    "Gün içerisinde yapılan Early C-Out ve Extension'ları Satış departmanına mail olarak bildiriniz.",
+    "Sedna \"Checkin List With All Guest\" raporu ile Voucher, Rezervasyon, Sedna kontrolünü yapınız.",
+    "Kredi kartı POS cihazından detaylı ara rapor geçiniz.",
+    "Shift'inde yarım kalan veya takip edilmesi gereken işleri B shiftine yazılı olarak aktarınız.",
+    "Önbüro Müdürüne aktarmanız gereken bilgileri mutlaka ileterek shift'ten ayrılınız.",
   ],
   Housekeeping: [
     "Kat arabası hazır mı?",
@@ -54,10 +69,35 @@ const DEPARTMAN_LISTELERI = {
 
 // Belirli bir departmanın belirli bir maddesi için saatli hatırlatma tanımı.
 // Format: { "Departman": { maddeNumarası: "SS:DD" } }
-// Şu an: Önbüro departmanının 2. maddesi ("Şelale çalışıyor mu, havuz temiz mi?")
-// saat 09:00'a kadar işaretlenmezse hatırlatma gösterilir/bildirim gönderilir.
+// Şu an: Önbüro departmanının 24 maddesinin her biri için, aşağıdaki kontrol
+// saatine kadar işaretlenmezse hatırlatma gösterilir/bildirim gönderilir.
 const HATIRLATMALAR = {
-  Önbüro: { 2: "09:00" },
+  Önbüro: {
+    1: "08:10",
+    2: "08:15",
+    3: "08:20",
+    4: "08:25",
+    5: "08:30",
+    6: "08:35",
+    7: "08:40",
+    8: "08:45",
+    9: "08:50",
+    10: "08:55",
+    11: "09:00",
+    12: "09:05",
+    13: "09:10",
+    14: "09:15",
+    15: "09:20",
+    16: "09:25",
+    17: "09:30",
+    18: "09:35",
+    19: "09:40",
+    20: "09:45",
+    21: "09:50",
+    22: "09:55",
+    23: "10:00",
+    24: "10:05",
+  },
 };
 
 const BASLANGIC_SAATI = 8; // 08:00
@@ -183,6 +223,21 @@ export default function App() {
     Notification.requestPermission().then((sonuc) => setBildirimDurumu(sonuc));
   }
 
+  // Her ekranda görünen, kısa süreli onay mesajı (örn. "Kaydedildi")
+  const [toast, setToast] = useState(null);
+  const toastTimer = useRef(null);
+  function toastGoster(mesaj) {
+    setToast(mesaj);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 3500);
+  }
+
+  // PDF için yedek bağlantı: otomatik indirme çalışmazsa (bazı Android
+  // tarayıcılarında "yüklü uygulama" modunda indirme engellenebiliyor)
+  // kullanıcı bu bağlantıya dokunup PDF'i açabilir/indirebilir.
+  const [pdfLinkUrl, setPdfLinkUrl] = useState(null);
+  const [pdfLinkAdi, setPdfLinkAdi] = useState("");
+
   useEffect(() => {
     seedData();
     const script = document.createElement("script");
@@ -260,11 +315,18 @@ export default function App() {
     const mevcut = await safeGet(key, true);
     if (mevcut) {
       const veri = JSON.parse(mevcut.value);
-      veri.tasks = veri.tasks.map((t) => ({ zaman: null, ...t }));
-      veri.remindedTasks = veri.remindedTasks || [];
-      setRecord(veri);
-      setKayitYukleniyor(false);
-      return;
+      const guncelSablon = DEPARTMAN_LISTELERI[user.department] || [];
+      const eskiListeyleUyumsuz =
+        !veri.tasks || veri.tasks.length !== guncelSablon.length;
+      if (!eskiListeyleUyumsuz) {
+        veri.tasks = veri.tasks.map((t) => ({ zaman: null, ...t }));
+        veri.remindedTasks = veri.remindedTasks || [];
+        setRecord(veri);
+        setKayitYukleniyor(false);
+        return;
+      }
+      // Kontrol listesi güncellendiği için (madde sayısı değişti), bu güne ait
+      // eski kayıt yeni şablona göre sıfırdan oluşturuluyor.
     }
     const sablon = DEPARTMAN_LISTELERI[user.department];
     if (!sablon) {
@@ -409,9 +471,12 @@ export default function App() {
       await window.storage.set(guncel.key, JSON.stringify(guncel), true);
       setRecord(guncel);
       setTamamlandiMesaji(true);
+      const isaretliSayisi = guncel.tasks.filter((t) => t.status).length;
+      toastGoster(`✓ Kaydedildi — ${isaretliSayisi}/${guncel.tasks.length} madde işaretli`);
       setTimeout(() => setTamamlandiMesaji(false), 2500);
     } catch (e) {
       setListeHatasi("Kaydetme sırasında bir hata oluştu. Lütfen tekrar deneyin.");
+      toastGoster("⚠ Kaydetme sırasında bir hata oluştu.");
     }
     setBitiriliyor(false);
   }
@@ -542,6 +607,7 @@ export default function App() {
 
   async function raporOlusturVeGonder(kayit) {
     setRaporMesaj("");
+    setPdfLinkUrl(null);
     if (!kayit) {
       setRaporMesaj("Bu gün için kaydedilmiş bir kontrol listesi bulunamadı.");
       return;
@@ -551,14 +617,22 @@ export default function App() {
       return;
     }
     setRaporIsleniyor(true);
+    setRaporMesaj("PDF hazırlanıyor…");
     try {
       const doc = pdfOlustur(kayit);
       const dosyaAdi = `kontrol-listesi-${kayit.hotelCode}-${kayit.date}.pdf`;
       const konuMetni = `${kayit.hotelName} - ${kayit.department} Kontrol Listesi - ${formatTarihSadece(kayit.date)}`;
 
+      // Yedek bağlantı: otomatik indirme telefonda/tarayıcıda engellenirse
+      // veya fark edilmezse, kullanıcı bu bağlantıya dokunarak PDF'i her zaman
+      // açabilir/indirebilir.
+      try {
+        const blobUrl = doc.output("bloburl");
+        setPdfLinkUrl(blobUrl.toString ? blobUrl.toString() : blobUrl);
+        setPdfLinkAdi(dosyaAdi);
+      } catch (e) {}
+
       if (BACKEND_URL) {
-        // Gerçek sunucu tarafı e-posta servisi bağlıysa: PDF hiçbir manuel işlem
-        // gerektirmeden doğrudan alıcıya gönderilir.
         if (!raporEposta.trim()) {
           setRaporMesaj("Lütfen alıcı e-posta adresini girin.");
           setRaporIsleniyor(false);
@@ -580,25 +654,39 @@ export default function App() {
         });
         if (yanit.ok) {
           setRaporMesaj("E-posta başarıyla gönderildi.");
+          toastGoster("✓ E-posta gönderildi");
         } else {
           setRaporMesaj("Sunucu e-postayı gönderirken bir hata döndürdü.");
         }
       } else {
-        // Sunucu henüz bağlanmadıysa: PDF indirilir ve e-posta taslağı manuel ek için açılır.
-        doc.save(dosyaAdi);
+        let indirmeBasarili = true;
+        try {
+          doc.save(dosyaAdi);
+        } catch (e) {
+          indirmeBasarili = false;
+        }
+
         if (raporEposta.trim()) {
           const konu = encodeURIComponent(konuMetni);
           const govde = encodeURIComponent(
             `Merhaba,\n\n${formatTarihSadece(kayit.date)} tarihli ${kayit.department} departmanı kontrol listesi PDF olarak cihaza indirildi.\nLütfen e-posta uygulamasında az önce indirilen "${dosyaAdi}" dosyasını bu mesaja ekleyip gönderin.\n\nOtel: ${kayit.hotelName}\nKontrol eden: ${kayit.userName}`
           );
           window.location.href = `mailto:${raporEposta.trim()}?subject=${konu}&body=${govde}`;
-          setRaporMesaj("PDF indirildi ve e-posta uygulamanız açıldı. Lütfen indirilen dosyayı mesaja ekleyip gönderin.");
+        }
+
+        if (indirmeBasarili) {
+          setRaporMesaj(
+            raporEposta.trim()
+              ? "PDF indirildi ve e-posta uygulamanız açıldı. Lütfen indirilen dosyayı mesaja ekleyip gönderin."
+              : "PDF indirildi. İnmediyse aşağıdaki bağlantıya dokunun."
+          );
+          toastGoster("✓ PDF hazır");
         } else {
-          setRaporMesaj("PDF indirildi. E-posta ile göndermek için önce alıcı adresini girin.");
+          setRaporMesaj("Otomatik indirme başlamadı. Lütfen aşağıdaki bağlantıya dokunup PDF'i açın.");
         }
       }
     } catch (e) {
-      setRaporMesaj("Rapor oluşturulurken bir hata oluştu.");
+      setRaporMesaj("Rapor oluşturulurken bir hata oluştu: " + (e && e.message ? e.message : String(e)));
     }
     setRaporIsleniyor(false);
   }
@@ -693,6 +781,23 @@ export default function App() {
             jsPdfHazirMi={jsPdfHazirMi}
           />
         ) : null}
+
+        {toast && !pdfLinkUrl && <div style={styles.toastMesaj}>{toast}</div>}
+
+        {pdfLinkUrl && (
+          <div style={styles.pdfBaglantiCubugu}>
+            <a href={pdfLinkUrl} target="_blank" rel="noreferrer" style={styles.pdfBaglantiLink}>
+              📄 {pdfLinkAdi} — Aç / İndir
+            </a>
+            <button
+              style={styles.pdfBaglantiKapat}
+              onClick={() => setPdfLinkUrl(null)}
+              aria-label="Kapat"
+            >
+              ✕
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1185,6 +1290,7 @@ const styles = {
     boxShadow: "0 20px 60px rgba(22,50,58,0.18)",
     overflow: "hidden",
     border: "1px solid #E2DCCC",
+    position: "relative",
   },
   durumCubugu: {
     display: "flex",
@@ -1193,6 +1299,54 @@ const styles = {
     fontSize: 12,
     color: "#16323A",
     fontWeight: 600,
+  },
+  toastMesaj: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+    bottom: 20,
+    background: "#16323A",
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: 600,
+    padding: "12px 16px",
+    borderRadius: 12,
+    boxShadow: "0 8px 24px rgba(0,0,0,0.25)",
+    textAlign: "center",
+    zIndex: 50,
+  },
+  pdfBaglantiCubugu: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+    bottom: 20,
+    background: "#fff",
+    border: "1.5px solid #B08D3E",
+    borderRadius: 12,
+    boxShadow: "0 8px 24px rgba(0,0,0,0.2)",
+    padding: "10px 12px",
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    zIndex: 50,
+  },
+  pdfBaglantiLink: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: 700,
+    color: "#8A6A22",
+    textDecoration: "none",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  pdfBaglantiKapat: {
+    border: "none",
+    background: "transparent",
+    color: "#6B7280",
+    fontSize: 14,
+    cursor: "pointer",
+    flexShrink: 0,
   },
   icerik: {
     padding: "8px 20px 20px",
