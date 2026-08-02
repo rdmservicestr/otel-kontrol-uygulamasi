@@ -200,6 +200,12 @@ const JSPDF_URL = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.
 // Boş bırakılırsa uygulama otomatik olarak "PDF indir + e-posta taslağı aç" yöntemini kullanır.
 const BACKEND_URL = "";
 
+// Telegram bot ile hatırlatma bildirimleri.
+// BotFather'dan aldığınız token'ı aşağıdaki tırnakların arasına yapıştırın.
+// Chat ID zaten dolduruldu (Önbüro vardiya grubunuz).
+const TELEGRAM_BOT_TOKEN = "8997880278:AAHtBUbPYf397JvkOMVcMHJCrrKZv0gJ6fc"; // örn: "123456789:AAExxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+const TELEGRAM_CHAT_ID = "-5518045511";
+
 /* ------------------------------------------------------------------
    TÜRKÇE PDF FONTU (Liberation Sans, yalnızca gerekli karakterlerle
    küçültülmüş/subset edilmiş hali). PDF raporlarında ş, ğ, ı, İ, ö, ü, ç
@@ -255,6 +261,22 @@ function saatGectiMi(saatStr) {
   const hedef = new Date();
   hedef.setHours(h, m, 0, 0);
   return simdi >= hedef;
+}
+
+// Telegram Bot API'ye doğrudan tarayıcıdan istek atarak grup sohbetine
+// hatırlatma mesajı gönderir. Token veya Chat ID boşsa hiçbir şey yapmaz.
+async function telegramMesajGonder(mesaj) {
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: mesaj }),
+    });
+  } catch (e) {
+    // Sessizce yut: internet yoksa ya da Telegram'a ulaşılamıyorsa
+    // uygulamanın geri kalanını etkilemesin.
+  }
 }
 
 function formatTarihSadece(dateStr) {
@@ -481,6 +503,9 @@ function App() {
           });
         } catch (e) {}
       }
+      telegramMesajGonder(
+        `⏰ Kontrol Hatırlatması\n${record.hotelName} — ${record.department}\n\nMadde ${b.id}: ${b.text}\n\nSaat ${b.saat} itibarıyla tamamlanmış olmalıydı, henüz işaretlenmedi.`
+      );
     });
 
     setRecord((prev) => ({
