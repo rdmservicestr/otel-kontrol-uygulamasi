@@ -3,8 +3,8 @@
   "short_name": "Kontrol Listesi",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#EDEAE2",
-  "theme_color": "#16323A",
+  "background_color": "#E51F2D",
+  "theme_color": "#E51F2D",
   "orientation": "portrait",
   "icons": [
     { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
