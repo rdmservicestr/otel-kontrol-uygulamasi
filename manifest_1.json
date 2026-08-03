@@ -1,0 +1,13 @@
+{
+  "name": "Otel Departman Kontrol Listesi",
+  "short_name": "Kontrol Listesi",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#E51F2D",
+  "theme_color": "#E51F2D",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "icon-192-v2.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512-v2.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
