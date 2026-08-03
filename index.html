@@ -11,12 +11,15 @@
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="Kontrol Listesi" />
-<link rel="apple-touch-icon" href="icon-192.png" />
-<link rel="icon" href="icon-192.png" />
+<link rel="apple-touch-icon" href="icon-192-v2.png" />
+<link rel="icon" href="icon-192-v2.png" />
 
-<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+<!-- Not: React/ReactDOM/Babel cdnjs.cloudflare.com uzerinden yukleniyor
+     (unpkg.com bazi aglarda/operatorlerde engellenebiliyor; cdnjs daha
+     genis erisilebilirlige sahip Cloudflare CDN'i kullaniyor). -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.10/babel.min.js"></script>
 
 <style>
   html, body { margin: 0; padding: 0; background: #EDEAE2; min-height: 100%; font-family: sans-serif; }
@@ -73,6 +76,26 @@ function hataGoster(mesaj) {
 
 window.addEventListener("error", function (e) {
   hataGoster((e.message || "Bilinmeyen hata") + "\n" + (e.filename ? (e.filename + ":" + e.lineno) : ""));
+});
+
+// Gerekli kutuphanelerden biri (React/ReactDOM/Babel) aglar tarafindan
+// engellendiyse veya yuklenemediyse, kullanicinin ne oldugunu anlamasi
+// icin acik bir mesaj goster.
+window.addEventListener("load", function () {
+  setTimeout(function () {
+    var eksikler = [];
+    if (typeof React === "undefined") eksikler.push("React");
+    if (typeof ReactDOM === "undefined") eksikler.push("ReactDOM");
+    if (typeof Babel === "undefined") eksikler.push("Babel");
+    if (eksikler.length > 0) {
+      hataGoster(
+        "Şu kütüphaneler yüklenemedi: " + eksikler.join(", ") +
+        ".\n\nBu genellikle internet bağlantınızın veya kullandığınız ağın " +
+        "cdnjs.cloudflare.com adresine erişimi engellemesinden kaynaklanır. " +
+        "Lütfen farklı bir ağ (örn. mobil veri / farklı Wi-Fi) ile tekrar deneyin."
+      );
+    }
+  }, 4000);
 });
 
 if ("serviceWorker" in navigator) {
@@ -203,7 +226,7 @@ const BACKEND_URL = "";
 // Telegram bot ile hatırlatma bildirimleri.
 // BotFather'dan aldığınız token'ı aşağıdaki tırnakların arasına yapıştırın.
 // Chat ID zaten dolduruldu (Önbüro vardiya grubunuz).
-const TELEGRAM_BOT_TOKEN = "8997880278:AAHtBUbPYf397JvkOMVcMHJCrrKZv0gJ6fc/getUpdates"; // örn: "123456789:AAExxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+const TELEGRAM_BOT_TOKEN = ""; // örn: "123456789:AAExxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 const TELEGRAM_CHAT_ID = "-5518045511";
 
 /* ------------------------------------------------------------------
@@ -499,7 +522,7 @@ function App() {
         try {
           new Notification("Kontrol Hatırlatması", {
             body: `"${b.text}" maddesi saat ${b.saat} itibarıyla tamamlanmış olmalıydı, henüz işaretlenmedi.`,
-            icon: "icon-192.png",
+            icon: "icon-192-v2.png",
           });
         } catch (e) {}
       }
