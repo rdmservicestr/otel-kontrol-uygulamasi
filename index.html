@@ -139,6 +139,13 @@ const KULLANICILAR_BASLANGIC = [
     name: "Murat",
     department: "Genel Müdürlük",
   },
+  {
+    hotelCode: "5555",
+    userCode: "1112",
+    password: "0002",
+    name: "Serkan",
+    department: "Gece Müdürü",
+  },
 ];
 
 const DEPARTMAN_LISTELERI = {
@@ -328,6 +335,201 @@ const DEPARTMAN_BOLUMLERI = {
       ],
     },
   ],
+
+  // Gece Müdürü: bu departmanda maddeler 3 farklı tipte olabilir:
+  // - "sayisal": 3 haneli rakamsal değer girilecek (birden fazla alt alan olabilir)
+  // - "metin": 50 karaktere kadar serbest metin
+  // - "evethayir": OLUMLU/OLUMSUZ; OLUMSUZ seçilirse açıklama + fotoğraf alanı açılır
+  // Bir bölümdeki tüm maddeler tamamlanınca (tipine göre) akordiyon otomatik
+  // kapanır ve başlık yeşile döner (DEPARTMAN_OTOMATIK_KAPAT ile kontrol edilir).
+  "Gece Müdürü": [
+    {
+      harf: "A",
+      baslik: "Doluluklar",
+      maddeler: [
+        { tip: "sayisal", text: "Dolu Oda Sayısı / Toplam Pax", alanlar: ["Dolu Oda Sayısı", "Toplam Pax"] },
+        { tip: "evethayir", text: "Giriş işlemlerinde sorun var mı? Neden?" },
+        { tip: "metin", text: "C vardiyasında Giriş yapması beklenen oda sayısı" },
+        { tip: "metin", text: "C vardiyasında Çıkış yapması beklenen oda Sayısı" },
+        { tip: "sayisal", text: "Kontrolü yapılacak oda sayısı", alanlar: ["Kontrolü yapılacak oda sayısı"] },
+      ],
+    },
+    {
+      harf: "B",
+      baslik: "Güvenlik",
+      maddeler: [
+        { tip: "metin", text: "Güvenlik Personelleri isimleri (Ana kapı - Personel kapı - Sahil)" },
+        { tip: "evethayir", text: "Bayrakların Görsel Olarak Durumu?" },
+        { tip: "evethayir", text: "Giriş Bölgesi Temizlik ve Düzeni?" },
+        { tip: "evethayir", text: "Giriş Aydınlatma Durumu?" },
+        { tip: "evethayir", text: "Bahçe Aydınlatma Durumu?" },
+        { tip: "evethayir", text: "Bahçe ve Çevresi Temizlik ve Düzen Durumu?" },
+        { tip: "evethayir", text: "Aydınlatma Otomasyonu Çalışması Durumu?" },
+      ],
+    },
+    {
+      harf: "C",
+      baslik: "Resepsiyon",
+      maddeler: [
+        { tip: "evethayir", text: "Döner Kapı ve Sağ Sol Kapıların Durumu?" },
+        { tip: "evethayir", text: "Camların Temizliği ve Stickerların Durumu?" },
+        { tip: "evethayir", text: "Mobilya Yerleşim, Düzen ve Temizlik Durumu?" },
+        { tip: "evethayir", text: "Info Board Bölgesi Durumu?" },
+        { tip: "evethayir", text: "Lobby Bitkilerinin Düzeni ve Durumu?" },
+        { tip: "evethayir", text: "Resepsiyon, Back Office, Santral ve Bagaj Odası Temizlik Düzen Durumu?" },
+        { tip: "metin", text: "C Shift Çalışan Personel İsimleri" },
+      ],
+    },
+    {
+      harf: "D",
+      baslik: "Plaj ve Havuz",
+      maddeler: [
+        { tip: "evethayir", text: "Plaj Zemin, Şezlong ve Çevre Düzen Temizlik Durumu?" },
+        { tip: "evethayir", text: "Havuz Çevre, Şezlong Zemin Temizlik ve Düzen Durumu?" },
+        { tip: "evethayir", text: "Havuz Suyu Renk Değişimi, Bulanıklık, Tortu Durumu?" },
+        { tip: "evethayir", text: "Havuz Makine Dairesi Temizlik ve Düzen, Kapı Kilit Durumu?" },
+        { tip: "evethayir", text: "Duşlar ve Soyunma Kabinleri Temizlik ve Düzeni Durumu?" },
+        { tip: "evethayir", text: "AQUAPARK Havuz, Kaydıraklar ve Çevre Düzeni Durumu?" },
+      ],
+    },
+    {
+      harf: "E",
+      baslik: "İskele",
+      maddeler: [
+        { tip: "evethayir", text: "İskele Temizlik ve Düzen Durumu?" },
+        { tip: "evethayir", text: "İskele Girişi Kapalı mı?" },
+      ],
+    },
+    {
+      harf: "F",
+      baslik: "Kat Hizmetleri",
+      maddeler: [
+        { tip: "evethayir", text: "Kat Koridorları, Kat Ofisleri Temizlik Düzen Durumu?" },
+        { tip: "evethayir", text: "Misafir Asansörleri Temizlik Durumu?" },
+        { tip: "evethayir", text: "Misafir Merdivenler Temizlik Durumu?" },
+        { tip: "evethayir", text: "Genel Alan Wc'leri Temizlik ve Düzen Durumu?" },
+        { tip: "evethayir", text: "Servis Alanları Temizlik ve Düzen Durumu?" },
+        { tip: "evethayir", text: "Yürüyüş Yolları Temizlik ve Düzen Durumu?" },
+        { tip: "evethayir", text: "Personel Kılık, Kıyafet, İsimlik, Hijyen ve Davranış Durumu?" },
+        { tip: "metin", text: "00:00-08:00 Shift Çalışan Personel İsim" },
+      ],
+    },
+    {
+      harf: "G",
+      baslik: "Teknik",
+      maddeler: [
+        { tip: "evethayir", text: "Kazan Dairesi ve Jeneratör Çalışma Kontrolü?" },
+        { tip: "evethayir", text: "Yüksek Gerilim Odası, Isıtma/Soğutma Sistemi Çalışma Kontrolü?" },
+        { tip: "metin", text: "C-Shift Çalışan Personel İsim" },
+      ],
+    },
+    {
+      harf: "H",
+      baslik: "Spa",
+      maddeler: [
+        { tip: "evethayir", text: "SPA Alanları Temizlik, Düzen ve Ekipman Durumu?" },
+        { tip: "evethayir", text: "Fitness Temizlik, Düzen ve Ekipman Durumu?" },
+      ],
+    },
+    {
+      harf: "İ",
+      baslik: "Çamaşırhane & Tesellüm",
+      maddeler: [
+        { tip: "evethayir", text: "Genel Temizlik ve Düzen Durumu?" },
+        { tip: "evethayir", text: "Üniforma Bölümü Temizlik ve Düzen Durumu?" },
+        { tip: "evethayir", text: "Tesellüm, Depo, Çöp Alanları Temizlik Düzen Durumu?" },
+      ],
+    },
+    {
+      harf: "J",
+      baslik: "Personel Alanları",
+      maddeler: [
+        { tip: "evethayir", text: "Soyunma Odaları Temizlik ve Düzen Durumu?" },
+        { tip: "evethayir", text: "Personel Wc, Duşları Temizlik ve Düzen Durumu?" },
+        { tip: "evethayir", text: "Personel Servisi Hareket Kontrolü?" },
+        { tip: "evethayir", text: "Personel Yemekhanesi Temizlik ve Düzen Durumu?" },
+        { tip: "evethayir", text: "Personel Mutfak Temizlik ve Düzen Durumu?" },
+        { tip: "evethayir", text: "Personel Kahvaltısı ve Gece Yemeğinde Sorun Var mı? Neden?" },
+      ],
+    },
+    {
+      harf: "K",
+      baslik: "Ana Mutfak",
+      maddeler: [
+        { tip: "evethayir", text: "Kısımların Genel Temizlik ve Düzen Durumu?" },
+        { tip: "evethayir", text: "Çalışan Personel Kılık, Kıyafet, İsimlik, Hijyen ve Davranış Durumu?" },
+        { tip: "evethayir", text: "Soğuk Hava Depoları Temizlik, Düzen ve Sıcaklık Durumu?" },
+        { tip: "evethayir", text: "Bulaşıkhane Temizlik ve Düzen Durumu?" },
+        { tip: "metin", text: "C-Shift Çalışan Personel İsimleri" },
+        { tip: "metin", text: "7/24 Lalezar Alakart Mutfak Çalışan İsimleri" },
+      ],
+    },
+    {
+      harf: "L",
+      baslik: "Ana Restaurant",
+      maddeler: [
+        { tip: "evethayir", text: "Genel Temizlik ve Düzen Durumu?" },
+        { tip: "evethayir", text: "Büfelerin Aydınlatma, Temizlik ve Düzen Durumu?" },
+        { tip: "evethayir", text: "Personel Kılık, Kıyafet, İsimlik, Davranış ve Hijyen Durumu?" },
+        { tip: "metin", text: "C-Shift Çalışan Personel İsimleri" },
+      ],
+    },
+    {
+      harf: "M",
+      baslik: "İtalyan ve Balık Restaurant",
+      maddeler: [
+        { tip: "evethayir", text: "Kapanış Genel Temizlik ve Düzen Durumu?" },
+        { tip: "evethayir", text: "Mutfak Genel Temizlik ve Düzen Durumu?" },
+        { tip: "evethayir", text: "Bulaşıkhane Temizlik ve Düzen Durumu?" },
+        { tip: "evethayir", text: "Misafir Wc'ler Klima, Temizlik ve Düzen Durumu?" },
+      ],
+    },
+    {
+      harf: "N",
+      baslik: "Barlar",
+      maddeler: [
+        { tip: "evethayir", text: "Kapanış Genel Temizlik ve Düzen Durumu?" },
+        { tip: "evethayir", text: "Background temizlik ve düzeni?" },
+        { tip: "evethayir", text: "Personel Kılık, Kıyafet, İsimlik, Hijyen ve Davranış Durumu?" },
+        { tip: "metin", text: "C-Shift Çalışan Personel İsim" },
+      ],
+    },
+    {
+      harf: "O",
+      baslik: "Mini Club",
+      maddeler: [{ tip: "evethayir", text: "Genel Temizlik ve Düzen Durumu?" }],
+    },
+    {
+      harf: "P",
+      baslik: "Genel",
+      maddeler: [
+        { tip: "evethayir", text: "Yönetim Kurulu, Genel Müdür ve İdari ofisler kilitli mi?" },
+        { tip: "evethayir", text: "Tenis Kortu Genel Temizlik ve Düzen Durumu?" },
+        { tip: "evethayir", text: "Kapalı outletler kilitli mi?" },
+      ],
+    },
+    {
+      harf: "Q",
+      baslik: "Ana Kapı",
+      maddeler: [
+        { tip: "evethayir", text: "Güvenlik Nokta Nöbet Alanlarının Kontrol Durumu?" },
+        { tip: "evethayir", text: "Güvenlik Personeli Kılık, Kıyafet, Hijyen, Davranış ve Ekipman Durumu?" },
+      ],
+    },
+  ],
+};
+
+// Bu departmanlarda bir bölümdeki tüm maddeler tamamlanınca akordiyon
+// otomatik olarak kapanır (kullanıcı isterse tekrar açabilir).
+const DEPARTMAN_OTOMATIK_KAPAT = {
+  "Gece Müdürü": true,
+};
+
+// Bu departmanlarda, evet/hayır tipi maddelerde OLUMSUZ seçilirse
+// açıklama + fotoğraf alanı açılır. Belirtilmeyen departmanlarda
+// (örn. Genel Müdürlük) bu alanlar hiç gösterilmez.
+const DEPARTMAN_YORUM_FOTO_IZINLI = {
+  "Gece Müdürü": true,
 };
 
 // Bir departmanın toplam kontrol noktası sayısını döner (bölümlü ya da düz fark etmez).
@@ -344,20 +546,46 @@ function bolumluGorevleriOlustur(department) {
   const gorevler = [];
   let sayac = 1;
   DEPARTMAN_BOLUMLERI[department].forEach((bolum) => {
-    bolum.maddeler.forEach((text) => {
-      gorevler.push({
+    bolum.maddeler.forEach((madde) => {
+      const isObj = typeof madde === "object" && madde !== null;
+      const tip = isObj ? madde.tip || "evethayir" : "evethayir";
+      const text = isObj ? madde.text : madde;
+      const gorev = {
         id: sayac++,
         text,
+        tip,
         status: null,
         zaman: null,
         aciklama: "",
         photo: null,
         bolum: bolum.harf,
         bolumBaslik: bolum.baslik,
-      });
+      };
+      if (tip === "sayisal") {
+        const alanEtiketleri = (isObj && madde.alanlar) || [text];
+        gorev.alanlar = alanEtiketleri.map((label) => ({ label, deger: "" }));
+      }
+      if (tip === "metin") {
+        gorev.metinDeger = "";
+      }
+      gorevler.push(gorev);
     });
   });
   return gorevler;
+}
+
+// Bir görevin "tamamlandı" sayılıp sayılmayacağını, madde tipine göre belirler:
+// - evethayir: OLUMLU/OLUMSUZ işaretlenmiş olması yeterli
+// - sayisal: tüm alt alanlara değer girilmiş olması gerekir
+// - metin: metin alanına bir şey yazılmış olması gerekir
+function gorevTamamMi(t) {
+  if (t.tip === "sayisal") {
+    return (t.alanlar || []).every((a) => a.deger && a.deger.trim() !== "");
+  }
+  if (t.tip === "metin") {
+    return !!(t.metinDeger && t.metinDeger.trim() !== "");
+  }
+  return !!t.status;
 }
 
 // Belirli bir departmanın belirli bir maddesi için saatli hatırlatma tanımı.
@@ -757,6 +985,26 @@ function App() {
     }));
   }
 
+  function setSayisalDeger(id, alanIndex, value) {
+    const temiz = value.replace(/\D/g, "").slice(0, 3);
+    setRecord((prev) => ({
+      ...prev,
+      tasks: prev.tasks.map((t) =>
+        t.id === id
+          ? { ...t, alanlar: t.alanlar.map((a, i) => (i === alanIndex ? { ...a, deger: temiz } : a)) }
+          : t
+      ),
+    }));
+  }
+
+  function setMetinDeger(id, value) {
+    const temiz = value.slice(0, 50);
+    setRecord((prev) => ({
+      ...prev,
+      tasks: prev.tasks.map((t) => (t.id === id ? { ...t, metinDeger: temiz } : t)),
+    }));
+  }
+
   function removePhoto(id) {
     setRecord((prev) => ({
       ...prev,
@@ -801,7 +1049,7 @@ function App() {
       await window.storage.set(guncel.key, JSON.stringify(guncel), true);
       setRecord(guncel);
       setTamamlandiMesaji(true);
-      const isaretliSayisi = guncel.tasks.filter((t) => t.status).length;
+      const isaretliSayisi = guncel.tasks.filter((t) => gorevTamamMi(t)).length;
       toastGoster(`✓ Kaydedildi — ${isaretliSayisi}/${guncel.tasks.length} madde işaretli`);
       setTimeout(() => setTamamlandiMesaji(false), 2500);
     } catch (e) {
@@ -904,10 +1152,23 @@ function App() {
 
       doc.setFont(fontAdi, "normal");
       doc.setFontSize(10);
-      const durum = t.status === "olumlu" ? "OLUMLU" : t.status === "olumsuz" ? "OLUMSUZ" : "İşaretlenmedi";
-      const zamanEki = t.zaman ? `  (Saat: ${t.zaman})` : "";
-      doc.text(`Durum: ${durum}${zamanEki}`, margin, y);
-      y += 14;
+      if (t.tip === "sayisal") {
+        const satir = (t.alanlar || [])
+          .map((a) => `${a.label}: ${a.deger ? a.deger : "-"}`)
+          .join("    ");
+        const satirlar = doc.splitTextToSize(satir, pageWidth - margin * 2);
+        doc.text(satirlar, margin, y);
+        y += satirlar.length * 13;
+      } else if (t.tip === "metin") {
+        const satirlar = doc.splitTextToSize(`Yanıt: ${t.metinDeger ? t.metinDeger : "-"}`, pageWidth - margin * 2);
+        doc.text(satirlar, margin, y);
+        y += satirlar.length * 13;
+      } else {
+        const durum = t.status === "olumlu" ? "OLUMLU" : t.status === "olumsuz" ? "OLUMSUZ" : "İşaretlenmedi";
+        const zamanEki = t.zaman ? `  (Saat: ${t.zaman})` : "";
+        doc.text(`Durum: ${durum}${zamanEki}`, margin, y);
+        y += 14;
+      }
 
       if (t.aciklama) {
         const aciklamaSatirlari = doc.splitTextToSize(`Açıklama: ${t.aciklama}`, pageWidth - margin * 2);
@@ -1022,7 +1283,7 @@ function App() {
   }
 
   const durum = pencereDurumu();
-  const tamamlanan = record ? record.tasks.filter((t) => t.status).length : 0;
+  const tamamlanan = record ? record.tasks.filter((t) => gorevTamamMi(t)).length : 0;
   const toplamMadde = record ? record.tasks.length : 0;
   const duzenlenebilir = durum === "aktif";
 
@@ -1096,6 +1357,8 @@ function App() {
             tamamlandiMesaji={tamamlandiMesaji}
             setStatus={setStatus}
             setAciklama={setAciklama}
+            setSayisalDeger={setSayisalDeger}
+            setMetinDeger={setMetinDeger}
             onPhotoSelect={handlePhotoSelect}
             onRemovePhoto={removePhoto}
             onBitir={handleBitir}
@@ -1352,6 +1615,8 @@ function KontrolListesiEkrani({
   tamamlandiMesaji,
   setStatus,
   setAciklama,
+  setSayisalDeger,
+  setMetinDeger,
   onPhotoSelect,
   onRemovePhoto,
   onBitir,
@@ -1359,6 +1624,8 @@ function KontrolListesiEkrani({
   fileInputRefs,
 }) {
   const bolumler = DEPARTMAN_BOLUMLERI[user.department];
+  const otomatikKapat = !!DEPARTMAN_OTOMATIK_KAPAT[user.department];
+  const yorumFotoIzinli = !!DEPARTMAN_YORUM_FOTO_IZINLI[user.department];
 
   if (!record) {
     return (
@@ -1404,12 +1671,20 @@ function KontrolListesiEkrani({
       {bolumler ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 14 }}>
           {bolumler.map((b) => (
-            <GmBolumKarti
+            <BolumKarti
               key={b.harf}
               bolum={b}
               tasks={record.tasks}
               duzenlenebilir={duzenlenebilir}
+              otomatikKapat={otomatikKapat}
+              yorumFotoIzinli={yorumFotoIzinli}
               setStatus={setStatus}
+              setAciklama={setAciklama}
+              setSayisalDeger={setSayisalDeger}
+              setMetinDeger={setMetinDeger}
+              onPhotoSelect={onPhotoSelect}
+              onRemovePhoto={onRemovePhoto}
+              fileInputRefs={fileInputRefs}
             />
           ))}
         </div>
@@ -1551,14 +1826,35 @@ function KontrolListesiEkrani({
   );
 }
 
-// Genel Müdürlük gibi bölümlü (harf başlıklı, akordiyon) departmanlar için
-// tek bir bölüm kartı. Tıklanınca açılır/kapanır; bölümdeki tüm maddeler
-// işaretlenince başlık yeşile döner. Açıklama/fotoğraf alanı bulunmaz.
-function GmBolumKarti({ bolum, tasks, duzenlenebilir, setStatus }) {
+// Bölümlü (harf başlıklı, akordiyon) departmanlar için tek bir bölüm kartı.
+// Tıklanınca açılır/kapanır; bölümdeki tüm maddeler tamamlanınca başlık
+// yeşile döner. otomatikKapat true ise, tamamlandığında akordiyon kendiliğinden
+// kapanır. Madde tipine göre (evethayir/sayisal/metin) farklı giriş alanı gösterir.
+function BolumKarti({
+  bolum,
+  tasks,
+  duzenlenebilir,
+  otomatikKapat,
+  yorumFotoIzinli,
+  setStatus,
+  setAciklama,
+  setSayisalDeger,
+  setMetinDeger,
+  onPhotoSelect,
+  onRemovePhoto,
+  fileInputRefs,
+}) {
   const [acik, setAcik] = useState(false);
   const altTasks = tasks.filter((t) => t.bolum === bolum.harf);
-  const tamamlanan = altTasks.filter((t) => t.status).length;
+  const tamamlanan = altTasks.filter((t) => gorevTamamMi(t)).length;
   const tumuTamam = altTasks.length > 0 && tamamlanan === altTasks.length;
+
+  useEffect(() => {
+    if (otomatikKapat && tumuTamam) {
+      setAcik(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tumuTamam]);
 
   return (
     <div style={styles.gmBolumKarti}>
@@ -1591,40 +1887,122 @@ function GmBolumKarti({ bolum, tasks, duzenlenebilir, setStatus }) {
               <div style={styles.gmMaddeMetin}>
                 {t.id}. {t.text}
               </div>
-              <div style={styles.secimSatiri}>
-                <label
-                  style={{
-                    ...styles.secimKutusu,
-                    ...(t.status === "olumlu" ? styles.secimAktifOlumlu : {}),
-                    opacity: duzenlenebilir ? 1 : 0.6,
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={t.status === "olumlu"}
-                    disabled={!duzenlenebilir}
-                    onChange={() => setStatus(t.id, "olumlu")}
-                    style={styles.gizliCheckbox}
-                  />
-                  OLUMLU
-                </label>
-                <label
-                  style={{
-                    ...styles.secimKutusu,
-                    ...(t.status === "olumsuz" ? styles.secimAktifOlumsuz : {}),
-                    opacity: duzenlenebilir ? 1 : 0.6,
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={t.status === "olumsuz"}
-                    disabled={!duzenlenebilir}
-                    onChange={() => setStatus(t.id, "olumsuz")}
-                    style={styles.gizliCheckbox}
-                  />
-                  OLUMSUZ
-                </label>
-              </div>
+
+              {t.tip === "sayisal" && (
+                <div style={styles.sayisalAlanSarmalayici}>
+                  {t.alanlar.map((a, i) => (
+                    <div key={i} style={styles.sayisalAlanTekil}>
+                      <span style={styles.sayisalEtiket}>{a.label}</span>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={3}
+                        placeholder="000"
+                        value={a.deger}
+                        disabled={!duzenlenebilir}
+                        onChange={(e) => setSayisalDeger(t.id, i, e.target.value)}
+                        style={styles.sayisalInput}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {t.tip === "metin" && (
+                <input
+                  type="text"
+                  maxLength={50}
+                  placeholder="Yanıt yazın (en fazla 50 karakter)"
+                  value={t.metinDeger}
+                  disabled={!duzenlenebilir}
+                  onChange={(e) => setMetinDeger(t.id, e.target.value)}
+                  style={styles.metinInput}
+                />
+              )}
+
+              {t.tip === "evethayir" && (
+                <>
+                  <div style={styles.secimSatiri}>
+                    <label
+                      style={{
+                        ...styles.secimKutusu,
+                        ...(t.status === "olumlu" ? styles.secimAktifOlumlu : {}),
+                        opacity: duzenlenebilir ? 1 : 0.6,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={t.status === "olumlu"}
+                        disabled={!duzenlenebilir}
+                        onChange={() => setStatus(t.id, "olumlu")}
+                        style={styles.gizliCheckbox}
+                      />
+                      OLUMLU
+                    </label>
+                    <label
+                      style={{
+                        ...styles.secimKutusu,
+                        ...(t.status === "olumsuz" ? styles.secimAktifOlumsuz : {}),
+                        opacity: duzenlenebilir ? 1 : 0.6,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={t.status === "olumsuz"}
+                        disabled={!duzenlenebilir}
+                        onChange={() => setStatus(t.id, "olumsuz")}
+                        style={styles.gizliCheckbox}
+                      />
+                      OLUMSUZ
+                    </label>
+                  </div>
+
+                  {yorumFotoIzinli && t.status === "olumsuz" && (
+                    <div style={{ marginTop: 10 }}>
+                      <textarea
+                        placeholder="Açıklama girin (zorunlu)"
+                        value={t.aciklama}
+                        disabled={!duzenlenebilir}
+                        onChange={(e) => setAciklama(t.id, e.target.value)}
+                        style={styles.aciklamaAlani}
+                        rows={2}
+                      />
+                      <div style={styles.fotografSatiri}>
+                        <input
+                          ref={(el) => (fileInputRefs.current[t.id] = el)}
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          style={{ display: "none" }}
+                          onChange={(e) => onPhotoSelect(t.id, e.target.files[0])}
+                        />
+                        <button
+                          style={{ ...styles.fotoButon, opacity: duzenlenebilir ? 1 : 0.6 }}
+                          disabled={!duzenlenebilir}
+                          onClick={() => fileInputRefs.current[t.id] && fileInputRefs.current[t.id].click()}
+                        >
+                          {t.photo ? "Fotoğrafı Değiştir" : "📷 Fotoğraf Ekle"}
+                        </button>
+                        {t.photo && (
+                          <div style={styles.fotoOnizlemeSarmalayici}>
+                            <img src={t.photo} alt={`Görev ${t.id} fotoğrafı`} style={styles.fotoOnizleme} />
+                            {duzenlenebilir && (
+                              <button
+                                style={styles.fotoSilButon}
+                                onClick={() => onRemovePhoto(t.id)}
+                                aria-label="Fotoğrafı kaldır"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
               {t.zaman && <div style={styles.zamanNotu}>🕒 İşaretlendi: {t.zaman}</div>}
             </div>
           ))}
@@ -1656,7 +2034,7 @@ function GecmisEkrani({ kayitlar, yukleniyor, onGeri, onPdf, jsPdfHazirMi }) {
         <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 16 }}>
           {kayitlar.map((k, i) => {
             const olumsuz = k.tasks.filter((t) => t.status === "olumsuz").length;
-            const isaretli = k.tasks.filter((t) => t.status).length;
+            const isaretli = k.tasks.filter((t) => gorevTamamMi(t)).length;
             return (
               <div key={i} style={styles.gecmisKarti}>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
@@ -2079,6 +2457,40 @@ const styles = {
     fontWeight: 500,
     lineHeight: 1.4,
     marginBottom: 8,
+  },
+  sayisalAlanSarmalayici: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  sayisalAlanTekil: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+  },
+  sayisalEtiket: {
+    fontSize: 11,
+    color: "#6B7280",
+    fontWeight: 600,
+  },
+  sayisalInput: {
+    width: 76,
+    fontSize: 16,
+    fontWeight: 700,
+    letterSpacing: "0.15em",
+    textAlign: "center",
+    padding: "8px 6px",
+    borderRadius: 8,
+    border: "1.5px solid #E2DCCC",
+    color: "#16323A",
+  },
+  metinInput: {
+    width: "100%",
+    fontSize: 13,
+    padding: "9px 12px",
+    borderRadius: 8,
+    border: "1.5px solid #E2DCCC",
+    color: "#16323A",
   },
   gorevKarti: {
     background: "#fff",
