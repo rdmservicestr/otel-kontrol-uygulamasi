@@ -78,9 +78,6 @@ window.addEventListener("error", function (e) {
   hataGoster((e.message || "Bilinmeyen hata") + "\n" + (e.filename ? (e.filename + ":" + e.lineno) : ""));
 });
 
-// Gerekli kutuphanelerden biri (React/ReactDOM/Babel) aglar tarafindan
-// engellendiyse veya yuklenemediyse, kullanicinin ne oldugunu anlamasi
-// icin acik bir mesaj goster.
 window.addEventListener("load", function () {
   setTimeout(function () {
     var eksikler = [];
@@ -155,6 +152,13 @@ const KULLANICILAR_BASLANGIC = [
     password: "0003",
     name: "Ercan",
     department: "Genel Müdürlük",
+  },
+  {
+    hotelCode: "5555",
+    userCode: "1117",
+    password: "0017",
+    name: "Ayşe",
+    department: "Kat Hizmetleri",
   },
 ];
 
@@ -542,6 +546,91 @@ const DEPARTMAN_YORUM_FOTO_IZINLI = {
   "Gece Müdürü": true,
 };
 
+// Bu departmanlarda kontrol listesi tek bir liste değil, kullanıcının o gün
+// eklediği "kontrol noktalarına" (örn. oda numaraları) göre çoğaltılır.
+// Her kontrol noktası, aşağıdaki KAT_HIZMETLERI_BOLUMLER şablonunun kendi
+// kopyasına sahiptir. Günlük kayıt en fazla ODA_BAZLI_MAX_NOKTA adet
+// kontrol noktası içerebilir.
+const DEPARTMAN_ODA_BAZLI = {
+  "Kat Hizmetleri": true,
+};
+const ODA_BAZLI_MAX_NOKTA = 20;
+const ODA_KODU_UZUNLUGU = 4;
+
+const KAT_HIZMETLERI_BOLUMLER = [
+  {
+    harf: "A",
+    baslik: "Oda İçi",
+    maddeler: [
+      "Kapı numarası",
+      "Kapı kilidi",
+      "Kapı üstü ve kapı arası",
+      "Gardrop içi raflar",
+      "Gardrop içi bukletler",
+      "Yastıklar",
+      "Gardrop kapakları",
+      "Safe",
+      "Klima ayar düğmesi",
+      "Duvarlar",
+      "Tablolar",
+      "Elektrik düğmeleri ve prizleri",
+      "Oda içi aydınlatmalar",
+      "Valizlik",
+      "Ayna",
+      "Tv Ünitesi",
+      "Tv",
+      "Tv kumanda",
+      "Tv kanal listesi",
+      "Mini bar raf",
+      "Mini bar",
+      "Mini bar içi içecekler",
+      "Komidin çekmeceler",
+      "Oda telefon",
+      "Sehpa",
+      "Oda çöp kovası",
+      "Oda zemin",
+      "Perdeler",
+      "Oda yatak, baza",
+    ],
+  },
+  {
+    harf: "B",
+    baslik: "Balkon",
+    maddeler: [
+      "Balkon sandalye ve sehpa",
+      "Küllük",
+      "Balkon duvar, tavan ve zemin",
+      "Balkon kapısı kilidi ve kolu",
+      "Balkon aydınlatma",
+    ],
+  },
+  {
+    harf: "C",
+    baslik: "Banyo",
+    maddeler: [
+      "Banyo zemin",
+      "Banyo telefon",
+      "Fön makinesi",
+      "Banyo armatürleri",
+      "Banyo ayna ve lavabo",
+      "Sabunluk ve diş fırçalık",
+      "Duş başlığı",
+      "Duş kabin cam kapısı",
+      "Bardaklar",
+      "Klozet ve kapağı",
+      "WC fırça",
+      "Sifon",
+      "Havlular",
+      "Duşakabin zemin ve Küvet gideri",
+      "Banyo duvarları ve aksesuarlar",
+      "Kapı kilidi ve kapı üzeri",
+      "Buklet malzemeler",
+      "Banyo çöp kovası",
+      "Banyo havalandırma fanı",
+    ],
+  },
+];
+
 // Bir departmanın toplam kontrol noktası sayısını döner (bölümlü ya da düz fark etmez).
 function departmanToplamMaddeSayisi(department) {
   if (DEPARTMAN_BOLUMLERI[department]) {
@@ -552,10 +641,10 @@ function departmanToplamMaddeSayisi(department) {
 
 // Bölümlü bir departman için düz (flat) görev dizisi üretir; her göreve
 // hangi bölüme ait olduğu bilgisini (bolum harfi + başlığı) ekler.
-function bolumluGorevleriOlustur(department) {
+function bolumlerdenGorevOlustur(bolumler) {
   const gorevler = [];
   let sayac = 1;
-  DEPARTMAN_BOLUMLERI[department].forEach((bolum) => {
+  bolumler.forEach((bolum) => {
     bolum.maddeler.forEach((madde) => {
       const isObj = typeof madde === "object" && madde !== null;
       const tip = isObj ? madde.tip || "evethayir" : "evethayir";
@@ -584,6 +673,10 @@ function bolumluGorevleriOlustur(department) {
   return gorevler;
 }
 
+function bolumluGorevleriOlustur(department) {
+  return bolumlerdenGorevOlustur(DEPARTMAN_BOLUMLERI[department]);
+}
+
 // Bir görevin "tamamlandı" sayılıp sayılmayacağını, madde tipine göre belirler:
 // - evethayir: OLUMLU/OLUMSUZ işaretlenmiş olması yeterli
 // - sayisal: tüm alt alanlara değer girilmiş olması gerekir
@@ -596,6 +689,25 @@ function gorevTamamMi(t) {
     return !!(t.metinDeger && t.metinDeger.trim() !== "");
   }
   return !!t.status;
+}
+
+// Bir günlük kaydın toplam "tamamlanan" ve "toplam" madde sayısını döner.
+// Oda bazlı departmanlarda (record.odalar) tüm odalardaki maddeler toplanır;
+// diğerlerinde doğrudan record.tasks kullanılır.
+function kayitTamamlananSayisi(record) {
+  if (!record) return 0;
+  if (record.odalar) {
+    return record.odalar.reduce((t, o) => t + o.gorevler.filter((g) => gorevTamamMi(g)).length, 0);
+  }
+  return (record.tasks || []).filter((t) => gorevTamamMi(t)).length;
+}
+
+function kayitToplamMaddeSayisi(record) {
+  if (!record) return 0;
+  if (record.odalar) {
+    return record.odalar.reduce((t, o) => t + o.gorevler.length, 0);
+  }
+  return (record.tasks || []).length;
 }
 
 // Belirli bir departmanın belirli bir maddesi için saatli hatırlatma tanımı.
@@ -649,7 +761,7 @@ const BACKEND_URL = "";
 // Telegram bot ile hatırlatma bildirimleri.
 // BotFather'dan aldığınız token'ı aşağıdaki tırnakların arasına yapıştırın.
 // Chat ID zaten dolduruldu (Önbüro vardiya grubunuz).
-const TELEGRAM_BOT_TOKEN = "8997880278:AAHtBUbPYf397JvkOMVcMHJCrrKZv0gJ6fc"; // örn: "123456789:AAExxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+const TELEGRAM_BOT_TOKEN = ""; // örn: "123456789:AAExxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 const TELEGRAM_CHAT_ID = "-5518045511";
 
 /* ------------------------------------------------------------------
@@ -879,13 +991,17 @@ function App() {
     const tarih = bugunTarihi();
     const key = `checklist:${user.hotelCode}:${user.department}:${tarih}`;
     const mevcut = await safeGet(key, true);
-    const guncelMaddeSayisi = departmanToplamMaddeSayisi(user.department);
+    const odaBazliMi = !!DEPARTMAN_ODA_BAZLI[user.department];
 
     if (mevcut) {
       const veri = JSON.parse(mevcut.value);
-      const eskiListeyleUyumsuz = !veri.tasks || veri.tasks.length !== guncelMaddeSayisi;
-      if (!eskiListeyleUyumsuz) {
-        veri.tasks = veri.tasks.map((t) => ({ zaman: null, ...t }));
+      const uyumlu = odaBazliMi
+        ? Array.isArray(veri.odalar)
+        : veri.tasks && veri.tasks.length === departmanToplamMaddeSayisi(user.department);
+      if (uyumlu) {
+        if (!odaBazliMi) {
+          veri.tasks = veri.tasks.map((t) => ({ zaman: null, ...t }));
+        }
         veri.remindedTasks = veri.remindedTasks || [];
         setRecord(veri);
         setKayitYukleniyor(false);
@@ -895,6 +1011,29 @@ function App() {
       // eski kayıt yeni şablona göre sıfırdan oluşturuluyor.
     }
 
+    const temelKayit = {
+      key,
+      date: tarih,
+      hotelCode: user.hotelCode,
+      hotelName: user.hotelName,
+      department: user.department,
+      userCode: user.userCode,
+      userName: user.name,
+      remindedTasks: [],
+      tamamlandiMi: false,
+      tamamlanmaZamani: null,
+      sonGuncelleme: new Date().toISOString(),
+    };
+
+    if (odaBazliMi) {
+      // Oda bazlı departmanlarda her gün boş bir "kontrol noktası" listesiyle
+      // başlanır; kullanıcı o gün hangi odaları kontrol edecekse kendisi ekler.
+      setRecord({ ...temelKayit, odalar: [] });
+      setKayitYukleniyor(false);
+      return;
+    }
+
+    const guncelMaddeSayisi = departmanToplamMaddeSayisi(user.department);
     if (guncelMaddeSayisi === 0) {
       setRecord(null);
       setKayitYukleniyor(false);
@@ -912,20 +1051,7 @@ function App() {
           photo: null,
         }));
 
-    setRecord({
-      key,
-      date: tarih,
-      hotelCode: user.hotelCode,
-      hotelName: user.hotelName,
-      department: user.department,
-      userCode: user.userCode,
-      userName: user.name,
-      tasks: yeniTasks,
-      remindedTasks: [],
-      tamamlandiMi: false,
-      tamamlanmaZamani: null,
-      sonGuncelleme: new Date().toISOString(),
-    });
+    setRecord({ ...temelKayit, tasks: yeniTasks });
     setKayitYukleniyor(false);
   }
 
@@ -952,7 +1078,7 @@ function App() {
   // sekmesinde) çalışır; tarayıcı tamamen kapalıyken gerçek bir OS alarmı
   // gibi çalışmaz (bunun için sunucu taraflı push bildirimi gerekir).
   useEffect(() => {
-    if (!record) return;
+    if (!record || !record.tasks) return;
     const hatirlatmalar = HATIRLATMALAR[record.department];
     if (!hatirlatmalar) return;
     const zatenBildirilenler = record.remindedTasks || [];
@@ -1028,6 +1154,85 @@ function App() {
     }));
   }
 
+  // --- Oda bazlı (Kat Hizmetleri) departmanlar için ---
+
+  function odaEkle(odaKodu) {
+    setRecord((prev) => {
+      const mevcutOdalar = prev.odalar || [];
+      if (mevcutOdalar.length >= ODA_BAZLI_MAX_NOKTA) return prev;
+      if (mevcutOdalar.some((o) => o.oda === odaKodu)) return prev;
+      const yeniOda = {
+        oda: odaKodu,
+        gorevler: bolumlerdenGorevOlustur(KAT_HIZMETLERI_BOLUMLER),
+      };
+      return { ...prev, odalar: [...mevcutOdalar, yeniOda] };
+    });
+  }
+
+  function odaGorevDurumAyarla(odaKodu, gorevId, status) {
+    setRecord((prev) => ({
+      ...prev,
+      odalar: prev.odalar.map((o) => {
+        if (o.oda !== odaKodu) return o;
+        return {
+          ...o,
+          gorevler: o.gorevler.map((g) => {
+            if (g.id !== gorevId) return g;
+            const yeniDurum = g.status === status ? null : status;
+            return {
+              ...g,
+              status: yeniDurum,
+              zaman: yeniDurum ? new Date().toLocaleTimeString("tr-TR", { hour12: false }) : null,
+            };
+          }),
+        };
+      }),
+    }));
+  }
+
+  function odaGorevAciklamaAyarla(odaKodu, gorevId, value) {
+    setRecord((prev) => ({
+      ...prev,
+      odalar: prev.odalar.map((o) =>
+        o.oda !== odaKodu
+          ? o
+          : { ...o, gorevler: o.gorevler.map((g) => (g.id === gorevId ? { ...g, aciklama: value } : g)) }
+      ),
+    }));
+  }
+
+  function odaGorevFotoAyarla(odaKodu, gorevId, dataUrl) {
+    setRecord((prev) => ({
+      ...prev,
+      odalar: prev.odalar.map((o) =>
+        o.oda !== odaKodu
+          ? o
+          : { ...o, gorevler: o.gorevler.map((g) => (g.id === gorevId ? { ...g, photo: dataUrl } : g)) }
+      ),
+    }));
+  }
+
+  function handleOdaFotoSecildi(odaKodu, gorevId, file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const maxW = 700;
+        const scale = Math.min(1, maxW / img.width);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.6);
+        odaGorevFotoAyarla(odaKodu, gorevId, dataUrl);
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
   function removePhoto(id) {
     setRecord((prev) => ({
       ...prev,
@@ -1072,8 +1277,8 @@ function App() {
       await window.storage.set(guncel.key, JSON.stringify(guncel), true);
       setRecord(guncel);
       setTamamlandiMesaji(true);
-      const isaretliSayisi = guncel.tasks.filter((t) => gorevTamamMi(t)).length;
-      toastGoster(`✓ Kaydedildi — ${isaretliSayisi}/${guncel.tasks.length} madde işaretli`);
+      const isaretliSayisi = kayitTamamlananSayisi(guncel);
+      toastGoster(`✓ Kaydedildi — ${isaretliSayisi}/${kayitToplamMaddeSayisi(guncel)} madde işaretli`);
       setTimeout(() => setTamamlandiMesaji(false), 2500);
     } catch (e) {
       setListeHatasi("Kaydetme sırasında bir hata oluştu. Lütfen tekrar deneyin.");
@@ -1180,7 +1385,7 @@ function App() {
     doc.text(`Durum: ${durumYazi}`, margin, y);
     y += 26;
 
-    kayit.tasks.forEach((t) => {
+    function gorevYaz(t) {
       if (y + 40 > pageHeight - margin) {
         doc.addPage();
         y = margin;
@@ -1232,7 +1437,27 @@ function App() {
         y += 112;
       }
       y += 8;
-    });
+    }
+
+    if (kayit.odalar) {
+      kayit.odalar.forEach((oda) => {
+        if (y + 30 > pageHeight - margin) {
+          doc.addPage();
+          y = margin;
+        }
+        doc.setFont(fontAdi, "bold");
+        doc.setFontSize(13);
+        doc.text(`Oda ${oda.oda}`, margin, y);
+        y += 8;
+        doc.setDrawColor(200, 200, 200);
+        doc.line(margin, y, pageWidth - margin, y);
+        y += 14;
+        oda.gorevler.forEach(gorevYaz);
+        y += 10;
+      });
+    } else {
+      kayit.tasks.forEach(gorevYaz);
+    }
 
     return doc;
   }
@@ -1324,8 +1549,8 @@ function App() {
   }
 
   const durum = pencereDurumu();
-  const tamamlanan = record ? record.tasks.filter((t) => gorevTamamMi(t)).length : 0;
-  const toplamMadde = record ? record.tasks.length : 0;
+  const tamamlanan = kayitTamamlananSayisi(record);
+  const toplamMadde = kayitToplamMaddeSayisi(record);
   const duzenlenebilir = durum === "aktif";
 
   return (
@@ -1402,6 +1627,11 @@ function App() {
             setMetinDeger={setMetinDeger}
             onPhotoSelect={handlePhotoSelect}
             onRemovePhoto={removePhoto}
+            onOdaEkle={odaEkle}
+            onOdaGorevDurum={odaGorevDurumAyarla}
+            onOdaGorevAciklama={odaGorevAciklamaAyarla}
+            onOdaFotoSecildi={handleOdaFotoSecildi}
+            onOdaFotoSil={(odaKodu, gorevId) => odaGorevFotoAyarla(odaKodu, gorevId, null)}
             onBitir={handleBitir}
             onGeri={() => setScreen("home")}
             fileInputRefs={fileInputRefs}
@@ -1671,6 +1901,11 @@ function KontrolListesiEkrani({
   setMetinDeger,
   onPhotoSelect,
   onRemovePhoto,
+  onOdaEkle,
+  onOdaGorevDurum,
+  onOdaGorevAciklama,
+  onOdaFotoSecildi,
+  onOdaFotoSil,
   onBitir,
   onGeri,
   fileInputRefs,
@@ -1678,7 +1913,9 @@ function KontrolListesiEkrani({
   const bolumler = DEPARTMAN_BOLUMLERI[user.department];
   const otomatikKapat = !!DEPARTMAN_OTOMATIK_KAPAT[user.department];
   const yorumFotoIzinli = !!DEPARTMAN_YORUM_FOTO_IZINLI[user.department];
+  const odaBazliMi = !!DEPARTMAN_ODA_BAZLI[user.department];
   const kullaniciLogosu = KULLANICI_LOGOLARI[user.userCode];
+  const toplamMaddeSayisi = kayitToplamMaddeSayisi(record);
 
   if (!record) {
     return (
@@ -1704,7 +1941,7 @@ function KontrolListesiEkrani({
             {user.department} Kontrol Listesi
           </div>
           <div style={styles.ilerlemeYazi}>
-            {tamamlanan} / {record.tasks.length} madde işaretlendi
+            {tamamlanan} / {toplamMaddeSayisi} madde işaretlendi
             {!duzenlenebilir && "  ·  Süre doldu, salt okunur"}
           </div>
         </div>
@@ -1714,7 +1951,7 @@ function KontrolListesiEkrani({
         <div
           style={{
             ...styles.ilerlemeDoluluk,
-            width: `${(tamamlanan / record.tasks.length) * 100}%`,
+            width: `${toplamMaddeSayisi > 0 ? (tamamlanan / toplamMaddeSayisi) * 100 : 0}%`,
           }}
         />
       </div>
@@ -1731,7 +1968,18 @@ function KontrolListesiEkrani({
           />
         )}
 
-        {bolumler ? (
+        {odaBazliMi ? (
+          <OdaBazliKontrolListesi
+            record={record}
+            duzenlenebilir={duzenlenebilir}
+            onOdaEkle={onOdaEkle}
+            onOdaGorevDurum={onOdaGorevDurum}
+            onOdaGorevAciklama={onOdaGorevAciklama}
+            onOdaFotoSecildi={onOdaFotoSecildi}
+            onOdaFotoSil={onOdaFotoSil}
+            fileInputRefs={fileInputRefs}
+          />
+        ) : bolumler ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 14, position: "relative", zIndex: 1 }}>
           {bolumler.map((b) => (
             <BolumKarti
@@ -1894,6 +2142,276 @@ function KontrolListesiEkrani({
 // Tıklanınca açılır/kapanır; bölümdeki tüm maddeler tamamlanınca başlık
 // yeşile döner. otomatikKapat true ise, tamamlandığında akordiyon kendiliğinden
 // kapanır. Madde tipine göre (evethayir/sayisal/metin) farklı giriş alanı gösterir.
+// Oda bazlı (Kat Hizmetleri) departmanlar için "Kontrol Noktası" alanı.
+// "+" ile yeni bir kontrol noktası (oda kodu) eklenir; her kod bir çip olarak
+// görünür, çipe tıklanınca o odanın A/B/C bölümlü kontrol listesi açılır.
+function OdaBazliKontrolListesi({
+  record,
+  duzenlenebilir,
+  onOdaEkle,
+  onOdaGorevDurum,
+  onOdaGorevAciklama,
+  onOdaFotoSecildi,
+  onOdaFotoSil,
+  fileInputRefs,
+}) {
+  const [yeniOdaAcik, setYeniOdaAcik] = useState(false);
+  const [yeniOdaDegeri, setYeniOdaDegeri] = useState("");
+  const [acikOda, setAcikOda] = useState(null);
+
+  const odalar = record.odalar || [];
+  const maxaUlasildi = odalar.length >= ODA_BAZLI_MAX_NOKTA;
+
+  function odaEkleOnayla() {
+    if (yeniOdaDegeri.length !== ODA_KODU_UZUNLUGU) return;
+    onOdaEkle(yeniOdaDegeri);
+    setYeniOdaDegeri("");
+    setYeniOdaAcik(false);
+    setAcikOda(yeniOdaDegeri);
+  }
+
+  return (
+    <div>
+      <div style={styles.kontrolNoktasiBaslik}>
+        Kontrol noktası ({odalar.length}/{ODA_BAZLI_MAX_NOKTA})
+      </div>
+
+      <div style={styles.odaCipSarmalayici}>
+        {odalar.map((oda) => {
+          const tamamlanan = oda.gorevler.filter((g) => gorevTamamMi(g)).length;
+          const tumuTamam = tamamlanan === oda.gorevler.length;
+          return (
+            <button
+              key={oda.oda}
+              style={{
+                ...styles.odaCip,
+                ...(acikOda === oda.oda ? styles.odaCipAktif : {}),
+                ...(tumuTamam ? styles.odaCipTamam : {}),
+              }}
+              onClick={() => setAcikOda(acikOda === oda.oda ? null : oda.oda)}
+            >
+              {oda.oda}
+            </button>
+          );
+        })}
+
+        {duzenlenebilir && !maxaUlasildi && !yeniOdaAcik && (
+          <button style={styles.odaArtiButon} onClick={() => setYeniOdaAcik(true)} aria-label="Kontrol noktası ekle">
+            +
+          </button>
+        )}
+      </div>
+
+      {yeniOdaAcik && (
+        <div style={styles.odaEkleKutusu}>
+          <input
+            type="text"
+            inputMode="numeric"
+            maxLength={ODA_KODU_UZUNLUGU}
+            placeholder="0000"
+            value={yeniOdaDegeri}
+            autoFocus
+            onChange={(e) => setYeniOdaDegeri(e.target.value.replace(/\D/g, "").slice(0, ODA_KODU_UZUNLUGU))}
+            style={styles.odaEkleInput}
+          />
+          <button
+            style={styles.odaEkleOnayButon}
+            disabled={yeniOdaDegeri.length !== ODA_KODU_UZUNLUGU}
+            onClick={odaEkleOnayla}
+          >
+            Ekle
+          </button>
+          <button
+            style={styles.odaEkleIptalButon}
+            onClick={() => {
+              setYeniOdaAcik(false);
+              setYeniOdaDegeri("");
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {odalar.length === 0 && !yeniOdaAcik && (
+        <div style={styles.bilgiKutusu}>
+          Henüz bir kontrol noktası eklenmedi. Başlamak için "+" düğmesine dokunup oda numarasını girin.
+        </div>
+      )}
+
+      {odalar
+        .filter((oda) => oda.oda === acikOda)
+        .map((oda) => (
+          <OdaKarti
+            key={oda.oda}
+            oda={oda}
+            duzenlenebilir={duzenlenebilir}
+            onOdaGorevDurum={onOdaGorevDurum}
+            onOdaGorevAciklama={onOdaGorevAciklama}
+            onOdaFotoSecildi={onOdaFotoSecildi}
+            onOdaFotoSil={onOdaFotoSil}
+            fileInputRefs={fileInputRefs}
+          />
+        ))}
+    </div>
+  );
+}
+
+// Tek bir kontrol noktasının (odanın) A/B/C bölümlü kontrol listesi.
+// Bölüm başlıkları kendi içinde akordiyon; bir maddenin başlığına tıklanınca
+// OLUMLU/OLUMSUZ seçenekleri açılır — aynı anda yalnızca bir madde açık kalır.
+function OdaKarti({ oda, duzenlenebilir, onOdaGorevDurum, onOdaGorevAciklama, onOdaFotoSecildi, onOdaFotoSil, fileInputRefs }) {
+  const [acikBolumler, setAcikBolumler] = useState({});
+  const [acikGorevId, setAcikGorevId] = useState(null);
+
+  function bolumAcKapat(harf) {
+    setAcikBolumler((prev) => ({ ...prev, [harf]: !prev[harf] }));
+  }
+
+  return (
+    <div style={styles.odaKartiSarmalayici}>
+      <div style={styles.odaKartiBaslik}>Oda {oda.oda} — Kontrol Listesi</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {KAT_HIZMETLERI_BOLUMLER.map((b) => {
+          const bolumGorevleri = oda.gorevler.filter((g) => g.bolum === b.harf);
+          const tamamlanan = bolumGorevleri.filter((g) => gorevTamamMi(g)).length;
+          const tumuTamam = tamamlanan === bolumGorevleri.length;
+          const acik = !!acikBolumler[b.harf];
+          return (
+            <div key={b.harf} style={styles.gmBolumKarti}>
+              <button
+                style={{ ...styles.gmBolumBaslik, ...(tumuTamam ? styles.gmBolumBaslikTamam : {}) }}
+                onClick={() => bolumAcKapat(b.harf)}
+              >
+                <span
+                  style={{ ...styles.gmBolumHarfRozeti, ...(tumuTamam ? styles.gmBolumHarfRozetiTamam : {}) }}
+                >
+                  {b.harf}
+                </span>
+                <span style={styles.gmBolumBaslikMetin}>{b.baslik}</span>
+                <span style={styles.gmBolumSayac}>
+                  {tamamlanan}/{bolumGorevleri.length}
+                </span>
+                <span style={styles.gmBolumOk}>{acik ? "▲" : "▼"}</span>
+              </button>
+
+              {acik && (
+                <div style={styles.gmMaddeListesi}>
+                  {bolumGorevleri.map((g) => {
+                    const gorevAcik = acikGorevId === g.id;
+                    const refAnahtari = `${oda.oda}-${g.id}`;
+                    return (
+                      <div key={g.id} style={styles.gmMadde}>
+                        <button
+                          style={{
+                            ...styles.odaMaddeBaslikButon,
+                            color: g.status ? "#2F7D5C" : "#16323A",
+                          }}
+                          onClick={() => setAcikGorevId(gorevAcik ? null : g.id)}
+                        >
+                          {g.id}. {g.text}
+                        </button>
+
+                        {gorevAcik && (
+                          <div style={{ marginTop: 8 }}>
+                            <div style={styles.secimSatiri}>
+                              <label
+                                style={{
+                                  ...styles.secimKutusu,
+                                  ...(g.status === "olumlu" ? styles.secimAktifOlumlu : {}),
+                                  opacity: duzenlenebilir ? 1 : 0.6,
+                                }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={g.status === "olumlu"}
+                                  disabled={!duzenlenebilir}
+                                  onChange={() => onOdaGorevDurum(oda.oda, g.id, "olumlu")}
+                                  style={styles.gizliCheckbox}
+                                />
+                                OLUMLU
+                              </label>
+                              <label
+                                style={{
+                                  ...styles.secimKutusu,
+                                  ...(g.status === "olumsuz" ? styles.secimAktifOlumsuz : {}),
+                                  opacity: duzenlenebilir ? 1 : 0.6,
+                                }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={g.status === "olumsuz"}
+                                  disabled={!duzenlenebilir}
+                                  onChange={() => onOdaGorevDurum(oda.oda, g.id, "olumsuz")}
+                                  style={styles.gizliCheckbox}
+                                />
+                                OLUMSUZ
+                              </label>
+                            </div>
+
+                            {g.status === "olumsuz" && (
+                              <textarea
+                                placeholder="Açıklama girin (zorunlu)"
+                                value={g.aciklama}
+                                disabled={!duzenlenebilir}
+                                onChange={(e) => onOdaGorevAciklama(oda.oda, g.id, e.target.value)}
+                                style={styles.aciklamaAlani}
+                                rows={2}
+                              />
+                            )}
+
+                            {g.status && (
+                              <div style={styles.fotografSatiri}>
+                                <input
+                                  ref={(el) => (fileInputRefs.current[refAnahtari] = el)}
+                                  type="file"
+                                  accept="image/*"
+                                  capture="environment"
+                                  style={{ display: "none" }}
+                                  onChange={(e) => onOdaFotoSecildi(oda.oda, g.id, e.target.files[0])}
+                                />
+                                <button
+                                  style={{ ...styles.fotoButon, opacity: duzenlenebilir ? 1 : 0.6 }}
+                                  disabled={!duzenlenebilir}
+                                  onClick={() =>
+                                    fileInputRefs.current[refAnahtari] && fileInputRefs.current[refAnahtari].click()
+                                  }
+                                >
+                                  {g.photo ? "Fotoğrafı Değiştir" : "📷 Fotoğraf Ekle"}
+                                </button>
+                                {g.photo && (
+                                  <div style={styles.fotoOnizlemeSarmalayici}>
+                                    <img src={g.photo} alt={`Görev ${g.id} fotoğrafı`} style={styles.fotoOnizleme} />
+                                    {duzenlenebilir && (
+                                      <button
+                                        style={styles.fotoSilButon}
+                                        onClick={() => onOdaFotoSil(oda.oda, g.id)}
+                                        aria-label="Fotoğrafı kaldır"
+                                      >
+                                        ✕
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {g.zaman && <div style={styles.zamanNotu}>🕒 İşaretlendi: {g.zaman}</div>}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function BolumKarti({
   bolum,
   tasks,
@@ -2097,8 +2615,10 @@ function GecmisEkrani({ kayitlar, yukleniyor, onGeri, onPdf, jsPdfHazirMi }) {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 16 }}>
           {kayitlar.map((k, i) => {
-            const olumsuz = k.tasks.filter((t) => t.status === "olumsuz").length;
-            const isaretli = k.tasks.filter((t) => gorevTamamMi(t)).length;
+            const tumGorevler = k.odalar ? k.odalar.flatMap((o) => o.gorevler) : k.tasks || [];
+            const olumsuz = tumGorevler.filter((t) => t.status === "olumsuz").length;
+            const isaretli = kayitTamamlananSayisi(k);
+            const toplamMadde = kayitToplamMaddeSayisi(k);
             return (
               <div key={i} style={styles.gecmisKarti}>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
@@ -2106,7 +2626,8 @@ function GecmisEkrani({ kayitlar, yukleniyor, onGeri, onPdf, jsPdfHazirMi }) {
                   <span style={{ fontSize: 12, color: "#6B7280" }}>{k.userName}</span>
                 </div>
                 <div style={{ fontSize: 12, color: "#6B7280", marginTop: 4 }}>
-                  {isaretli}/{k.tasks.length} madde · {k.tamamlandiMi ? "Tamamlandı" : "Süre içinde tamamlanmadı"}
+                  {isaretli}/{toplamMadde} madde · {k.tamamlandiMi ? "Tamamlandı" : "Süre içinde tamamlanmadı"}
+                  {k.odalar ? ` · ${k.odalar.length} kontrol noktası` : ""}
                 </div>
                 <div
                   style={{
@@ -2547,6 +3068,116 @@ const styles = {
     fontWeight: 500,
     lineHeight: 1.4,
     marginBottom: 8,
+  },
+  kontrolNoktasiBaslik: {
+    fontSize: 13,
+    fontWeight: 700,
+    color: "#16323A",
+    marginTop: 14,
+    marginBottom: 8,
+  },
+  odaCipSarmalayici: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 8,
+    alignItems: "center",
+  },
+  odaCip: {
+    padding: "9px 16px",
+    borderRadius: 999,
+    border: "1.5px solid #E2DCCC",
+    background: "#fff",
+    color: "#16323A",
+    fontSize: 13,
+    fontWeight: 700,
+    letterSpacing: "0.05em",
+    cursor: "pointer",
+  },
+  odaCipAktif: {
+    borderColor: "#16323A",
+    background: "#16323A",
+    color: "#fff",
+  },
+  odaCipTamam: {
+    borderColor: "#2F7D5C",
+    background: "#2F7D5C",
+    color: "#fff",
+  },
+  odaArtiButon: {
+    width: 38,
+    height: 38,
+    borderRadius: "50%",
+    border: "1.5px dashed #B08D3E",
+    background: "#FBF7EC",
+    color: "#8A6A22",
+    fontSize: 18,
+    fontWeight: 700,
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  odaEkleKutusu: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 10,
+    background: "#fff",
+    border: "1px solid #E2DCCC",
+    borderRadius: 12,
+    padding: 10,
+  },
+  odaEkleInput: {
+    width: 90,
+    fontSize: 18,
+    fontWeight: 700,
+    letterSpacing: "0.25em",
+    textAlign: "center",
+    padding: "8px 6px",
+    borderRadius: 8,
+    border: "1.5px solid #E2DCCC",
+    color: "#16323A",
+  },
+  odaEkleOnayButon: {
+    padding: "9px 14px",
+    borderRadius: 8,
+    border: "none",
+    background: "#16323A",
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  odaEkleIptalButon: {
+    padding: "9px 12px",
+    borderRadius: 8,
+    border: "1px solid #E2DCCC",
+    background: "#fff",
+    color: "#6B7280",
+    fontSize: 13,
+    cursor: "pointer",
+  },
+  odaKartiSarmalayici: {
+    marginTop: 14,
+    paddingTop: 14,
+    borderTop: "1px dashed #E2DCCC",
+  },
+  odaKartiBaslik: {
+    fontSize: 14,
+    fontWeight: 700,
+    color: "#16323A",
+    marginBottom: 10,
+  },
+  odaMaddeBaslikButon: {
+    width: "100%",
+    textAlign: "left",
+    border: "none",
+    background: "transparent",
+    padding: 0,
+    fontSize: 13,
+    fontWeight: 600,
+    lineHeight: 1.4,
+    cursor: "pointer",
   },
   sayisalAlanSarmalayici: {
     display: "flex",
