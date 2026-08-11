@@ -232,6 +232,47 @@ const DEPARTMAN_LISTELERI = {
   ],
 };
 
+// DEPARTMAN_LISTELERI her zaman "fabrika ayarları" (kod içindeki sabit
+// tanımlar) olarak kalır. Uygulama, çalışma zamanında Genel Müdür
+// kullanıcılarının ekleyip düzenlediği departmanları/maddeleri de
+// içerebilen BU kopyayı kullanır. Sayfa açıldığında kalıcı depodan
+// (ozeldept: anahtarlarından) güncellenir.
+let DEPARTMAN_LISTELERI_CALISMA = JSON.parse(JSON.stringify(DEPARTMAN_LISTELERI));
+
+// Kalıcı depoda saklı, GM tarafından oluşturulmuş/düzenlenmiş tüm düz
+// (satır bazlı) departman şablonlarını yükler ve çalışma kopyasına işler.
+async function ozelDepartmanlariYukle() {
+  try {
+    const liste = await window.storage.list("ozeldept:", true);
+    const keys = (liste && liste.keys) || [];
+    for (const k of keys) {
+      const r = await safeGet(k, true);
+      if (r) {
+        try {
+          const departman = k.slice("ozeldept:".length);
+          DEPARTMAN_LISTELERI_CALISMA[departman] = JSON.parse(r.value);
+        } catch (e) {}
+      }
+    }
+  } catch (e) {}
+}
+
+async function ozelDepartmanKaydet(departman, maddeler) {
+  await window.storage.set(`ozeldept:${departman}`, JSON.stringify(maddeler), true);
+  DEPARTMAN_LISTELERI_CALISMA[departman] = maddeler;
+}
+
+// Tüm departman adlarını (düz + bölümlü + oda bazlı) tek bir listede döner.
+function tumDepartmanAdlari() {
+  return [
+    ...new Set([
+      ...Object.keys(DEPARTMAN_LISTELERI_CALISMA),
+      ...Object.keys(DEPARTMAN_BOLUMLERI || {}),
+      ...Object.keys(DEPARTMAN_ODA_BAZLI || {}),
+    ]),
+  ].filter((d) => d !== "Admin");
+}
+
 // Bölümlü (akordiyon) kontrol listeleri. Normal DEPARTMAN_LISTELERI'nden
 // farklı olarak burada her departman, HARF başlıklı bölümlere ayrılır.
 // Bir bölüme tıklanınca altındaki rakamsal maddeler açılır/kapanır.
@@ -671,7 +712,7 @@ function departmanToplamMaddeSayisi(department) {
   if (DEPARTMAN_BOLUMLERI[department]) {
     return DEPARTMAN_BOLUMLERI[department].reduce((toplam, b) => toplam + b.maddeler.length, 0);
   }
-  return (DEPARTMAN_LISTELERI[department] || []).length;
+  return (DEPARTMAN_LISTELERI_CALISMA[department] || []).length;
 }
 
 // Bölümlü bir departman için düz (flat) görev dizisi üretir; her göreve
@@ -796,7 +837,7 @@ const BACKEND_URL = "";
 // Telegram bot ile hatırlatma bildirimleri.
 // BotFather'dan aldığınız token'ı aşağıdaki tırnakların arasına yapıştırın.
 // Chat ID zaten dolduruldu (Önbüro vardiya grubunuz).
-const TELEGRAM_BOT_TOKEN = "8997880278:AAHtBUbPYf397JvkOMVcMHJCrrKZv0gJ6fc"; // örn: "123456789:AAExxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+const TELEGRAM_BOT_TOKEN = ""; // örn: "123456789:AAExxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 const TELEGRAM_CHAT_ID = "-5518045511";
 
 /* ------------------------------------------------------------------
@@ -936,6 +977,53 @@ function App() {
     Notification.requestPermission().then((sonuc) => setBildirimDurumu(sonuc));
   }
 
+  // --- Genel Müdür yönetim yetkileri: departman / kullanıcı / kontrol satırı ---
+  // Kullanıcı oluşturma ve özet ekranı DAİMA çağıran GM'in kendi otel koduna
+  // (hotelCode) kilitlenir; başka bir otelin kullanıcılarına erişilemez.
+
+  async function departmanOlustur(ad) {
+    const temiz = ad.trim();
+    if (!temiz) throw new Error("Departman adı boş olamaz.");
+    if (tumDepartmanAdlari().includes(temiz)) {
+      throw new Error("Bu departman adı zaten kullanılıyor.");
+    }
+    await ozelDepartmanKaydet(temiz, []);
+  }
+
+  async function yeniKullaniciOlustur({ hotelCode, userCode, password, name, department }) {
+    if (userCode.length !== 4 || password.length !== 4) {
+      throw new Error("Kullanıcı kodu ve şifre 4 haneli olmalıdır.");
+    }
+    if (!name.trim()) throw new Error("İsim boş olamaz.");
+    const mevcut = await safeGet(`users:${hotelCode}:${userCode}`, true);
+    if (mevcut) throw new Error("Bu kullanıcı kodu bu otelde zaten kullanılıyor.");
+    await window.storage.set(
+      `users:${hotelCode}:${userCode}`,
+      JSON.stringify({ hotelCode, userCode, password, name: name.trim(), department }),
+      true
+    );
+  }
+
+  async function kontrolSatiriEkle(departman, metin) {
+    const temiz = metin.trim();
+    if (!temiz) throw new Error("Madde metni boş olamaz.");
+    const guncel = [...(DEPARTMAN_LISTELERI_CALISMA[departman] || []), temiz];
+    await ozelDepartmanKaydet(departman, guncel);
+  }
+
+  async function kontrolSatiriDuzenle(departman, index, metin) {
+    const temiz = metin.trim();
+    if (!temiz) throw new Error("Madde metni boş olamaz.");
+    const guncel = [...DEPARTMAN_LISTELERI_CALISMA[departman]];
+    guncel[index] = temiz;
+    await ozelDepartmanKaydet(departman, guncel);
+  }
+
+  async function kontrolSatiriSil(departman, index) {
+    const guncel = DEPARTMAN_LISTELERI_CALISMA[departman].filter((_, i) => i !== index);
+    await ozelDepartmanKaydet(departman, guncel);
+  }
+
   // Her ekranda görünen, kısa süreli onay mesajı (örn. "Kaydedildi")
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
@@ -974,6 +1062,7 @@ function App() {
       if (!mevcut)
         await window.storage.set(`users:${u.hotelCode}:${u.userCode}`, JSON.stringify(u), true);
     }
+    await ozelDepartmanlariYukle();
     setHazirlaniyor(false);
   }
 
@@ -1122,7 +1211,7 @@ function App() {
 
     const yeniTasks = DEPARTMAN_BOLUMLERI[user.department]
       ? bolumluGorevleriOlustur(user.department)
-      : DEPARTMAN_LISTELERI[user.department].map((text, i) => ({
+      : DEPARTMAN_LISTELERI_CALISMA[user.department].map((text, i) => ({
           id: i + 1,
           text,
           status: null,
@@ -1747,6 +1836,7 @@ function App() {
             bildirimDurumu={bildirimDurumu}
             onBildirimIzniIste={bildirimIzniIste}
             onGorevAta={() => setScreen("gorevAta")}
+            onGMYonetim={() => setScreen("gmYonetim")}
             bekleyenGorevler={bekleyenGorevler}
             onGorevKabul={gorevKabulEt}
           />
@@ -1787,6 +1877,17 @@ function App() {
           <AdminEkrani onCikis={handleLogout} />
         ) : screen === "gorevAta" ? (
           <GorevAtaEkrani user={currentUser} onGeri={() => setScreen("home")} toastGoster={toastGoster} />
+        ) : screen === "gmYonetim" ? (
+          <GMYonetimEkrani
+            user={currentUser}
+            onGeri={() => setScreen("home")}
+            toastGoster={toastGoster}
+            onDepartmanOlustur={departmanOlustur}
+            onKullaniciOlustur={yeniKullaniciOlustur}
+            onSatirEkle={kontrolSatiriEkle}
+            onSatirDuzenle={kontrolSatiriDuzenle}
+            onSatirSil={kontrolSatiriSil}
+          />
         ) : null}
 
         {toast && !pdfLinkUrl && <div style={styles.toastMesaj}>{toast}</div>}
@@ -1906,6 +2007,7 @@ function AnaSayfa({
   bildirimDurumu,
   onBildirimIzniIste,
   onGorevAta,
+  onGMYonetim,
   bekleyenGorevler,
   onGorevKabul,
 }) {
@@ -2010,6 +2112,12 @@ function AnaSayfa({
         {user.department === "Genel Müdürlük" && GOREV_ATAMA_IZINLI_OTELLER.includes(user.hotelCode) && (
           <button style={styles.gorevAtaButon} onClick={onGorevAta}>
             📋 Kat Hizmetlerine Görev Ata
+          </button>
+        )}
+
+        {user.department === "Genel Müdürlük" && (
+          <button style={styles.gmYonetimButon} onClick={onGMYonetim}>
+            🏨 Otel Yönetim Paneli
           </button>
         )}
 
@@ -2913,6 +3021,480 @@ function GorevAtaEkrani({ user, onGeri, toastGoster }) {
   );
 }
 
+// Genel Müdür Yönetim Paneli: özet (personel ilerlemesi), departman
+// oluşturma, kullanıcı oluşturma ve kontrol satırı (madde) yönetimi.
+// Genel Müdür Yönetim Paneli: özet (personel ilerlemesi), departman
+// oluşturma, kullanıcı oluşturma ve kontrol satırı (madde) yönetimi.
+// Özet ve kullanıcı oluşturma DAİMA çağıran GM'in kendi otel koduna
+// (user.hotelCode) kilitlidir; başka otellerin verisine erişilmez.
+function GMYonetimEkrani({
+  user,
+  onGeri,
+  toastGoster,
+  onDepartmanOlustur,
+  onKullaniciOlustur,
+  onSatirEkle,
+  onSatirDuzenle,
+  onSatirSil,
+}) {
+  const [sekme, setSekme] = useState("ozet");
+
+  return (
+    <div style={styles.icerik}>
+      <div style={styles.listeUstBaslik}>
+        <button style={styles.geriButon} onClick={onGeri} aria-label="Geri">
+          ←
+        </button>
+        <div>
+          <div className="baslik-font" style={styles.listeBaslikYazi}>
+            Otel Yönetim Paneli
+          </div>
+          <div style={styles.ilerlemeYazi}>
+            {user.hotelName} · Kod {user.hotelCode}
+          </div>
+        </div>
+      </div>
+
+      <div style={styles.gmSekmeSatiri}>
+        {[
+          ["ozet", "Özet"],
+          ["departman", "Departman"],
+          ["kullanici", "Kullanıcı"],
+          ["satirlar", "Maddeler"],
+        ].map(([key, label]) => (
+          <button
+            key={key}
+            style={{ ...styles.gmSekmeButon, ...(sekme === key ? styles.gmSekmeButonAktif : {}) }}
+            onClick={() => setSekme(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {sekme === "ozet" && <GMOzetSekmesi user={user} />}
+      {sekme === "departman" && (
+        <GMDepartmanSekmesi onDepartmanOlustur={onDepartmanOlustur} toastGoster={toastGoster} />
+      )}
+      {sekme === "kullanici" && (
+        <GMKullaniciSekmesi user={user} onKullaniciOlustur={onKullaniciOlustur} toastGoster={toastGoster} />
+      )}
+      {sekme === "satirlar" && (
+        <GMSatirSekmesi
+          onSatirEkle={onSatirEkle}
+          onSatirDuzenle={onSatirDuzenle}
+          onSatirSil={onSatirSil}
+          toastGoster={toastGoster}
+        />
+      )}
+    </div>
+  );
+}
+
+// Otelde görevli herkesin bugünkü iş özetini (departman bazlı, paylaşımlı
+// kontrol listesi ilerlemesi) gösterir. Yalnızca user.hotelCode'a ait
+// kullanıcılar listelenir. Bir kullanıcıya dokununca canlı ilerleme paneli
+// açılır (15 saniyede bir otomatik yenilenir): "7/70 - %10" gibi.
+function GMOzetSekmesi({ user }) {
+  const [yukleniyor, setYukleniyor] = useState(true);
+  const [kullanicilar, setKullanicilar] = useState([]);
+  const [acikKullanici, setAcikKullanici] = useState(null);
+  const [ilerlemeVerisi, setIlerlemeVerisi] = useState({});
+
+  useEffect(() => {
+    yukle();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!acikKullanici) return;
+    const k = kullanicilar.find((x) => x.userCode === acikKullanici);
+    if (!k) return;
+    const t = setInterval(() => ilerlemeGetir(k), 15000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [acikKullanici, kullanicilar]);
+
+  async function yukle() {
+    setYukleniyor(true);
+    try {
+      const liste = await window.storage.list(`users:${user.hotelCode}:`, true);
+      const keys = (liste && liste.keys) || [];
+      const kayitlar = [];
+      for (const k of keys) {
+        const r = await safeGet(k, true);
+        if (r) {
+          try {
+            const veri = JSON.parse(r.value);
+            if (veri.hotelCode === user.hotelCode && veri.department !== "Admin") kayitlar.push(veri);
+          } catch (e) {}
+        }
+      }
+      kayitlar.sort((a, b) => (a.userCode < b.userCode ? -1 : 1));
+      setKullanicilar(kayitlar);
+    } catch (e) {}
+    setYukleniyor(false);
+  }
+
+  async function ilerlemeGetir(k) {
+    setIlerlemeVerisi((prev) => ({ ...prev, [k.userCode]: { ...(prev[k.userCode] || {}), yukleniyor: true } }));
+    const tarih = bugunTarihi();
+    const key = `checklist:${k.hotelCode}:${k.department}:${tarih}`;
+    const r = await safeGet(key, true);
+    if (!r) {
+      setIlerlemeVerisi((prev) => ({ ...prev, [k.userCode]: { yukleniyor: false, bulunamadi: true } }));
+      return;
+    }
+    try {
+      const veri = JSON.parse(r.value);
+      setIlerlemeVerisi((prev) => ({
+        ...prev,
+        [k.userCode]: {
+          yukleniyor: false,
+          bulunamadi: false,
+          tamamlanan: kayitTamamlananSayisi(veri),
+          toplam: kayitToplamMaddeSayisi(veri),
+          tamamlandiMi: veri.tamamlandiMi,
+        },
+      }));
+    } catch (e) {
+      setIlerlemeVerisi((prev) => ({ ...prev, [k.userCode]: { yukleniyor: false, hata: true } }));
+    }
+  }
+
+  function tikla(k) {
+    if (acikKullanici === k.userCode) {
+      setAcikKullanici(null);
+      return;
+    }
+    setAcikKullanici(k.userCode);
+    ilerlemeGetir(k);
+  }
+
+  return (
+    <div style={{ marginTop: 14 }}>
+      {yukleniyor ? (
+        <div style={styles.merkezYukleniyor}>Yükleniyor…</div>
+      ) : kullanicilar.length === 0 ? (
+        <div style={styles.bilgiKutusu}>Bu otelde henüz kullanıcı bulunmuyor.</div>
+      ) : (
+        <div style={styles.adminTablo}>
+          <div style={{ ...styles.adminSatir, ...styles.adminSatirBaslik }}>
+            <div style={styles.adminHucreKod}>Kod</div>
+            <div style={styles.adminHucreIsim}>İsim</div>
+            <div style={styles.adminHucreDepartman}>Departman</div>
+          </div>
+          {kullanicilar.map((k) => {
+            const acik = acikKullanici === k.userCode;
+            const il = ilerlemeVerisi[k.userCode];
+            return (
+              <div key={k.userCode}>
+                <button style={{ ...styles.adminSatir, ...styles.adminSatirButon }} onClick={() => tikla(k)}>
+                  <div style={styles.adminHucreKod}>{k.userCode}</div>
+                  <div style={styles.adminHucreIsim}>{k.name}</div>
+                  <div style={styles.adminHucreDepartman}>{k.department}</div>
+                  <div style={styles.adminOkIsareti}>{acik ? "▲" : "▼"}</div>
+                </button>
+
+                {acik && (
+                  <div style={styles.adminIlerlemePaneli}>
+                    {!il || il.yukleniyor ? (
+                      <div style={styles.adminIlerlemeYukleniyor}>Yükleniyor…</div>
+                    ) : il.hata ? (
+                      <div style={styles.adminIlerlemeHata}>İlerleme bilgisi alınamadı.</div>
+                    ) : il.bulunamadi ? (
+                      <div style={styles.adminIlerlemeBos}>
+                        Bugün için "{k.department}" departmanında henüz bir kontrol listesi başlatılmadı.
+                      </div>
+                    ) : (
+                      (() => {
+                        const yuzde = il.toplam > 0 ? Math.round((il.tamamlanan / il.toplam) * 100) : 0;
+                        return (
+                          <>
+                            <div style={styles.adminIlerlemeUstSatir}>
+                              <span>
+                                Bugün · {k.department} ·{" "}
+                                <strong>
+                                  {il.tamamlanan}/{il.toplam} - %{yuzde}
+                                </strong>
+                              </span>
+                            </div>
+                            <div style={styles.ilerlemeCubugu}>
+                              <div style={{ ...styles.ilerlemeDoluluk, width: `${yuzde}%` }} />
+                            </div>
+                            {il.tamamlandiMi && <div style={styles.adminIlerlemeTamamRozeti}>✓ Tamamlandı</div>}
+                          </>
+                        );
+                      })()
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GMDepartmanSekmesi({ onDepartmanOlustur, toastGoster }) {
+  const [ad, setAd] = useState("");
+  const [hata, setHata] = useState("");
+  const [olusturuluyor, setOlusturuluyor] = useState(false);
+
+  async function olustur() {
+    setHata("");
+    setOlusturuluyor(true);
+    try {
+      await onDepartmanOlustur(ad);
+      toastGoster(`✓ "${ad.trim()}" departmanı oluşturuldu`);
+      setAd("");
+    } catch (e) {
+      setHata(e.message || "Bir hata oluştu.");
+    }
+    setOlusturuluyor(false);
+  }
+
+  return (
+    <div style={{ marginTop: 14 }}>
+      <Etiket>YENİ DEPARTMAN / POZİSYON ADI</Etiket>
+      <input
+        style={styles.epostaInput}
+        value={ad}
+        onChange={(e) => setAd(e.target.value)}
+        placeholder="örn. Muhasebe"
+      />
+      {hata && <div style={styles.hataKutusu}>{hata}</div>}
+      <button
+        style={{ ...styles.anaButon, marginTop: 12, opacity: olusturuluyor ? 0.7 : 1 }}
+        onClick={olustur}
+        disabled={olusturuluyor || !ad.trim()}
+      >
+        {olusturuluyor ? "Oluşturuluyor…" : "Departman Oluştur"}
+      </button>
+      <div style={styles.notMetni}>
+        Yeni departman/pozisyon boş bir kontrol listesiyle oluşturulur; maddelerini "Maddeler"
+        sekmesinden ekleyebilirsiniz. Not: departmanlar (mevcut Kat Hizmetleri, Önbüro gibi) tüm
+        oteller arasında ortak kullanılır; farklı otellerdeki kullanıcılar da bu departmana
+        atanabilir.
+      </div>
+    </div>
+  );
+}
+
+function GMKullaniciSekmesi({ user, onKullaniciOlustur, toastGoster }) {
+  const [userCode, setUserCode] = useState("");
+  const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const [department, setDepartment] = useState("");
+  const [hata, setHata] = useState("");
+  const [olusturuluyor, setOlusturuluyor] = useState(false);
+  const departmanlar = tumDepartmanAdlari();
+
+  async function olustur() {
+    setHata("");
+    setOlusturuluyor(true);
+    try {
+      await onKullaniciOlustur({
+        hotelCode: user.hotelCode, // GM yalnızca KENDİ oteline kullanıcı oluşturabilir
+        userCode,
+        password,
+        name,
+        department: department || departmanlar[0] || "",
+      });
+      toastGoster(`✓ Kullanıcı oluşturuldu: ${name}`);
+      setUserCode("");
+      setPassword("");
+      setName("");
+    } catch (e) {
+      setHata(e.message || "Bir hata oluştu.");
+    }
+    setOlusturuluyor(false);
+  }
+
+  return (
+    <div style={{ marginTop: 14 }}>
+      <Etiket>OTEL</Etiket>
+      <div style={styles.gmSabitDeger}>
+        {user.hotelName} (Kod {user.hotelCode})
+      </div>
+
+      <Etiket>KULLANICI KODU (4 haneli)</Etiket>
+      <input
+        className="kod-input"
+        style={styles.kodInput}
+        inputMode="numeric"
+        maxLength={4}
+        value={userCode}
+        onChange={(e) => setUserCode(e.target.value.replace(/\D/g, "").slice(0, 4))}
+        placeholder="0000"
+      />
+
+      <Etiket>ŞİFRE (4 haneli)</Etiket>
+      <input
+        className="kod-input"
+        style={styles.kodInput}
+        inputMode="numeric"
+        maxLength={4}
+        value={password}
+        onChange={(e) => setPassword(e.target.value.replace(/\D/g, "").slice(0, 4))}
+        placeholder="0000"
+      />
+
+      <Etiket>İSİM (Kullanıcı Adı)</Etiket>
+      <input style={styles.epostaInput} value={name} onChange={(e) => setName(e.target.value)} placeholder="Ad Soyad" />
+
+      <Etiket>DEPARTMAN / POZİSYON</Etiket>
+      <select style={styles.gmSecim} value={department} onChange={(e) => setDepartment(e.target.value)}>
+        <option value="">Seçiniz</option>
+        {departmanlar.map((d) => (
+          <option key={d} value={d}>
+            {d}
+          </option>
+        ))}
+      </select>
+
+      {hata && <div style={styles.hataKutusu}>{hata}</div>}
+
+      <button
+        style={{ ...styles.anaButon, marginTop: 16, marginBottom: 24, opacity: olusturuluyor ? 0.7 : 1 }}
+        onClick={olustur}
+        disabled={olusturuluyor}
+      >
+        {olusturuluyor ? "Oluşturuluyor…" : "Kullanıcı Oluştur"}
+      </button>
+    </div>
+  );
+}
+
+function GMSatirSekmesi({ onSatirEkle, onSatirDuzenle, onSatirSil, toastGoster }) {
+  const duzDepartmanlar = Object.keys(DEPARTMAN_LISTELERI_CALISMA);
+  const [departman, setDepartman] = useState(duzDepartmanlar[0] || "");
+  const [, zorlaYenile] = useState(0);
+  const [yeniMadde, setYeniMadde] = useState("");
+  const [duzenlenenIndex, setDuzenlenenIndex] = useState(null);
+  const [duzenlenenMetin, setDuzenlenenMetin] = useState("");
+  const [hata, setHata] = useState("");
+
+  const maddeler = DEPARTMAN_LISTELERI_CALISMA[departman] || [];
+
+  async function ekle() {
+    setHata("");
+    try {
+      await onSatirEkle(departman, yeniMadde);
+      setYeniMadde("");
+      zorlaYenile((x) => x + 1);
+      toastGoster("✓ Madde eklendi");
+    } catch (e) {
+      setHata(e.message || "Bir hata oluştu.");
+    }
+  }
+
+  async function kaydetDuzenleme(i) {
+    setHata("");
+    try {
+      await onSatirDuzenle(departman, i, duzenlenenMetin);
+      setDuzenlenenIndex(null);
+      zorlaYenile((x) => x + 1);
+      toastGoster("✓ Madde güncellendi");
+    } catch (e) {
+      setHata(e.message || "Bir hata oluştu.");
+    }
+  }
+
+  async function sil(i) {
+    await onSatirSil(departman, i);
+    zorlaYenile((x) => x + 1);
+    toastGoster("✓ Madde silindi");
+  }
+
+  return (
+    <div style={{ marginTop: 14 }}>
+      <Etiket>DEPARTMAN</Etiket>
+      <select
+        style={styles.gmSecim}
+        value={departman}
+        onChange={(e) => {
+          setDepartman(e.target.value);
+          setDuzenlenenIndex(null);
+        }}
+      >
+        {duzDepartmanlar.map((d) => (
+          <option key={d} value={d}>
+            {d}
+          </option>
+        ))}
+      </select>
+      <div style={styles.notMetni}>
+        Not: Bu sekme yalnızca düz (satır bazlı) kontrol listelerini düzenler. Bölümlü/akordiyon
+        yapıdaki departmanlar (Genel Müdürlük, Gece Müdürü, Kat Hizmetleri) burada listelenmez.
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 14 }}>
+        {maddeler.map((m, i) => (
+          <div key={i} style={styles.gmMaddeSatiri}>
+            {duzenlenenIndex === i ? (
+              <>
+                <input
+                  style={styles.metinInput}
+                  value={duzenlenenMetin}
+                  onChange={(e) => setDuzenlenenMetin(e.target.value)}
+                />
+                <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                  <button style={styles.gmKucukButon} onClick={() => kaydetDuzenleme(i)}>
+                    Kaydet
+                  </button>
+                  <button style={styles.gmKucukIptalButon} onClick={() => setDuzenlenenIndex(null)}>
+                    Vazgeç
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={styles.gmMaddeMetni}>
+                  {i + 1}. {m}
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button
+                    style={styles.gmKucukButon}
+                    onClick={() => {
+                      setDuzenlenenIndex(i);
+                      setDuzenlenenMetin(m);
+                    }}
+                  >
+                    Düzenle
+                  </button>
+                  <button style={styles.gmKucukSilButon} onClick={() => sil(i)}>
+                    Sil
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        ))}
+        {maddeler.length === 0 && <div style={styles.bilgiKutusu}>Bu departmanda henüz madde yok.</div>}
+      </div>
+
+      <Etiket>YENİ MADDE EKLE</Etiket>
+      <input
+        style={styles.metinInput}
+        value={yeniMadde}
+        onChange={(e) => setYeniMadde(e.target.value)}
+        placeholder="Madde metni"
+      />
+      {hata && <div style={styles.hataKutusu}>{hata}</div>}
+      <button
+        style={{ ...styles.ikincilButon, marginTop: 10, marginBottom: 24 }}
+        onClick={ekle}
+        disabled={!yeniMadde.trim()}
+      >
+        + Madde Ekle
+      </button>
+    </div>
+  );
+}
+
 function AdminEkrani({ onCikis }) {
   const [yukleniyor, setYukleniyor] = useState(true);
   const [oteller, setOteller] = useState([]);
@@ -3394,6 +3976,17 @@ const styles = {
     border: "1.5px dashed #16323A",
     background: "#F6F5F1",
     color: "#16323A",
+    fontSize: 14,
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  gmYonetimButon: {
+    width: "100%",
+    padding: "14px 16px",
+    borderRadius: 14,
+    border: "none",
+    background: "#16323A",
+    color: "#fff",
     fontSize: 14,
     fontWeight: 700,
     cursor: "pointer",
@@ -4074,6 +4667,90 @@ const styles = {
     fontSize: 10.5,
     color: "#9CA3AF",
     lineHeight: 1.5,
+  },
+  gmSekmeSatiri: {
+    display: "flex",
+    gap: 6,
+    marginTop: 14,
+    flexWrap: "wrap",
+  },
+  gmSekmeButon: {
+    flex: 1,
+    minWidth: 76,
+    padding: "9px 6px",
+    borderRadius: 10,
+    border: "1px solid #E2DCCC",
+    background: "#fff",
+    color: "#6B7280",
+    fontSize: 12,
+    fontWeight: 700,
+    cursor: "pointer",
+    textAlign: "center",
+  },
+  gmSekmeButonAktif: {
+    background: "#16323A",
+    borderColor: "#16323A",
+    color: "#fff",
+  },
+  gmSabitDeger: {
+    background: "#F0EDE5",
+    color: "#16323A",
+    fontSize: 14,
+    fontWeight: 600,
+    padding: "10px 12px",
+    borderRadius: 10,
+  },
+  gmSecim: {
+    width: "100%",
+    fontSize: 14,
+    padding: "10px 12px",
+    borderRadius: 10,
+    border: "1.5px solid #E2DCCC",
+    color: "#16323A",
+    background: "#fff",
+  },
+  gmMaddeSatiri: {
+    background: "#fff",
+    border: "1px solid #E2DCCC",
+    borderRadius: 10,
+    padding: 10,
+  },
+  gmMaddeMetni: {
+    fontSize: 13,
+    color: "#16323A",
+    fontWeight: 500,
+    lineHeight: 1.4,
+    marginBottom: 8,
+  },
+  gmKucukButon: {
+    padding: "7px 12px",
+    borderRadius: 8,
+    border: "1px solid #16323A",
+    background: "#fff",
+    color: "#16323A",
+    fontSize: 11,
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  gmKucukIptalButon: {
+    padding: "7px 12px",
+    borderRadius: 8,
+    border: "1px solid #E2DCCC",
+    background: "#fff",
+    color: "#6B7280",
+    fontSize: 11,
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  gmKucukSilButon: {
+    padding: "7px 12px",
+    borderRadius: 8,
+    border: "1px solid #B7472A",
+    background: "#fff",
+    color: "#B7472A",
+    fontSize: 11,
+    fontWeight: 700,
+    cursor: "pointer",
   },
   kucukPdfButon: {
     marginTop: 10,
