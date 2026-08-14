@@ -170,6 +170,14 @@ const KULLANICILAR_BASLANGIC = [
   },
   {
     hotelCode: "5556",
+    userCode: "1141",
+    password: "0041",
+    name: "Okan",
+    department: "Teknik Servis",
+    pozisyon: "A", // A = Elektrik Sistemleri (bkz. DEPARTMAN_BOLUMLERI["Teknik Servis"])
+  },
+  {
+    hotelCode: "5556",
     userCode: "1121",
     password: "0021",
     name: "Zeynep",
@@ -601,6 +609,59 @@ const DEPARTMAN_BOLUMLERI = {
       ],
     },
   ],
+
+  "Teknik Servis": [
+    {
+      harf: "A",
+      baslik: "Elektrik Sistemleri",
+      maddeler: [
+        "Ana elektrik panoları kontrol edildi.",
+        "Elektrik panolarında anormal ses/koku/ısınma bulunmuyor.",
+        "Sigorta ve kaçak akım röleleri kontrol edildi.",
+        "Jeneratör elektrik bağlantıları kontrol edildi.",
+        "Acil aydınlatmalar kontrol edildi.",
+        "Genel alan aydınlatmaları kontrol edildi.",
+        "Arızalı ampul/armatürler tespit edildi.",
+        "Priz ve anahtarlar kontrol edildi.",
+        "Elektrik kablolarında görünür hasar bulunmuyor.",
+        "Teknik odalarda elektrik güvenliği kontrol edildi.",
+      ],
+    },
+    {
+      harf: "B",
+      baslik: "Jeneratör",
+      maddeler: [
+        "Jeneratör çalışma durumu kontrol edildi.",
+        "Yakıt seviyesi kontrol edildi.",
+        "Motor yağı seviyesi kontrol edildi.",
+        "Soğutma suyu seviyesi kontrol edildi.",
+        "Akü durumu kontrol edildi.",
+        "Akü şarj cihazı kontrol edildi.",
+        "Yakıt/su/yağ kaçağı bulunmuyor.",
+        "Jeneratör odası temiz ve düzenli.",
+        "Otomatik devreye girme sistemi kontrol edildi.",
+        "Jeneratör çalışma kayıtları güncellendi.",
+      ],
+    },
+    {
+      harf: "C",
+      baslik: "HVAC / Klima Sistemleri",
+      maddeler: [
+        "Chiller sistemi kontrol edildi.",
+        "Klima santralleri kontrol edildi.",
+        "Fan-coil sistemleri kontrol edildi.",
+        "Pompa sistemleri kontrol edildi.",
+        "Kompresörler kontrol edildi.",
+        "Teknik alanlarda anormal ses/titreşim bulunmuyor.",
+        "Su kaçakları kontrol edildi.",
+        "Klima sıcaklık değerleri kontrol edildi.",
+        "Basınç değerleri kontrol edildi.",
+        "Filtrelerin durumu kontrol edildi.",
+        "Misafir odalarında bildirilen klima arızaları kontrol edildi.",
+        "Genel alan klima sistemleri kontrol edildi.",
+      ],
+    },
+  ],
 };
 
 // Bu departmanlarda bir bölümdeki tüm maddeler tamamlanınca akordiyon
@@ -614,6 +675,24 @@ const DEPARTMAN_OTOMATIK_KAPAT = {
 // (örn. Genel Müdürlük) bu alanlar hiç gösterilmez.
 const DEPARTMAN_YORUM_FOTO_IZINLI = {
   "Gece Müdürü": true,
+};
+
+// Bu departmanlarda açıklama + fotoğraf alanı, OLUMLU/OLUMSUZ farkı
+// gözetmeksizin HER İKİ durumda da gösterilir.
+const DEPARTMAN_YORUM_FOTO_HERZAMAN = {
+  "Teknik Servis": true,
+};
+
+// Bu departmanlarda madde metni, işaretlemeye göre renklendirilir:
+// OLUMLU ise yeşil, OLUMSUZ ise kırmızı (diğerlerinde sadece "tamamlandı" yeşili kullanılır).
+const DEPARTMAN_MADDE_RENGI_DURUMA_GORE = {
+  "Teknik Servis": true,
+};
+
+// Bu departmanlarda, harf başlıklı bölümlerden yalnızca biri aynı anda
+// açık kalabilir; başka bir başlığa basılınca öncekinin akordiyonu kapanır.
+const DEPARTMAN_TEK_BOLUM_ACIK = {
+  "Teknik Servis": true,
 };
 
 // Bu departmanlarda kontrol listesi tek bir liste değil, kullanıcının o gün
@@ -786,6 +865,30 @@ function kayitToplamMaddeSayisi(record) {
   return (record.tasks || []).length;
 }
 
+// Bir kullanıcının "pozisyon" alanı varsa (örn. Teknik Servis'te sadece
+// Elektrik'ten sorumlu), ilerleme sayımı da o kullanıcının kendi bölümüyle
+// sınırlı tutulur. Pozisyon yoksa (veya bölümlü/oda bazlı olmayan bir
+// departmansa) normal davranışa (departmanın tamamı) geri döner.
+function kayitTamamlananSayisiKullanici(record, kullanici) {
+  if (!record || !kullanici || !kullanici.pozisyon || !record.tasks) {
+    return kayitTamamlananSayisi(record);
+  }
+  return record.tasks.filter((t) => t.bolum === kullanici.pozisyon && gorevTamamMi(t)).length;
+}
+
+function kayitToplamMaddeSayisiKullanici(record, kullanici) {
+  if (!record || !kullanici || !kullanici.pozisyon || !record.tasks) {
+    return kayitToplamMaddeSayisi(record);
+  }
+  return record.tasks.filter((t) => t.bolum === kullanici.pozisyon).length;
+}
+
+// Bir departman + harf kodundan bölüm başlığını bulur (örn. "Teknik Servis","A" -> "Elektrik Sistemleri").
+function pozisyonBasligiBul(department, harf) {
+  const bolum = (DEPARTMAN_BOLUMLERI[department] || []).find((b) => b.harf === harf);
+  return bolum ? bolum.baslik : harf;
+}
+
 // Belirli bir departmanın belirli bir maddesi için saatli hatırlatma tanımı.
 // Format: { "Departman": { maddeNumarası: "SS:DD" } }
 // Şu an: Önbüro departmanının 24 maddesinin her biri için, aşağıdaki kontrol
@@ -837,7 +940,7 @@ const BACKEND_URL = "";
 // Telegram bot ile hatırlatma bildirimleri.
 // BotFather'dan aldığınız token'ı aşağıdaki tırnakların arasına yapıştırın.
 // Chat ID zaten dolduruldu (Önbüro vardiya grubunuz).
-const TELEGRAM_BOT_TOKEN = "8997880278:AAHtBUbPYf397JvkOMVcMHJCrrKZv0gJ6fc"; // örn: "123456789:AAExxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+const TELEGRAM_BOT_TOKEN = ""; // örn: "123456789:AAExxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 const TELEGRAM_CHAT_ID = "-5518045511";
 
 /* ------------------------------------------------------------------
@@ -1774,8 +1877,8 @@ function App() {
   }
 
   const durum = pencereDurumu();
-  const tamamlanan = kayitTamamlananSayisi(record);
-  const toplamMadde = kayitToplamMaddeSayisi(record);
+  const tamamlanan = kayitTamamlananSayisiKullanici(record, currentUser);
+  const toplamMadde = kayitToplamMaddeSayisiKullanici(record, currentUser);
   const duzenlenebilir = durum === "aktif";
 
   return (
@@ -2045,7 +2148,10 @@ function AnaSayfa({
         <div style={styles.anahtarAltBilgi}>
           Otel Kodu {user.hotelCode} · Kullanıcı {user.userCode}
         </div>
-        <div style={styles.departmanRozeti}>{user.department}</div>
+        <div style={styles.departmanRozeti}>
+          {user.department}
+          {user.pozisyon ? ` · ${pozisyonBasligiBul(user.department, user.pozisyon)}` : ""}
+        </div>
       </div>
 
       {kullaniciLogosu && (
@@ -2186,12 +2292,18 @@ function KontrolListesiEkrani({
   onGeri,
   fileInputRefs,
 }) {
-  const bolumler = DEPARTMAN_BOLUMLERI[user.department];
+  const bolumlerTumu = DEPARTMAN_BOLUMLERI[user.department];
+  const bolumler =
+    user.pozisyon && bolumlerTumu ? bolumlerTumu.filter((b) => b.harf === user.pozisyon) : bolumlerTumu;
   const otomatikKapat = !!DEPARTMAN_OTOMATIK_KAPAT[user.department];
   const yorumFotoIzinli = !!DEPARTMAN_YORUM_FOTO_IZINLI[user.department];
+  const yorumFotoHerZaman = !!DEPARTMAN_YORUM_FOTO_HERZAMAN[user.department];
+  const maddeRenginiDurumaGoreBoya = !!DEPARTMAN_MADDE_RENGI_DURUMA_GORE[user.department];
+  const tekBolumAcik = !!DEPARTMAN_TEK_BOLUM_ACIK[user.department];
+  const [acikBolumHarfi, setAcikBolumHarfi] = useState(null);
   const odaBazliMi = !!DEPARTMAN_ODA_BAZLI[user.department];
   const kullaniciLogosu = KULLANICI_LOGOLARI[user.userCode];
-  const toplamMaddeSayisi = kayitToplamMaddeSayisi(record);
+  const toplamMaddeSayisi = kayitToplamMaddeSayisiKullanici(record, user);
 
   if (!record) {
     return (
@@ -2214,7 +2326,8 @@ function KontrolListesiEkrani({
         </button>
         <div>
           <div className="baslik-font" style={styles.listeBaslikYazi}>
-            {user.department} Kontrol Listesi
+            {user.department}
+            {user.pozisyon ? ` · ${pozisyonBasligiBul(user.department, user.pozisyon)}` : ""} Kontrol Listesi
           </div>
           <div style={styles.ilerlemeYazi}>
             {tamamlanan} / {toplamMaddeSayisi} madde işaretlendi
@@ -2265,6 +2378,12 @@ function KontrolListesiEkrani({
               duzenlenebilir={duzenlenebilir}
               otomatikKapat={otomatikKapat}
               yorumFotoIzinli={yorumFotoIzinli}
+              yorumFotoHerZaman={yorumFotoHerZaman}
+              maddeRenginiDurumaGoreBoya={maddeRenginiDurumaGoreBoya}
+              disardanAcik={tekBolumAcik ? acikBolumHarfi === b.harf : undefined}
+              onAcikToggle={
+                tekBolumAcik ? () => setAcikBolumHarfi((h) => (h === b.harf ? null : b.harf)) : undefined
+              }
               setStatus={setStatus}
               setAciklama={setAciklama}
               setSayisalDeger={setSayisalDeger}
@@ -2697,6 +2816,10 @@ function BolumKarti({
   duzenlenebilir,
   otomatikKapat,
   yorumFotoIzinli,
+  yorumFotoHerZaman,
+  maddeRenginiDurumaGoreBoya,
+  disardanAcik,
+  onAcikToggle,
   setStatus,
   setAciklama,
   setSayisalDeger,
@@ -2705,17 +2828,31 @@ function BolumKarti({
   onRemovePhoto,
   fileInputRefs,
 }) {
-  const [acik, setAcik] = useState(false);
+  const [icAcik, setIcAcik] = useState(false);
+  const kontrolluMu = typeof onAcikToggle === "function";
+  const acik = kontrolluMu ? !!disardanAcik : icAcik;
   const altTasks = tasks.filter((t) => t.bolum === bolum.harf);
   const tamamlanan = altTasks.filter((t) => gorevTamamMi(t)).length;
   const tumuTamam = altTasks.length > 0 && tamamlanan === altTasks.length;
 
   useEffect(() => {
     if (otomatikKapat && tumuTamam) {
-      setAcik(false);
+      if (kontrolluMu) {
+        if (acik) onAcikToggle();
+      } else {
+        setIcAcik(false);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tumuTamam]);
+
+  function basliaTikla() {
+    if (kontrolluMu) {
+      onAcikToggle();
+    } else {
+      setIcAcik((a) => !a);
+    }
+  }
 
   return (
     <div style={styles.gmBolumKarti}>
@@ -2724,7 +2861,7 @@ function BolumKarti({
           ...styles.gmBolumBaslik,
           ...(tumuTamam ? styles.gmBolumBaslikTamam : {}),
         }}
-        onClick={() => setAcik((a) => !a)}
+        onClick={basliaTikla}
       >
         <span
           style={{
@@ -2743,9 +2880,19 @@ function BolumKarti({
 
       {acik && (
         <div style={styles.gmMaddeListesi}>
-          {altTasks.map((t) => (
+          {altTasks.map((t) => {
+            const maddeRengi = !maddeRenginiDurumaGoreBoya
+              ? undefined
+              : t.status === "olumlu"
+              ? "#2F7D5C"
+              : t.status === "olumsuz"
+              ? "#B7472A"
+              : undefined;
+            const yorumFotoGoster =
+              (yorumFotoIzinli && t.status === "olumsuz") || (yorumFotoHerZaman && !!t.status);
+            return (
             <div key={t.id} style={styles.gmMadde}>
-              <div style={styles.gmMaddeMetin}>
+              <div style={{ ...styles.gmMaddeMetin, ...(maddeRengi ? { color: maddeRengi } : {}) }}>
                 {t.id}. {t.text}
               </div>
 
@@ -2818,10 +2965,12 @@ function BolumKarti({
                     </label>
                   </div>
 
-                  {yorumFotoIzinli && t.status === "olumsuz" && (
+                  {yorumFotoGoster && (
                     <div style={{ marginTop: 10 }}>
                       <textarea
-                        placeholder="Açıklama girin (zorunlu)"
+                        placeholder={
+                          t.status === "olumsuz" ? "Açıklama girin (zorunlu)" : "Açıklama (isteğe bağlı)"
+                        }
                         value={t.aciklama}
                         disabled={!duzenlenebilir}
                         onChange={(e) => setAciklama(t.id, e.target.value)}
@@ -2866,7 +3015,8 @@ function BolumKarti({
 
               {t.zaman && <div style={styles.zamanNotu}>🕒 İşaretlendi: {t.zaman}</div>}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -3152,8 +3302,8 @@ function GMOzetSekmesi({ user }) {
         [k.userCode]: {
           yukleniyor: false,
           bulunamadi: false,
-          tamamlanan: kayitTamamlananSayisi(veri),
-          toplam: kayitToplamMaddeSayisi(veri),
+          tamamlanan: kayitTamamlananSayisiKullanici(veri, k),
+          toplam: kayitToplamMaddeSayisiKullanici(veri, k),
           tamamlandiMi: veri.tamamlandiMi,
         },
       }));
@@ -3213,7 +3363,8 @@ function GMOzetSekmesi({ user }) {
                           <>
                             <div style={styles.adminIlerlemeUstSatir}>
                               <span>
-                                Bugün · {k.department} ·{" "}
+                                Bugün · {k.department}
+                                {k.pozisyon ? ` · ${pozisyonBasligiBul(k.department, k.pozisyon)}` : ""} ·{" "}
                                 <strong>
                                   {il.tamamlanan}/{il.toplam} - %{yuzde}
                                 </strong>
@@ -3576,8 +3727,8 @@ function AdminEkrani({ onCikis }) {
         [anahtar]: {
           yukleniyor: false,
           bulunamadi: false,
-          tamamlanan: kayitTamamlananSayisi(veri),
-          toplam: kayitToplamMaddeSayisi(veri),
+          tamamlanan: kayitTamamlananSayisiKullanici(veri, k),
+          toplam: kayitToplamMaddeSayisiKullanici(veri, k),
           tamamlandiMi: veri.tamamlandiMi,
           guncellemeSaati: new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }),
         },
@@ -3674,7 +3825,8 @@ function AdminEkrani({ onCikis }) {
                                 <>
                                   <div style={styles.adminIlerlemeUstSatir}>
                                     <span>
-                                      Bugün · {k.department} ·{" "}
+                                      Bugün · {k.department}
+                                {k.pozisyon ? ` · ${pozisyonBasligiBul(k.department, k.pozisyon)}` : ""} ·{" "}
                                       <strong>
                                         {ilerleme.tamamlanan}/{ilerleme.toplam}
                                       </strong>{" "}
