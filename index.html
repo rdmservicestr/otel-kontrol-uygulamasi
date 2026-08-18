@@ -174,7 +174,8 @@ const KULLANICILAR_BASLANGIC = [
     password: "0041",
     name: "Okan",
     department: "Teknik Servis",
-    pozisyon: "A", // A = Elektrik Sistemleri (bkz. DEPARTMAN_BOLUMLERI["Teknik Servis"])
+    bolum: "A", // Bölüm: A = Elektrik Sistemleri (bkz. DEPARTMAN_BOLUMLERI["Teknik Servis"])
+    pozisyon: "Teknisyen", // Pozisyon (unvan) - serbest metin
   },
   {
     hotelCode: "5556",
@@ -710,6 +711,378 @@ const ODA_BAZLI_MAX_NOKTA = 20;
 // otel kod(lar)ında etkin; ileride başka otellere açmak için buraya
 // otel kodu eklemeniz yeterli.
 const GOREV_ATAMA_IZINLI_OTELLER = ["5556"];
+
+// Genel Müdür Yönetim Paneli'nin "Kullanıcı" (ve Admin panelinin "Düzenle")
+// ekranlarında kullanılan standart Departman -> Bölüm yapısı. Bir kullanıcı
+// oluştururken/düzenlerken önce DEPARTMAN seçilir (zorunlu), seçilen
+// departmanın altındaki BÖLÜM listesi otomatik gelir (zorunlu).
+const STANDART_DEPARTMAN_YAPISI = [
+  {
+    harf: "A",
+    departman: "Genel Yönetim",
+    bolumler: [
+      "Genel Müdürlük (GM)",
+      "Genel Müdür Yardımcılığı / Operations",
+      "Yönetim Ofisi",
+      "Executive Office",
+      "Kalite Yönetimi",
+      "Yönetim Destek / Yönetim Asistanlığı",
+    ],
+  },
+  {
+    harf: "B",
+    departman: "Ön Büro / Front Office",
+    bolumler: [
+      "Front Office",
+      "Resepsiyon",
+      "Guest Relations",
+      "Concierge",
+      "Bellboy / Bell Captain",
+      "Doorman",
+      "Santral / PBX",
+      "Gece Müdürü",
+      "Night Audit",
+      "Lobby Host / Lobby Service",
+    ],
+  },
+  {
+    harf: "C",
+    departman: "Rezervasyon",
+    bolumler: [
+      "Rezervasyon",
+      "Grup Rezervasyonları",
+      "Merkezi Rezervasyon",
+      "Booking Office",
+      "Rezervasyon Kontrol / Reservation Control",
+    ],
+  },
+  {
+    harf: "D",
+    departman: "Satış & Pazarlama",
+    bolumler: [
+      "Satış",
+      "Kurumsal Satış",
+      "Leisure Sales",
+      "Grup & MICE Satış",
+      "Düğün & Organizasyon",
+      "Satış Koordinasyon",
+      "Pazarlama",
+      "Dijital Pazarlama",
+      "Sosyal Medya",
+      "Grafik Tasarım",
+      "PR / Halkla İlişkiler",
+    ],
+  },
+  {
+    harf: "E",
+    departman: "Revenue Management",
+    bolumler: [
+      "Revenue Management",
+      "Revenue Manager",
+      "E-Commerce",
+      "Online Sales",
+      "OTA Yönetimi",
+      "Channel Management",
+      "Distribution",
+      "Contracting",
+      "Yield Management",
+    ],
+  },
+  {
+    harf: "F",
+    departman: "Yiyecek & İçecek – F&B Yönetimi",
+    bolumler: [
+      "F&B Müdürlüğü",
+      "Restaurant",
+      "Bar",
+      "Pool Bar",
+      "Beach Bar",
+      "Lobby Bar",
+      "Snack Bar",
+      "Night Club / Disco",
+      "Room Service",
+      "Banquet",
+      "Catering",
+      "Mutfak",
+      "Executive Chef",
+      "Sous Chef",
+      "Pastry / Pastane",
+      "Bakery / Fırın",
+      "Butcher / Kasaphane",
+      "Stewarding",
+      "Bulaşıkhane",
+      "Servis Deposu",
+      "F&B Cost Control",
+    ],
+  },
+  {
+    harf: "G",
+    departman: "Mutfak Alt Birimleri",
+    bolumler: [
+      "Sıcak Mutfak",
+      "Soğuk Mutfak",
+      "Ana Mutfak",
+      "A La Carte Mutfak",
+      "İtalyan Mutfağı",
+      "Türk Mutfağı",
+      "Balık / Seafood",
+      "Grill",
+      "Snack Mutfak",
+      "Çocuk Mutfağı",
+      "Diyet / Özel Beslenme",
+      "Pastane",
+      "Ekmek / Bakery",
+      "Hazırlık Mutfağı",
+      "Personel Mutfağı",
+    ],
+  },
+  {
+    harf: "H",
+    departman: "Kat Hizmetleri",
+    bolumler: [
+      "Kat Hizmetleri Müdürlüğü",
+      "Oda Temizliği",
+      "Genel Alan",
+      "Order Taker",
+      "Çamaşırhane",
+      "Uniforma",
+      "Lost & Found",
+      "Minibar",
+      "Çiçekçilik / Florist",
+    ],
+  },
+  {
+    harf: "I",
+    departman: "Teknik Servis",
+    bolumler: [
+      "Teknik Servis Müdürlüğü",
+      "Elektrik",
+      "Elektronik",
+      "Mekanik",
+      "Tesisat",
+      "Havuz",
+      "HVAC / Klima",
+      "Marangozhane",
+      "Boyama",
+      "Chiller",
+      "Kazan / Boiler",
+      "Jeneratör",
+      "Su Arıtma",
+      "Bina Otomasyon / BMS",
+      "Enerji Yönetimi",
+    ],
+  },
+  {
+    harf: "J",
+    departman: "Spa & Wellness",
+    bolumler: [
+      "Spa Müdürlüğü",
+      "Spa Reception",
+      "Massage",
+      "Beauty Center",
+      "Hamam",
+      "Sauna",
+      "Steam Room",
+      "Fitness",
+      "Wellness",
+      "Kuaför",
+      "Cilt Bakım",
+      "Nail / Manikür-Pedikür",
+    ],
+  },
+  {
+    harf: "K",
+    departman: "Eğlence & Aktivite",
+    bolumler: [
+      "Entertainment Management",
+      "Animation",
+      "Sport Activities",
+      "Kids Club",
+      "Mini Club",
+      "Teen Club",
+      "Show Team",
+      "DJ",
+      "Live Music",
+      "Sports Center",
+      "Water Sports",
+    ],
+  },
+  {
+    harf: "M",
+    departman: "Güvenlik",
+    bolumler: ["Security Management", "Güvenlik", "CCTV / Kamera İzleme", "Can kurtaran"],
+  },
+  {
+    harf: "N",
+    departman: "İnsan Kaynakları",
+    bolumler: [
+      "İnsan Kaynakları Müdürlüğü",
+      "Personel İşleri",
+      "Özlük",
+      "İşe Alım",
+      "Eğitim & Gelişim",
+      "Oryantasyon",
+      "Performans Yönetimi",
+      "Kariyer Yönetimi",
+      "Çalışan İlişkileri",
+      "Personel Lojmanı",
+      "Personel Servis",
+      "Personel Yemekhanesi",
+    ],
+  },
+  {
+    harf: "O",
+    departman: "Muhasebe & Finans",
+    bolumler: [
+      "Finans Müdürlüğü",
+      "Muhasebe",
+      "Gelirler / Income Audit",
+      "Night Audit",
+      "Accounts Receivable",
+      "Accounts Payable",
+      "Cashier",
+      "General Cashier",
+      "Cost Control",
+      "Purchasing Cost Control",
+      "Payroll",
+      "Bütçe & Finansal Planlama",
+    ],
+  },
+  {
+    harf: "P",
+    departman: "Satın Alma",
+    bolumler: [
+      "Purchasing",
+      "Satın Alma Müdürlüğü",
+      "Satın Alma Uzmanı",
+      "Satın Alma Deposu",
+      "Mal Kabul",
+      "Ana Depo",
+      "Kuru Gıda Deposu",
+      "Soğuk Depo",
+      "İçecek Deposu",
+      "Kimyasal Depo",
+      "Teknik Depo",
+      "Minibar Deposu",
+    ],
+  },
+  {
+    harf: "R",
+    departman: "IT / Bilgi Teknolojileri",
+    bolumler: [
+      "IT Müdürlüğü",
+      "IT Support",
+      "Network",
+      "Server / Infrastructure",
+      "PMS Yönetimi",
+      "POS Sistemleri",
+      "Internet / Wi-Fi",
+      "CCTV / IT Entegrasyonu",
+      "Telefon Sistemi",
+      "Yazılım / Uygulama Yönetimi",
+      "Siber Güvenlik",
+      "Data / Reporting",
+    ],
+  },
+  {
+    harf: "S",
+    departman: "Misafir Deneyimi & Kalite",
+    bolumler: [
+      "Guest Experience",
+      "Guest Relations",
+      "Quality Management",
+      "Quality Assurance",
+      "Misafir Memnuniyeti",
+      "Online Reputation Management",
+      "Review Management",
+      "Mystery Guest",
+      "Marka Standartları",
+      "ISO / Kalite Sistemleri",
+      "Audit",
+    ],
+  },
+  {
+    harf: "T",
+    departman: "Sağlık & İş Güvenliği",
+    bolumler: [
+      "İşyeri Hekimi",
+      "Hemşire",
+      "Sağlık Merkezi / Clinic",
+      "İlk Yardım",
+      "İş Sağlığı ve Güvenliği",
+      "İSG Uzmanı",
+      "Acil Durum Yönetimi",
+      "Hijyen Yönetimi",
+      "Gıda Güvenliği",
+    ],
+  },
+  {
+    harf: "U",
+    departman: "Çevre & Sürdürülebilirlik",
+    bolumler: [
+      "Çevre Yönetimi",
+      "Sürdürülebilirlik",
+      "Atık Yönetimi",
+      "Geri Dönüşüm",
+      "Enerji Yönetimi",
+      "Su Yönetimi",
+      "Karbon Yönetimi",
+      "Çevre Danışmanlığı",
+    ],
+  },
+  {
+    harf: "V",
+    departman: "Ulaştırma & Lojistik",
+    bolumler: [
+      "Transportation",
+      "Transfer",
+      "Şoförler",
+      "Bell Service",
+      "Araç Yönetimi",
+      "Otopark",
+      "Vale",
+      "Lojistik",
+      "Malzeme Transferi",
+    ],
+  },
+  {
+    harf: "Y",
+    departman: "MICE & Organizasyon",
+    bolumler: [
+      "MICE",
+      "Conference & Meeting",
+      "Event Management",
+      "Wedding",
+      "Banquet",
+      "Ballroom",
+      "Meeting Rooms",
+      "Teknik Etkinlik / AV",
+      "Sahne Yönetimi",
+    ],
+  },
+  {
+    harf: "Z",
+    departman: "Çocuk & Aile Hizmetleri",
+    bolumler: ["Kids Club", "Baby Club", "Çocuk Aktivite", "Çocuk Havuzu", "Çocuk Güvenliği", "Bebek Ekipmanları"],
+  },
+  {
+    harf: "Q",
+    departman: "Bahçe & Peyzaj",
+    bolumler: [
+      "Landscaping",
+      "Garden",
+      "Bahçıvanlık",
+      "Sulama Sistemi",
+      "Peyzaj Teknik",
+      "Plaj Peyzajı",
+      "Haşere Kontrol",
+    ],
+  },
+];
+
+// Kullanıcı oluşturma/düzenleme ekranlarında Pozisyon için sabit, zorunlu seçim listesi.
+const STANDART_POZISYON_LISTESI = ["Müdür", "Asistan", "Supervisor", "Şef", "Vardiya Amiri", "Eleman"];
+
 const ODA_KODU_UZUNLUGU = 4;
 
 const KAT_HIZMETLERI_BOLUMLER = [
@@ -865,26 +1238,26 @@ function kayitToplamMaddeSayisi(record) {
   return (record.tasks || []).length;
 }
 
-// Bir kullanıcının "pozisyon" alanı varsa (örn. Teknik Servis'te sadece
+// Bir kullanıcının "bölüm" alanı varsa (örn. Teknik Servis'te sadece
 // Elektrik'ten sorumlu), ilerleme sayımı da o kullanıcının kendi bölümüyle
 // sınırlı tutulur. Pozisyon yoksa (veya bölümlü/oda bazlı olmayan bir
 // departmansa) normal davranışa (departmanın tamamı) geri döner.
 function kayitTamamlananSayisiKullanici(record, kullanici) {
-  if (!record || !kullanici || !kullanici.pozisyon || !record.tasks) {
+  if (!record || !kullanici || !kullanici.bolum || !record.tasks) {
     return kayitTamamlananSayisi(record);
   }
-  return record.tasks.filter((t) => t.bolum === kullanici.pozisyon && gorevTamamMi(t)).length;
+  return record.tasks.filter((t) => t.bolum === kullanici.bolum && gorevTamamMi(t)).length;
 }
 
 function kayitToplamMaddeSayisiKullanici(record, kullanici) {
-  if (!record || !kullanici || !kullanici.pozisyon || !record.tasks) {
+  if (!record || !kullanici || !kullanici.bolum || !record.tasks) {
     return kayitToplamMaddeSayisi(record);
   }
-  return record.tasks.filter((t) => t.bolum === kullanici.pozisyon).length;
+  return record.tasks.filter((t) => t.bolum === kullanici.bolum).length;
 }
 
 // Bir departman + harf kodundan bölüm başlığını bulur (örn. "Teknik Servis","A" -> "Elektrik Sistemleri").
-function pozisyonBasligiBul(department, harf) {
+function bolumBasligiBul(department, harf) {
   const bolum = (DEPARTMAN_BOLUMLERI[department] || []).find((b) => b.harf === harf);
   return bolum ? bolum.baslik : harf;
 }
@@ -1093,18 +1466,17 @@ function App() {
     await ozelDepartmanKaydet(temiz, []);
   }
 
-  async function yeniKullaniciOlustur({ hotelCode, userCode, password, name, department }) {
+  async function yeniKullaniciOlustur({ hotelCode, userCode, password, name, department, bolum, pozisyon }) {
     if (userCode.length !== 4 || password.length !== 4) {
       throw new Error("Kullanıcı kodu ve şifre 4 haneli olmalıdır.");
     }
     if (!name.trim()) throw new Error("İsim boş olamaz.");
     const mevcut = await safeGet(`users:${hotelCode}:${userCode}`, true);
     if (mevcut) throw new Error("Bu kullanıcı kodu bu otelde zaten kullanılıyor.");
-    await window.storage.set(
-      `users:${hotelCode}:${userCode}`,
-      JSON.stringify({ hotelCode, userCode, password, name: name.trim(), department }),
-      true
-    );
+    const kayit = { hotelCode, userCode, password, name: name.trim(), department };
+    if (bolum) kayit.bolum = bolum;
+    if (pozisyon) kayit.pozisyon = pozisyon;
+    await window.storage.set(`users:${hotelCode}:${userCode}`, JSON.stringify(kayit), true);
   }
 
   async function kontrolSatiriEkle(departman, metin) {
@@ -2150,7 +2522,8 @@ function AnaSayfa({
         </div>
         <div style={styles.departmanRozeti}>
           {user.department}
-          {user.pozisyon ? ` · ${pozisyonBasligiBul(user.department, user.pozisyon)}` : ""}
+          {user.bolum ? ` · ${bolumBasligiBul(user.department, user.bolum)}` : ""}
+          {user.pozisyon ? ` · ${user.pozisyon}` : ""}
         </div>
       </div>
 
@@ -2293,8 +2666,12 @@ function KontrolListesiEkrani({
   fileInputRefs,
 }) {
   const bolumlerTumu = DEPARTMAN_BOLUMLERI[user.department];
-  const bolumler =
-    user.pozisyon && bolumlerTumu ? bolumlerTumu.filter((b) => b.harf === user.pozisyon) : bolumlerTumu;
+  const bolumlerHarfEslesen =
+    user.bolum && bolumlerTumu ? bolumlerTumu.filter((b) => b.harf === user.bolum) : null;
+  // user.bolum artık serbest metin (organizasyon şemasından) olabileceği için,
+  // harf koduyla eşleşme bulunamazsa (örn. "Elektrik" gibi bir metinse) tüm
+  // bölümler gösterilir; eşleşme varsa (örn. "A") sadece o bölüm gösterilir.
+  const bolumler = bolumlerHarfEslesen && bolumlerHarfEslesen.length > 0 ? bolumlerHarfEslesen : bolumlerTumu;
   const otomatikKapat = !!DEPARTMAN_OTOMATIK_KAPAT[user.department];
   const yorumFotoIzinli = !!DEPARTMAN_YORUM_FOTO_IZINLI[user.department];
   const yorumFotoHerZaman = !!DEPARTMAN_YORUM_FOTO_HERZAMAN[user.department];
@@ -2327,7 +2704,7 @@ function KontrolListesiEkrani({
         <div>
           <div className="baslik-font" style={styles.listeBaslikYazi}>
             {user.department}
-            {user.pozisyon ? ` · ${pozisyonBasligiBul(user.department, user.pozisyon)}` : ""} Kontrol Listesi
+            {user.bolum ? ` · ${bolumBasligiBul(user.department, user.bolum)}` : ""} Kontrol Listesi
           </div>
           <div style={styles.ilerlemeYazi}>
             {tamamlanan} / {toplamMaddeSayisi} madde işaretlendi
@@ -3364,7 +3741,7 @@ function GMOzetSekmesi({ user }) {
                             <div style={styles.adminIlerlemeUstSatir}>
                               <span>
                                 Bugün · {k.department}
-                                {k.pozisyon ? ` · ${pozisyonBasligiBul(k.department, k.pozisyon)}` : ""} ·{" "}
+                                {k.bolum ? ` · ${bolumBasligiBul(k.department, k.bolum)}` : ""} ·{" "}
                                 <strong>
                                   {il.tamamlanan}/{il.toplam} - %{yuzde}
                                 </strong>
@@ -3396,10 +3773,14 @@ function GMDepartmanSekmesi({ onDepartmanOlustur, toastGoster }) {
 
   async function olustur() {
     setHata("");
+    if (!ad) {
+      setHata("Lütfen listeden bir departman seçin.");
+      return;
+    }
     setOlusturuluyor(true);
     try {
       await onDepartmanOlustur(ad);
-      toastGoster(`✓ "${ad.trim()}" departmanı oluşturuldu`);
+      toastGoster(`✓ "${ad}" departmanı oluşturuldu`);
       setAd("");
     } catch (e) {
       setHata(e.message || "Bir hata oluştu.");
@@ -3409,26 +3790,27 @@ function GMDepartmanSekmesi({ onDepartmanOlustur, toastGoster }) {
 
   return (
     <div style={{ marginTop: 14 }}>
-      <Etiket>YENİ DEPARTMAN / POZİSYON ADI</Etiket>
-      <input
-        style={styles.epostaInput}
-        value={ad}
-        onChange={(e) => setAd(e.target.value)}
-        placeholder="örn. Muhasebe"
-      />
+      <Etiket>DEPARTMAN (zorunlu)</Etiket>
+      <select style={styles.gmSecim} value={ad} onChange={(e) => setAd(e.target.value)}>
+        <option value="">Seçiniz</option>
+        {STANDART_DEPARTMAN_YAPISI.map((d) => (
+          <option key={d.harf} value={d.departman}>
+            {d.harf}. {d.departman}
+          </option>
+        ))}
+      </select>
       {hata && <div style={styles.hataKutusu}>{hata}</div>}
       <button
         style={{ ...styles.anaButon, marginTop: 12, opacity: olusturuluyor ? 0.7 : 1 }}
         onClick={olustur}
-        disabled={olusturuluyor || !ad.trim()}
+        disabled={olusturuluyor || !ad}
       >
         {olusturuluyor ? "Oluşturuluyor…" : "Departman Oluştur"}
       </button>
       <div style={styles.notMetni}>
-        Yeni departman/pozisyon boş bir kontrol listesiyle oluşturulur; maddelerini "Maddeler"
-        sekmesinden ekleyebilirsiniz. Not: departmanlar (mevcut Kat Hizmetleri, Önbüro gibi) tüm
-        oteller arasında ortak kullanılır; farklı otellerdeki kullanıcılar da bu departmana
-        atanabilir.
+        Departman standart listeden seçilir; boş bir kontrol listesiyle oluşturulur, maddelerini
+        "Maddeler" sekmesinden ekleyebilirsiniz. Not: departmanlar (mevcut Kat Hizmetleri, Teknik
+        Servis gibi) tüm oteller arasında ortak kullanılır.
       </div>
     </div>
   );
@@ -3439,12 +3821,27 @@ function GMKullaniciSekmesi({ user, onKullaniciOlustur, toastGoster }) {
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [department, setDepartment] = useState("");
+  const [bolum, setBolum] = useState("");
+  const [pozisyon, setPozisyon] = useState("");
   const [hata, setHata] = useState("");
   const [olusturuluyor, setOlusturuluyor] = useState(false);
-  const departmanlar = tumDepartmanAdlari();
+
+  const secilenGrup = STANDART_DEPARTMAN_YAPISI.find((d) => d.departman === department);
 
   async function olustur() {
     setHata("");
+    if (!department) {
+      setHata("Lütfen bir Departman seçin.");
+      return;
+    }
+    if (!bolum) {
+      setHata("Lütfen bir Bölüm seçin.");
+      return;
+    }
+    if (!pozisyon) {
+      setHata("Lütfen bir Pozisyon seçin.");
+      return;
+    }
     setOlusturuluyor(true);
     try {
       await onKullaniciOlustur({
@@ -3452,12 +3849,17 @@ function GMKullaniciSekmesi({ user, onKullaniciOlustur, toastGoster }) {
         userCode,
         password,
         name,
-        department: department || departmanlar[0] || "",
+        department,
+        bolum,
+        pozisyon,
       });
       toastGoster(`✓ Kullanıcı oluşturuldu: ${name}`);
       setUserCode("");
       setPassword("");
       setName("");
+      setDepartment("");
+      setBolum("");
+      setPozisyon("");
     } catch (e) {
       setHata(e.message || "Bir hata oluştu.");
     }
@@ -3496,12 +3898,45 @@ function GMKullaniciSekmesi({ user, onKullaniciOlustur, toastGoster }) {
       <Etiket>İSİM (Kullanıcı Adı)</Etiket>
       <input style={styles.epostaInput} value={name} onChange={(e) => setName(e.target.value)} placeholder="Ad Soyad" />
 
-      <Etiket>DEPARTMAN / POZİSYON</Etiket>
-      <select style={styles.gmSecim} value={department} onChange={(e) => setDepartment(e.target.value)}>
+      <Etiket>DEPARTMAN (zorunlu)</Etiket>
+      <select
+        style={styles.gmSecim}
+        value={department}
+        onChange={(e) => {
+          setDepartment(e.target.value);
+          setBolum("");
+        }}
+      >
         <option value="">Seçiniz</option>
-        {departmanlar.map((d) => (
-          <option key={d} value={d}>
-            {d}
+        {STANDART_DEPARTMAN_YAPISI.map((d) => (
+          <option key={d.harf} value={d.departman}>
+            {d.harf}. {d.departman}
+          </option>
+        ))}
+      </select>
+
+      <Etiket>BÖLÜM (zorunlu)</Etiket>
+      <select
+        style={styles.gmSecim}
+        value={bolum}
+        onChange={(e) => setBolum(e.target.value)}
+        disabled={!secilenGrup}
+      >
+        <option value="">{secilenGrup ? "Seçiniz" : "Önce departman seçin"}</option>
+        {secilenGrup &&
+          secilenGrup.bolumler.map((b) => (
+            <option key={b} value={b}>
+              {b}
+            </option>
+          ))}
+      </select>
+
+      <Etiket>POZİSYON (zorunlu)</Etiket>
+      <select style={styles.gmSecim} value={pozisyon} onChange={(e) => setPozisyon(e.target.value)}>
+        <option value="">Seçiniz</option>
+        {STANDART_POZISYON_LISTESI.map((p) => (
+          <option key={p} value={p}>
+            {p}
           </option>
         ))}
       </select>
@@ -3653,6 +4088,10 @@ function AdminEkrani({ onCikis }) {
   const [hata, setHata] = useState("");
   const [acikKullanici, setAcikKullanici] = useState(null); // "hotelCode:userCode"
   const [ilerlemeVerisi, setIlerlemeVerisi] = useState({}); // { [anahtar]: {...} }
+  const [duzenlenenKullanici, setDuzenlenenKullanici] = useState(null); // anahtar
+  const [duzenleForm, setDuzenleForm] = useState({ department: "", bolum: "", pozisyon: "", password: "" });
+  const [kaydediliyor, setKaydediliyor] = useState(false);
+  const [duzenleMesaj, setDuzenleMesaj] = useState("");
 
   useEffect(() => {
     verileriYukle();
@@ -3727,8 +4166,8 @@ function AdminEkrani({ onCikis }) {
         [anahtar]: {
           yukleniyor: false,
           bulunamadi: false,
-          tamamlanan: kayitTamamlananSayisiKullanici(veri, k),
-          toplam: kayitToplamMaddeSayisiKullanici(veri, k),
+          tamamlanan: kayitTamamlananSayisiKullanici(veri, kullanici),
+          toplam: kayitToplamMaddeSayisiKullanici(veri, kullanici),
           tamamlandiMi: veri.tamamlandiMi,
           guncellemeSaati: new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }),
         },
@@ -3748,7 +4187,48 @@ function AdminEkrani({ onCikis }) {
       return;
     }
     setAcikKullanici(anahtar);
+    setDuzenlenenKullanici(null);
     ilerlemeGetir(kullanici);
+  }
+
+  function duzenlemeyeBasla(k) {
+    const anahtar = `${k.hotelCode}:${k.userCode}`;
+    setDuzenlenenKullanici(anahtar);
+    setDuzenleForm({
+      department: k.department,
+      bolum: k.bolum || "",
+      pozisyon: k.pozisyon || "",
+      password: k.password,
+    });
+    setDuzenleMesaj("");
+  }
+
+  async function duzenlemeyiKaydet(k) {
+    setKaydediliyor(true);
+    setDuzenleMesaj("");
+    try {
+      if (!duzenleForm.department) throw new Error("Lütfen bir Departman seçin.");
+      if (!duzenleForm.bolum) throw new Error("Lütfen bir Bölüm seçin.");
+      if (!duzenleForm.pozisyon) throw new Error("Lütfen bir Pozisyon seçin.");
+      if (duzenleForm.password.length !== 4) {
+        throw new Error("Şifre 4 haneli olmalıdır.");
+      }
+      const guncel = {
+        hotelCode: k.hotelCode,
+        userCode: k.userCode,
+        name: k.name,
+        department: duzenleForm.department,
+        bolum: duzenleForm.bolum,
+        pozisyon: duzenleForm.pozisyon,
+        password: duzenleForm.password,
+      };
+      await window.storage.set(`users:${k.hotelCode}:${k.userCode}`, JSON.stringify(guncel), true);
+      setDuzenlenenKullanici(null);
+      await verileriYukle();
+    } catch (e) {
+      setDuzenleMesaj(e.message || "Kaydetme sırasında bir hata oluştu.");
+    }
+    setKaydediliyor(false);
   }
 
   return (
@@ -3826,7 +4306,7 @@ function AdminEkrani({ onCikis }) {
                                   <div style={styles.adminIlerlemeUstSatir}>
                                     <span>
                                       Bugün · {k.department}
-                                {k.pozisyon ? ` · ${pozisyonBasligiBul(k.department, k.pozisyon)}` : ""} ·{" "}
+                                {k.bolum ? ` · ${bolumBasligiBul(k.department, k.bolum)}` : ""} ·{" "}
                                       <strong>
                                         {ilerleme.tamamlanan}/{ilerleme.toplam}
                                       </strong>{" "}
@@ -3852,6 +4332,95 @@ function AdminEkrani({ onCikis }) {
                                     paylaşılan ortak kontrol listesine aittir; 15 saniyede bir otomatik güncellenir.
                                   </div>
                                 </>
+                              )}
+
+                              {duzenlenenKullanici === anahtar ? (
+                                <div style={styles.adminDuzenleForm}>
+                                  <Etiket>DEPARTMAN (zorunlu)</Etiket>
+                                  <select
+                                    style={styles.gmSecim}
+                                    value={duzenleForm.department}
+                                    onChange={(e) =>
+                                      setDuzenleForm((f) => ({ ...f, department: e.target.value, bolum: "" }))
+                                    }
+                                  >
+                                    <option value="">Seçiniz</option>
+                                    {STANDART_DEPARTMAN_YAPISI.map((d) => (
+                                      <option key={d.harf} value={d.departman}>
+                                        {d.harf}. {d.departman}
+                                      </option>
+                                    ))}
+                                  </select>
+
+                                  <Etiket>BÖLÜM (zorunlu)</Etiket>
+                                  <select
+                                    style={styles.gmSecim}
+                                    value={duzenleForm.bolum}
+                                    onChange={(e) => setDuzenleForm((f) => ({ ...f, bolum: e.target.value }))}
+                                    disabled={!STANDART_DEPARTMAN_YAPISI.find((d) => d.departman === duzenleForm.department)}
+                                  >
+                                    <option value="">Seçiniz</option>
+                                    {(
+                                      (STANDART_DEPARTMAN_YAPISI.find((d) => d.departman === duzenleForm.department) || {})
+                                        .bolumler || []
+                                    ).map((b) => (
+                                      <option key={b} value={b}>
+                                        {b}
+                                      </option>
+                                    ))}
+                                  </select>
+
+                                  <Etiket>POZİSYON (zorunlu)</Etiket>
+                                  <select
+                                    style={styles.gmSecim}
+                                    value={duzenleForm.pozisyon}
+                                    onChange={(e) => setDuzenleForm((f) => ({ ...f, pozisyon: e.target.value }))}
+                                  >
+                                    <option value="">Seçiniz</option>
+                                    {STANDART_POZISYON_LISTESI.map((p) => (
+                                      <option key={p} value={p}>
+                                        {p}
+                                      </option>
+                                    ))}
+                                  </select>
+
+                                  <Etiket>ŞİFRE (4 haneli)</Etiket>
+                                  <input
+                                    className="kod-input"
+                                    style={styles.kodInput}
+                                    inputMode="numeric"
+                                    maxLength={4}
+                                    value={duzenleForm.password}
+                                    onChange={(e) =>
+                                      setDuzenleForm((f) => ({
+                                        ...f,
+                                        password: e.target.value.replace(/\D/g, "").slice(0, 4),
+                                      }))
+                                    }
+                                  />
+
+                                  {duzenleMesaj && <div style={styles.hataKutusu}>{duzenleMesaj}</div>}
+
+                                  <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                                    <button
+                                      style={{ ...styles.gmKucukButon, flex: 1, opacity: kaydediliyor ? 0.7 : 1 }}
+                                      onClick={() => duzenlemeyiKaydet(k)}
+                                      disabled={kaydediliyor}
+                                    >
+                                      {kaydediliyor ? "Kaydediliyor…" : "Kaydet"}
+                                    </button>
+                                    <button
+                                      style={{ ...styles.gmKucukIptalButon, flex: 1 }}
+                                      onClick={() => setDuzenlenenKullanici(null)}
+                                    >
+                                      Vazgeç
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <button style={styles.adminDuzenleButon} onClick={() => duzenlemeyeBasla(k)}>
+                                  ✏️ Düzenle
+                                </button>
                               )}
                             </div>
                           )}
@@ -4819,6 +5388,23 @@ const styles = {
     fontSize: 10.5,
     color: "#9CA3AF",
     lineHeight: 1.5,
+  },
+  adminDuzenleButon: {
+    marginTop: 10,
+    width: "100%",
+    padding: "9px 12px",
+    borderRadius: 10,
+    border: "1px solid #E2DCCC",
+    background: "#fff",
+    color: "#16323A",
+    fontSize: 12,
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  adminDuzenleForm: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTop: "1px solid #E2DCCC",
   },
   gmSekmeSatiri: {
     display: "flex",
