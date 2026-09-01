@@ -1131,6 +1131,31 @@ const LF_SAKLAMA_SURESI_GUN = 90;
 // Bu pozisyonlar durum değiştirme / imha-bağış onayı gibi yönetimsel işlemleri yapabilir.
 const LF_YONETICI_POZISYONLARI = ["Müdür", "Supervisor", "Şef", "Vardiya Amiri"];
 
+/* ------------------------------------------------------------------
+   ARIZA BİLDİRİM VE TAKİP (Maintenance) MODÜLÜ - sabit tanımlar
+-------------------------------------------------------------------*/
+const ARZ_KATEGORILER = [
+  "Klima", "Elektrik", "Su / Tesisat", "Sıcak Su", "Televizyon", "İnternet",
+  "Telefon", "Aydınlatma", "Mobilya", "Kapı / Kilit", "Asansör", "Havuz",
+  "Mutfak Ekipmanı", "Çamaşırhane", "Yangın Sistemi", "Jeneratör", "HVAC",
+  "Teknik Ekipman", "Boya / Dekorasyon", "Diğer",
+];
+const ARZ_ALANLAR = [
+  "Asansör", "Bahçe", "Bar", "Çocuk Kulübü", "Depo", "Fitness", "Genel Alan",
+  "Havuz", "Koridor", "Lobby", "Merdiven", "Mutfak", "Oda", "Ofis", "Otopark",
+  "Personel Alanı", "Plaj", "Resepsiyon", "Restoran", "Spa", "Teknik Alan",
+  "Toplantı Salonu", "Diğer",
+];
+const ARZ_ONCELIKLER = [
+  { deger: "Acil", renk: "#B7472A", emoji: "🔴" },
+  { deger: "Yüksek", renk: "#B08D3E", emoji: "🟠" },
+  { deger: "Normal", renk: "#2F7D5C", emoji: "🟢" },
+];
+const ARZ_DURUMLAR = ["Yeni", "Atandı", "İşlemde", "Beklemede", "Kontrol Bekliyor", "Kapatıldı"];
+const ARZ_TEKNIK_DEPARTMAN = "Teknik Servis";
+const ARZ_TEKRARLAYAN_GUN = 30;
+const ARZ_TEKRARLAYAN_ESIK = 3;
+
 const KAT_HIZMETLERI_BOLUMLER = [
   {
     harf: "A",
@@ -2358,6 +2383,7 @@ function App() {
             onBildirimIzniIste={bildirimIzniIste}
             onGorevAta={() => setScreen("gorevAta")}
             onLostFound={() => setScreen("lostfound")}
+            onArizaBildir={() => setScreen("ariza")}
             onGMYonetim={() => setScreen("gmYonetim")}
             bekleyenGorevler={bekleyenGorevler}
             onGorevKabul={gorevKabulEt}
@@ -2412,6 +2438,8 @@ function App() {
           />
         ) : screen === "lostfound" ? (
           <LostFoundEkrani user={currentUser} onGeri={() => setScreen("home")} toastGoster={toastGoster} />
+        ) : screen === "ariza" ? (
+          <ArizaEkrani user={currentUser} onGeri={() => setScreen("home")} toastGoster={toastGoster} />
         ) : null}
 
         {toast && !pdfLinkUrl && <div style={styles.toastMesaj}>{toast}</div>}
@@ -2533,6 +2561,7 @@ function AnaSayfa({
   onGorevAta,
   onGMYonetim,
   onLostFound,
+  onArizaBildir,
   bekleyenGorevler,
   onGorevKabul,
 }) {
@@ -2633,6 +2662,10 @@ function AnaSayfa({
           disabled={durum === "once"}
         >
           {durum === "aktif" ? "Kontrol Listesini Aç" : durum === "once" ? "Henüz Başlamadı" : "Bugünün Listesini Görüntüle"}
+        </button>
+
+        <button style={styles.arizaButon} onClick={onArizaBildir}>
+          🔧 Arıza Bildir
         </button>
 
         <button style={styles.lostFoundButon} onClick={onLostFound}>
@@ -4923,6 +4956,897 @@ function LFDetay({ kayit, yoneticiMi, onGeri, onDurumGuncelle, onIletisimEkle, o
 }
 
 
+/* ------------------------------------------------------------------
+   ARIZA BİLDİRİM VE TAKİP - depolama yardımcı fonksiyonları
+-------------------------------------------------------------------*/
+async function arzKayitlariGetir(hotelCode) {
+  try {
+    const liste = await window.storage.list(`ariza:${hotelCode}:`, true);
+    const keys = (liste && liste.keys) || [];
+    const kayitlar = [];
+    for (const k of keys) {
+      const r = await safeGet(k, true);
+      if (r) {
+        try {
+          kayitlar.push(JSON.parse(r.value));
+        } catch (e) {}
+      }
+    }
+    kayitlar.sort((a, b) => (a.olusturmaZamani < b.olusturmaZamani ? 1 : -1));
+    return kayitlar;
+  } catch (e) {
+    return [];
+  }
+}
+
+async function arzKayitKaydet(kayit) {
+  await window.storage.set(`ariza:${kayit.hotelCode}:${kayit.no}`, JSON.stringify(kayit), true);
+}
+
+function arzOncelikBilgisi(oncelik) {
+  return ARZ_ONCELIKLER.find((o) => o.deger === oncelik) || ARZ_ONCELIKLER[2];
+}
+
+/* ------------------------------------------------------------------
+   ARIZA BİLDİRİM VE TAKİP - ana ekran (KPI + liste + gezinme)
+-------------------------------------------------------------------*/
+function ArizaEkrani({ user, onGeri, toastGoster }) {
+  const [gorunum, setGorunum] = useState("liste"); // liste | yeni | detay
+  const [kayitlar, setKayitlar] = useState([]);
+  const [yukleniyor, setYukleniyor] = useState(true);
+  const [secilenNo, setSecilenNo] = useState(null);
+  const [filtre, setFiltre] = useState("acik");
+  const [teknisyenler, setTeknisyenler] = useState([]);
+
+  const teknisyenMi = user.department === ARZ_TEKNIK_DEPARTMAN;
+  const yoneticiMi = LF_YONETICI_POZISYONLARI.includes(user.pozisyon);
+  const atamaYapabilirMi = teknisyenMi && yoneticiMi;
+
+  useEffect(() => {
+    yukle();
+    teknisyenleriGetir();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function yukle() {
+    setYukleniyor(true);
+    const veri = await arzKayitlariGetir(user.hotelCode);
+    setKayitlar(veri);
+    setYukleniyor(false);
+  }
+
+  async function teknisyenleriGetir() {
+    try {
+      const liste = await window.storage.list(`users:${user.hotelCode}:`, true);
+      const keys = (liste && liste.keys) || [];
+      const sonuc = [];
+      for (const k of keys) {
+        const r = await safeGet(k, true);
+        if (r) {
+          try {
+            const veri = JSON.parse(r.value);
+            if (veri.department === ARZ_TEKNIK_DEPARTMAN) sonuc.push(veri);
+          } catch (e) {}
+        }
+      }
+      setTeknisyenler(sonuc);
+    } catch (e) {}
+  }
+
+  function tekrarlayanUyari(form) {
+    const simdi = new Date();
+    const esikTarih = new Date(simdi.getTime() - ARZ_TEKRARLAYAN_GUN * 24 * 60 * 60 * 1000);
+    const benzer = kayitlar.filter(
+      (k) =>
+        k.kategori === form.kategori &&
+        ((form.odaNo && k.odaNo === form.odaNo) || (!form.odaNo && k.alan === form.alan)) &&
+        new Date(k.olusturmaZamani) >= esikTarih
+    );
+    return benzer.length + 1 >= ARZ_TEKRARLAYAN_ESIK ? benzer.length + 1 : 0;
+  }
+
+  async function arizaOlustur(form, fotograflar) {
+    const simdi = new Date();
+    const yil = simdi.getFullYear();
+    const sayac = kayitlar.filter((k) => k.no.includes(`-${yil}-`)).length + 1;
+    const no = `ARZ-${yil}-${String(sayac).padStart(4, "0")}`;
+    const tekrarSayisi = tekrarlayanUyari(form);
+    const kayit = {
+      no,
+      hotelCode: user.hotelCode,
+      hotelName: user.hotelName,
+      tarih: simdi.toLocaleDateString("tr-TR"),
+      saat: simdi.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }),
+      olusturmaZamani: simdi.toISOString(),
+      bildirenKullanici: user.name,
+      bildirenUserCode: user.userCode,
+      bildirenDepartman: user.department,
+      alan: form.alan,
+      odaNo: form.odaNo,
+      kategori: form.kategori,
+      aciklama: form.aciklama,
+      oncelik: form.oncelik,
+      fotograflar: fotograflar || [],
+      durum: "Yeni",
+      atananTeknisyen: null,
+      atanmaZamani: null,
+      baslamaZamani: null,
+      beklemeNedeni: "",
+      cozumAciklamasi: "",
+      kullanilanParca: "",
+      cozumFotograflari: [],
+      cozumZamani: null,
+      kontrolEden: "",
+      kontrolZamani: null,
+      kapanisZamani: null,
+      auditLog: [{ zaman: simdi.toISOString(), kullanici: user.name, islem: "Arıza bildirildi" }],
+    };
+    await arzKayitKaydet(kayit);
+
+    if (form.oncelik === "Acil") {
+      telegramMesajGonder(
+        `🔴 ACİL ARIZA\n${kayit.hotelName}\n\nArıza No: ${no}\nAlan: ${form.alan}${
+          form.odaNo ? ` (Oda ${form.odaNo})` : ""
+        }\nKategori: ${form.kategori}\nAçıklama: ${form.aciklama}\nBildiren: ${user.name} (${user.department})`
+      );
+    }
+    if (tekrarSayisi > 0) {
+      toastGoster(`⚠ Kaydedildi (${no}) — bu alanda son ${ARZ_TEKRARLAYAN_GUN} günde ${tekrarSayisi}. arıza!`);
+    } else {
+      toastGoster(`✓ Arıza bildirildi: ${no}`);
+    }
+    await yukle();
+    setGorunum("liste");
+  }
+
+  async function auditEkle(kayit, islem) {
+    return { zaman: new Date().toISOString(), kullanici: user.name, islem };
+  }
+
+  async function teknisyenAta(kayit, teknisyen) {
+    const simdi = new Date();
+    const guncel = {
+      ...kayit,
+      durum: "Atandı",
+      atananTeknisyen: { userCode: teknisyen.userCode, name: teknisyen.name },
+      atanmaZamani: simdi.toISOString(),
+      auditLog: [...kayit.auditLog, await auditEkle(kayit, `Teknisyen atandı: ${teknisyen.name}`)],
+    };
+    await arzKayitKaydet(guncel);
+    toastGoster(`✓ ${teknisyen.name} atandı`);
+    await yukle();
+  }
+
+  async function islemeBasla(kayit) {
+    const simdi = new Date();
+    const guncel = {
+      ...kayit,
+      durum: "İşlemde",
+      baslamaZamani: simdi.toISOString(),
+      auditLog: [...kayit.auditLog, await auditEkle(kayit, "İşleme başlandı")],
+    };
+    await arzKayitKaydet(guncel);
+    toastGoster("✓ İşleme başlandı");
+    await yukle();
+  }
+
+  async function beklemeyeAl(kayit, neden) {
+    const guncel = {
+      ...kayit,
+      durum: "Beklemede",
+      beklemeNedeni: neden,
+      auditLog: [...kayit.auditLog, await auditEkle(kayit, `Beklemeye alındı: ${neden}`)],
+    };
+    await arzKayitKaydet(guncel);
+    toastGoster("✓ Beklemeye alındı");
+    await yukle();
+  }
+
+  async function islemeDevamEt(kayit) {
+    const guncel = {
+      ...kayit,
+      durum: "İşlemde",
+      auditLog: [...kayit.auditLog, await auditEkle(kayit, "İşleme devam edildi")],
+    };
+    await arzKayitKaydet(guncel);
+    toastGoster("✓ İşleme devam ediliyor");
+    await yukle();
+  }
+
+  async function cozumKaydet(kayit, form, fotograflar) {
+    const simdi = new Date();
+    const guncel = {
+      ...kayit,
+      durum: "Kontrol Bekliyor",
+      cozumAciklamasi: form.cozumAciklamasi,
+      kullanilanParca: form.kullanilanParca,
+      cozumFotograflari: fotograflar || [],
+      cozumZamani: simdi.toISOString(),
+      auditLog: [...kayit.auditLog, await auditEkle(kayit, "Çözüldü olarak işaretlendi, kontrol bekleniyor")],
+    };
+    await arzKayitKaydet(guncel);
+    toastGoster("✓ Çözüm kaydedildi, bildiren kişinin kontrolü bekleniyor");
+    await yukle();
+  }
+
+  async function kontrolOnayla(kayit, onaylandiMi, aciklama) {
+    const simdi = new Date();
+    if (onaylandiMi) {
+      const guncel = {
+        ...kayit,
+        durum: "Kapatıldı",
+        kontrolEden: user.name,
+        kontrolZamani: simdi.toISOString(),
+        kapanisZamani: simdi.toISOString(),
+        auditLog: [...kayit.auditLog, await auditEkle(kayit, "Kontrol edildi ve kapatıldı")],
+      };
+      await arzKayitKaydet(guncel);
+      toastGoster("✓ Arıza kapatıldı");
+    } else {
+      const guncel = {
+        ...kayit,
+        durum: "İşlemde",
+        auditLog: [
+          ...kayit.auditLog,
+          await auditEkle(kayit, `Sorun devam ediyor olarak işaretlendi: ${aciklama}`),
+        ],
+      };
+      await arzKayitKaydet(guncel);
+      toastGoster("↩ Arıza tekrar işleme alındı");
+    }
+    await yukle();
+  }
+
+  async function fotografEkle(kayit, dataUrl) {
+    const guncel = { ...kayit, fotograflar: [...(kayit.fotograflar || []), dataUrl] };
+    await arzKayitKaydet(guncel);
+    await yukle();
+  }
+
+  const secilenKayit = kayitlar.find((k) => k.no === secilenNo);
+  const acikMi = (k) => k.durum !== "Kapatıldı";
+  const bugun = new Date().toLocaleDateString("tr-TR");
+
+  const acikSayisi = kayitlar.filter(acikMi).length;
+  const yeniSayisi = kayitlar.filter((k) => k.durum === "Yeni").length;
+  const atandiSayisi = kayitlar.filter((k) => k.durum === "Atandı").length;
+  const islemdeSayisi = kayitlar.filter((k) => k.durum === "İşlemde").length;
+  const beklemedeSayisi = kayitlar.filter((k) => k.durum === "Beklemede").length;
+  const kontrolBekleyenSayisi = kayitlar.filter((k) => k.durum === "Kontrol Bekliyor").length;
+  const bugunKapatilan = kayitlar.filter((k) => k.kapanisZamani && new Date(k.kapanisZamani).toLocaleDateString("tr-TR") === bugun).length;
+
+  let gosterilecekler = kayitlar;
+  if (filtre === "acik") gosterilecekler = kayitlar.filter(acikMi);
+  if (filtre === "benim") gosterilecekler = kayitlar.filter((k) => k.bildirenUserCode === user.userCode);
+  if (filtre === "islerim")
+    gosterilecekler = kayitlar.filter((k) => k.atananTeknisyen && k.atananTeknisyen.userCode === user.userCode && acikMi(k));
+  if (filtre === "kapatildi") gosterilecekler = kayitlar.filter((k) => k.durum === "Kapatıldı");
+
+  if (gorunum === "yeni") {
+    return <ARZYeniBildirim user={user} onIptal={() => setGorunum("liste")} onKaydet={arizaOlustur} />;
+  }
+
+  if (gorunum === "detay" && secilenKayit) {
+    return (
+      <ARZDetay
+        kayit={secilenKayit}
+        user={user}
+        teknisyenler={teknisyenler}
+        atamaYapabilirMi={atamaYapabilirMi}
+        onGeri={() => {
+          setGorunum("liste");
+          setSecilenNo(null);
+        }}
+        onTeknisyenAta={teknisyenAta}
+        onIslemeBasla={islemeBasla}
+        onBeklemeyeAl={beklemeyeAl}
+        onIslemeDevamEt={islemeDevamEt}
+        onCozumKaydet={cozumKaydet}
+        onKontrolOnayla={kontrolOnayla}
+        onFotografEkle={fotografEkle}
+      />
+    );
+  }
+
+  return (
+    <div style={styles.icerik}>
+      <div style={styles.listeUstBaslik}>
+        <button style={styles.geriButon} onClick={onGeri} aria-label="Geri">
+          ←
+        </button>
+        <div>
+          <div className="baslik-font" style={styles.listeBaslikYazi}>
+            Arıza Bildirim ve Takip
+          </div>
+          <div style={styles.ilerlemeYazi}>{user.hotelName}</div>
+        </div>
+      </div>
+
+      <button style={{ ...styles.anaButon, marginTop: 14 }} onClick={() => setGorunum("yeni")}>
+        🔧 Yeni Arıza Bildir
+      </button>
+
+      <div style={styles.lfKpiIzgara}>
+        {[
+          ["Açık Arıza", acikSayisi, "acik"],
+          ["Benim Bildirdiklerim", kayitlar.filter((k) => k.bildirenUserCode === user.userCode).length, "benim"],
+          ["Benim İşlerim", kayitlar.filter((k) => k.atananTeknisyen && k.atananTeknisyen.userCode === user.userCode && acikMi(k)).length, "islerim"],
+          ["Yeni", yeniSayisi, null],
+          ["İşlemde", islemdeSayisi, null],
+          ["Beklemede", beklemedeSayisi, null],
+          ["Kontrol Bekleyen", kontrolBekleyenSayisi, null],
+          ["Bugün Çözülen", bugunKapatilan, null],
+        ].map(([etiket, sayi, key]) => (
+          <button
+            key={etiket}
+            style={{ ...styles.lfKpiKart, ...(key && filtre === key ? styles.lfKpiKartAktif : {}), ...(key ? {} : { cursor: "default" }) }}
+            onClick={() => key && setFiltre(key)}
+          >
+            <div style={styles.lfKpiSayi}>{sayi}</div>
+            <div style={styles.lfKpiEtiket}>{etiket}</div>
+          </button>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+        {[
+          ["acik", "Açık"],
+          ["benim", "Bildirdiklerim"],
+          ["islerim", "İşlerim"],
+          ["kapatildi", "Kapatılanlar"],
+          ["hepsi", "Tümü"],
+        ].map(([key, label]) => (
+          <button
+            key={key}
+            style={{ ...styles.gmSekmeButon, flex: "none", padding: "7px 14px", ...(filtre === key ? styles.gmSekmeButonAktif : {}) }}
+            onClick={() => setFiltre(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 14 }}>
+        {yukleniyor ? (
+          <div style={styles.merkezYukleniyor}>Yükleniyor…</div>
+        ) : gosterilecekler.length === 0 ? (
+          <div style={styles.bilgiKutusu}>Kayıt bulunamadı.</div>
+        ) : (
+          gosterilecekler.map((k) => {
+            const oncelik = arzOncelikBilgisi(k.oncelik);
+            return (
+              <button
+                key={k.no}
+                style={styles.lfKayitKarti}
+                onClick={() => {
+                  setSecilenNo(k.no);
+                  setGorunum("detay");
+                }}
+              >
+                <div style={styles.lfKayitUst}>
+                  <span style={styles.lfKayitNo}>
+                    {oncelik.emoji} {k.no}
+                  </span>
+                  <span style={{ ...styles.lfDurumRozeti, ...(k.durum === "Kapatıldı" ? styles.lfDurumRozetiTamam : {}) }}>
+                    {k.durum}
+                  </span>
+                </div>
+                <div style={styles.lfKayitAciklama}>
+                  {k.kategori} · {k.aciklama.slice(0, 60)}
+                  {k.aciklama.length > 60 ? "…" : ""}
+                </div>
+                <div style={styles.lfKayitAltBilgi}>
+                  {k.alan}
+                  {k.odaNo ? ` · Oda ${k.odaNo}` : ""} · {k.tarih} {k.saat}
+                  {k.atananTeknisyen ? ` · 👤 ${k.atananTeknisyen.name}` : ""}
+                </div>
+              </button>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------
+   ARIZA BİLDİRİM VE TAKİP - yeni bildirim formu
+-------------------------------------------------------------------*/
+function ARZYeniBildirim({ user, onIptal, onKaydet }) {
+  const [alan, setAlan] = useState("");
+  const [alanDiger, setAlanDiger] = useState("");
+  const [odaNo, setOdaNo] = useState("");
+  const [kategori, setKategori] = useState("");
+  const [aciklama, setAciklama] = useState("");
+  const [oncelik, setOncelik] = useState("Normal");
+  const [fotograflar, setFotograflar] = useState([]);
+  const [hata, setHata] = useState("");
+  const [kaydediliyor, setKaydediliyor] = useState(false);
+  const fileRef = useRef(null);
+
+  function fotoSecildi(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const maxW = 700;
+        const scale = Math.min(1, maxW / img.width);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        setFotograflar((prev) => [...prev, canvas.toDataURL("image/jpeg", 0.6)]);
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function kaydet() {
+    setHata("");
+    if (!alan) {
+      setHata("Lütfen arızanın bulunduğu alanı seçin.");
+      return;
+    }
+    if (alan === "Diğer" && !alanDiger.trim()) {
+      setHata("Lütfen 'Diğer' için alanı yazın.");
+      return;
+    }
+    if (!kategori) {
+      setHata("Lütfen bir kategori seçin.");
+      return;
+    }
+    if (!aciklama.trim()) {
+      setHata("Arıza açıklaması zorunludur.");
+      return;
+    }
+    setKaydediliyor(true);
+    const nihaiAlan = alan === "Diğer" ? alanDiger.trim() : alan;
+    await onKaydet({ alan: nihaiAlan, odaNo, kategori, aciklama, oncelik }, fotograflar);
+    setKaydediliyor(false);
+  }
+
+  return (
+    <div style={styles.icerik}>
+      <div style={styles.listeUstBaslik}>
+        <button style={styles.geriButon} onClick={onIptal} aria-label="Geri">
+          ←
+        </button>
+        <div className="baslik-font" style={styles.listeBaslikYazi}>
+          Yeni Arıza Bildir
+        </div>
+      </div>
+
+      <div style={{ ...styles.gmSabitDeger, marginTop: 14 }}>
+        Bildiren: {user.name} · {user.department} · {new Date().toLocaleDateString("tr-TR")}{" "}
+        {new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}
+      </div>
+
+      <Etiket>ARIZANIN BULUNDUĞU ALAN (zorunlu)</Etiket>
+      <select style={styles.gmSecim} value={alan} onChange={(e) => setAlan(e.target.value)}>
+        <option value="">Seçiniz</option>
+        {ARZ_ALANLAR.map((a) => (
+          <option key={a} value={a}>
+            {a}
+          </option>
+        ))}
+      </select>
+      {alan === "Diğer" && (
+        <input
+          style={{ ...styles.epostaInput, marginTop: 8 }}
+          value={alanDiger}
+          onChange={(e) => setAlanDiger(e.target.value)}
+          placeholder="Alanı yazın"
+        />
+      )}
+
+      <Etiket>ODA NUMARASI (varsa)</Etiket>
+      <input style={styles.epostaInput} value={odaNo} onChange={(e) => setOdaNo(e.target.value)} placeholder="örn. 218" />
+
+      <Etiket>ARIZA KATEGORİSİ (zorunlu)</Etiket>
+      <select style={styles.gmSecim} value={kategori} onChange={(e) => setKategori(e.target.value)}>
+        <option value="">Seçiniz</option>
+        {ARZ_KATEGORILER.map((k) => (
+          <option key={k} value={k}>
+            {k}
+          </option>
+        ))}
+      </select>
+
+      <Etiket>ARIZA AÇIKLAMASI (zorunlu)</Etiket>
+      <textarea
+        style={styles.aciklamaAlani}
+        rows={2}
+        value={aciklama}
+        onChange={(e) => setAciklama(e.target.value)}
+        placeholder="Arızayı tarif edin"
+      />
+
+      <Etiket>ÖNCELİK</Etiket>
+      <div style={{ display: "flex", gap: 8 }}>
+        {ARZ_ONCELIKLER.map((o) => (
+          <button
+            key={o.deger}
+            style={{
+              ...styles.secimKutusu,
+              flex: 1,
+              ...(oncelik === o.deger ? { background: o.renk, borderColor: o.renk, color: "#fff" } : {}),
+            }}
+            onClick={() => setOncelik(o.deger)}
+          >
+            {o.emoji} {o.deger}
+          </button>
+        ))}
+      </div>
+
+      <Etiket>FOTOĞRAF</Etiket>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        style={{ display: "none" }}
+        onChange={(e) => fotoSecildi(e.target.files[0])}
+      />
+      <button style={styles.fotoButon} onClick={() => fileRef.current && fileRef.current.click()}>
+        📷 Fotoğraf Ekle
+      </button>
+      {fotograflar.length > 0 && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+          {fotograflar.map((f, i) => (
+            <div key={i} style={styles.fotoOnizlemeSarmalayici}>
+              <img src={f} alt="" style={styles.fotoOnizleme} />
+              <button
+                style={styles.fotoSilButon}
+                onClick={() => setFotograflar((prev) => prev.filter((_, idx) => idx !== i))}
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {hata && <div style={styles.hataKutusu}>{hata}</div>}
+
+      <button
+        style={{ ...styles.anaButon, marginTop: 16, marginBottom: 24, opacity: kaydediliyor ? 0.7 : 1 }}
+        onClick={kaydet}
+        disabled={kaydediliyor}
+      >
+        {kaydediliyor ? "Kaydediliyor…" : "Arızayı Bildir"}
+      </button>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------
+   ARIZA BİLDİRİM VE TAKİP - kayıt detay ekranı
+-------------------------------------------------------------------*/
+function ARZDetay({
+  kayit,
+  user,
+  teknisyenler,
+  atamaYapabilirMi,
+  onGeri,
+  onTeknisyenAta,
+  onIslemeBasla,
+  onBeklemeyeAl,
+  onIslemeDevamEt,
+  onCozumKaydet,
+  onKontrolOnayla,
+  onFotografEkle,
+}) {
+  const [secilenTeknisyen, setSecilenTeknisyen] = useState("");
+  const [beklemeNedeni, setBeklemeNedeni] = useState("");
+  const [beklemeAcik, setBeklemeAcik] = useState(false);
+  const [cozumAciklamasi, setCozumAciklamasi] = useState("");
+  const [kullanilanParca, setKullanilanParca] = useState("");
+  const [cozumFotograflari, setCozumFotograflari] = useState([]);
+  const [cozumAcik, setCozumAcik] = useState(false);
+  const [sorunAciklamasi, setSorunAciklamasi] = useState("");
+  const [sorunFormAcik, setSorunFormAcik] = useState(false);
+  const [auditAcik, setAuditAcik] = useState(false);
+  const [islem, setIslem] = useState(false);
+  const fileRef = useRef(null);
+  const cozumFileRef = useRef(null);
+
+  const oncelik = arzOncelikBilgisi(kayit.oncelik);
+  const benimAtananimMi = kayit.atananTeknisyen && kayit.atananTeknisyen.userCode === user.userCode;
+  const benimBildirdigimMi = kayit.bildirenUserCode === user.userCode;
+
+  function fotoSecildiGenel(file, hedefFonksiyon) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const maxW = 700;
+        const scale = Math.min(1, maxW / img.width);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        hedefFonksiyon(canvas.toDataURL("image/jpeg", 0.6));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function teknisyenAtaTikla() {
+    const t = teknisyenler.find((x) => x.userCode === secilenTeknisyen);
+    if (!t) return;
+    setIslem(true);
+    await onTeknisyenAta(kayit, t);
+    setIslem(false);
+  }
+
+  async function beklemeyeAlKaydet() {
+    if (!beklemeNedeni.trim()) return;
+    setIslem(true);
+    await onBeklemeyeAl(kayit, beklemeNedeni.trim());
+    setIslem(false);
+    setBeklemeAcik(false);
+    setBeklemeNedeni("");
+  }
+
+  async function cozumKaydetTikla() {
+    if (!cozumAciklamasi.trim()) return;
+    setIslem(true);
+    await onCozumKaydet(kayit, { cozumAciklamasi: cozumAciklamasi.trim(), kullanilanParca }, cozumFotograflari);
+    setIslem(false);
+  }
+
+  async function sorunDevamEdiyorKaydet() {
+    if (!sorunAciklamasi.trim()) return;
+    setIslem(true);
+    await onKontrolOnayla(kayit, false, sorunAciklamasi.trim());
+    setIslem(false);
+  }
+
+  return (
+    <div style={styles.icerik}>
+      <div style={styles.listeUstBaslik}>
+        <button style={styles.geriButon} onClick={onGeri} aria-label="Geri">
+          ←
+        </button>
+        <div>
+          <div className="baslik-font" style={styles.listeBaslikYazi}>
+            {kayit.no}
+          </div>
+          <div style={styles.ilerlemeYazi}>
+            {kayit.tarih} {kayit.saat} · {kayit.bildirenKullanici}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ ...styles.lfUyariKutusu, background: `${oncelik.renk}1A`, color: oncelik.renk }}>
+        {oncelik.emoji} {oncelik.deger} öncelik · Durum: {kayit.durum}
+      </div>
+
+      <div style={styles.lfBilgiKarti}>
+        <div style={styles.lfBilgiSatiri}>
+          <span>Kategori</span>
+          <strong>{kayit.kategori}</strong>
+        </div>
+        <div style={styles.lfBilgiSatiri}>
+          <span>Açıklama</span>
+          <strong>{kayit.aciklama}</strong>
+        </div>
+        <div style={styles.lfBilgiSatiri}>
+          <span>Alan</span>
+          <strong>
+            {kayit.alan}
+            {kayit.odaNo ? ` (Oda ${kayit.odaNo})` : ""}
+          </strong>
+        </div>
+        <div style={styles.lfBilgiSatiri}>
+          <span>Bildiren</span>
+          <strong>
+            {kayit.bildirenKullanici} · {kayit.bildirenDepartman}
+          </strong>
+        </div>
+        {kayit.atananTeknisyen && (
+          <div style={styles.lfBilgiSatiri}>
+            <span>Teknisyen</span>
+            <strong>{kayit.atananTeknisyen.name}</strong>
+          </div>
+        )}
+        {kayit.beklemeNedeni && kayit.durum === "Beklemede" && (
+          <div style={styles.lfBilgiSatiri}>
+            <span>Bekleme Nedeni</span>
+            <strong>{kayit.beklemeNedeni}</strong>
+          </div>
+        )}
+        {kayit.cozumAciklamasi && (
+          <div style={styles.lfBilgiSatiri}>
+            <span>Çözüm Açıklaması</span>
+            <strong>{kayit.cozumAciklamasi}</strong>
+          </div>
+        )}
+        {kayit.kullanilanParca && (
+          <div style={styles.lfBilgiSatiri}>
+            <span>Kullanılan Parça</span>
+            <strong>{kayit.kullanilanParca}</strong>
+          </div>
+        )}
+      </div>
+
+      {kayit.fotograflar && kayit.fotograflar.length > 0 && (
+        <>
+          <Etiket>BİLDİRİM FOTOĞRAFLARI</Etiket>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {kayit.fotograflar.map((f, i) => (
+              <img key={i} src={f} alt="" style={styles.fotoOnizleme} />
+            ))}
+          </div>
+        </>
+      )}
+      {kayit.cozumFotograflari && kayit.cozumFotograflari.length > 0 && (
+        <>
+          <Etiket>ÇÖZÜM FOTOĞRAFLARI</Etiket>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {kayit.cozumFotograflari.map((f, i) => (
+              <img key={i} src={f} alt="" style={styles.fotoOnizleme} />
+            ))}
+          </div>
+        </>
+      )}
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        style={{ display: "none" }}
+        onChange={(e) => fotoSecildiGenel(e.target.files[0], (url) => onFotografEkle(kayit, url))}
+      />
+      <button style={{ ...styles.fotoButon, marginTop: 10 }} onClick={() => fileRef.current && fileRef.current.click()}>
+        📷 Fotoğraf Ekle
+      </button>
+
+      {/* --- Durum bazlı işlem alanları --- */}
+
+      {kayit.durum === "Yeni" && atamaYapabilirMi && (
+        <>
+          <Etiket>TEKNİSYEN ATA</Etiket>
+          <select style={styles.gmSecim} value={secilenTeknisyen} onChange={(e) => setSecilenTeknisyen(e.target.value)}>
+            <option value="">Seçiniz</option>
+            {teknisyenler.map((t) => (
+              <option key={t.userCode} value={t.userCode}>
+                {t.name}
+                {t.bolum ? ` (${t.bolum})` : ""}
+              </option>
+            ))}
+          </select>
+          <button
+            style={{ ...styles.anaButon, marginTop: 10, opacity: islem ? 0.7 : 1 }}
+            onClick={teknisyenAtaTikla}
+            disabled={islem || !secilenTeknisyen}
+          >
+            Teknisyeni Ata
+          </button>
+        </>
+      )}
+
+      {kayit.durum === "Atandı" && benimAtananimMi && (
+        <button style={{ ...styles.anaButon, marginTop: 14, opacity: islem ? 0.7 : 1 }} onClick={async () => { setIslem(true); await onIslemeBasla(kayit); setIslem(false); }} disabled={islem}>
+          İşleme Başla
+        </button>
+      )}
+
+      {kayit.durum === "İşlemde" && benimAtananimMi && (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button style={{ ...styles.ikincilButon, flex: 1 }} onClick={() => setBeklemeAcik((a) => !a)}>
+              Beklemeye Al
+            </button>
+            <button style={{ ...styles.anaButon, flex: 1 }} onClick={() => setCozumAcik((a) => !a)}>
+              Çözüldü
+            </button>
+          </div>
+          {beklemeAcik && (
+            <div style={styles.gmMaddeSatiri}>
+              <Etiket>BEKLEME NEDENİ (zorunlu)</Etiket>
+              <input style={styles.epostaInput} value={beklemeNedeni} onChange={(e) => setBeklemeNedeni(e.target.value)} placeholder="örn. Kompresör parçası bekleniyor" />
+              <button style={{ ...styles.gmKucukButon, marginTop: 10 }} onClick={beklemeyeAlKaydet} disabled={islem || !beklemeNedeni.trim()}>
+                Kaydet
+              </button>
+            </div>
+          )}
+          {cozumAcik && (
+            <div style={styles.gmMaddeSatiri}>
+              <Etiket>ÇÖZÜM AÇIKLAMASI (zorunlu)</Etiket>
+              <textarea style={styles.aciklamaAlani} rows={2} value={cozumAciklamasi} onChange={(e) => setCozumAciklamasi(e.target.value)} />
+              <Etiket>KULLANILAN PARÇA (isteğe bağlı)</Etiket>
+              <input style={styles.epostaInput} value={kullanilanParca} onChange={(e) => setKullanilanParca(e.target.value)} />
+              <Etiket>ÇÖZÜM FOTOĞRAFI</Etiket>
+              <input
+                ref={cozumFileRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                style={{ display: "none" }}
+                onChange={(e) => fotoSecildiGenel(e.target.files[0], (url) => setCozumFotograflari((prev) => [...prev, url]))}
+              />
+              <button style={styles.fotoButon} onClick={() => cozumFileRef.current && cozumFileRef.current.click()}>
+                📷 Fotoğraf Ekle
+              </button>
+              {cozumFotograflari.length > 0 && (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+                  {cozumFotograflari.map((f, i) => (
+                    <img key={i} src={f} alt="" style={styles.fotoOnizleme} />
+                  ))}
+                </div>
+              )}
+              <button
+                style={{ ...styles.gmKucukButon, marginTop: 10, opacity: islem ? 0.7 : 1 }}
+                onClick={cozumKaydetTikla}
+                disabled={islem || !cozumAciklamasi.trim()}
+              >
+                Çözümü Kaydet
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {kayit.durum === "Beklemede" && benimAtananimMi && (
+        <button style={{ ...styles.anaButon, marginTop: 14, opacity: islem ? 0.7 : 1 }} onClick={async () => { setIslem(true); await onIslemeDevamEt(kayit); setIslem(false); }} disabled={islem}>
+          İşleme Devam Et
+        </button>
+      )}
+
+      {kayit.durum === "Kontrol Bekliyor" && (benimBildirdigimMi || atamaYapabilirMi) && (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              style={{ ...styles.anaButon, flex: 1, opacity: islem ? 0.7 : 1 }}
+              onClick={async () => { setIslem(true); await onKontrolOnayla(kayit, true, ""); setIslem(false); }}
+              disabled={islem}
+            >
+              ✔ Çözüldü
+            </button>
+            <button style={{ ...styles.ikincilButon, flex: 1 }} onClick={() => setSorunFormAcik((a) => !a)}>
+              ✖ Sorun Devam Ediyor
+            </button>
+          </div>
+          {sorunFormAcik && (
+            <div style={styles.gmMaddeSatiri}>
+              <Etiket>AÇIKLAMA (zorunlu)</Etiket>
+              <textarea style={styles.aciklamaAlani} rows={2} value={sorunAciklamasi} onChange={(e) => setSorunAciklamasi(e.target.value)} placeholder="Sorunun neden devam ettiğini açıklayın" />
+              <button style={{ ...styles.gmKucukSilButon, marginTop: 10 }} onClick={sorunDevamEdiyorKaydet} disabled={islem || !sorunAciklamasi.trim()}>
+                Gönder
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {kayit.durum === "Kapatıldı" && (
+        <div style={styles.basariMesaji}>✓ Bu arıza kapatıldı ({lfZamanFormatla(kayit.kapanisZamani)})</div>
+      )}
+
+      <button style={{ ...styles.adminDuzenleButon, marginTop: 14 }} onClick={() => setAuditAcik((a) => !a)}>
+        📜 İşlem Geçmişi (Audit Log) {auditAcik ? "▲" : "▼"}
+      </button>
+      {auditAcik && (
+        <div style={{ ...styles.gmMaddeSatiri, marginBottom: 24 }}>
+          {kayit.auditLog.map((a, idx) => (
+            <div key={idx} style={styles.zamanNotu}>
+              {lfZamanFormatla(a.zaman)} — {a.kullanici} — {a.islem}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 function AdminEkrani({ onCikis }) {
   const [yukleniyor, setYukleniyor] = useState(true);
   const [oteller, setOteller] = useState([]);
@@ -6247,6 +7171,17 @@ const styles = {
     marginTop: 10,
     paddingTop: 10,
     borderTop: "1px solid #E2DCCC",
+  },
+  arizaButon: {
+    width: "100%",
+    padding: "14px 16px",
+    borderRadius: 14,
+    border: "1.5px solid #B7472A",
+    background: "#fff",
+    color: "#B7472A",
+    fontSize: 15,
+    fontWeight: 700,
+    cursor: "pointer",
   },
   lostFoundButon: {
     width: "100%",
