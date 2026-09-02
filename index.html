@@ -184,6 +184,14 @@ const KULLANICILAR_BASLANGIC = [
   },
   {
     hotelCode: "5556",
+    userCode: "1160",
+    password: "0060",
+    name: "Volkan Menev",
+    department: "Food & Beverage",
+    pozisyon: "Müdür",
+  },
+  {
+    hotelCode: "5556",
     userCode: "1121",
     password: "0021",
     name: "Zeynep",
@@ -831,6 +839,113 @@ const DEPARTMAN_BOLUMLERI = {
       ],
     },
   ],
+
+  "Food & Beverage": [
+    {
+      harf: "A",
+      baslik: "Günlük Operasyon Planı",
+      maddeler: [
+        "Günlük doluluk, kişi/kuver ve öğün tahminleri kontrol edildi mi?",
+        "VIP, grup, özel organizasyon ve özel talepler kontrol edildi mi?",
+        "Günün F&B operasyon planı personel ve outlet kapasitesine uygun mu?",
+        "Önceki günden kalan açık problem ve aksiyonlar kontrol edildi mi?",
+        "Hava durumu ve doluluk durumuna göre outdoor F&B operasyonu değerlendirildi mi?",
+      ],
+    },
+    {
+      harf: "B",
+      baslik: "Personel",
+      maddeler: [
+        "Personel devam durumu ve eksik personel kontrol edildi mi?",
+        "Personel dağılımı ve vardiya planı günün yoğunluğuna uygun mu?",
+        "Personel üniforma, kişisel bakım ve hijyen standartlarına uygun mu?",
+        "Supervisor ve outlet sorumluları görev yerlerinde ve aktif mi?",
+        "Yoğun saatler için gerekli personel takviyesi planlandı mı?",
+        "Personel performansı veya davranışı ile ilgili kritik bir problem var mı?",
+      ],
+    },
+    {
+      harf: "C",
+      baslik: "Restoran & Outlet",
+      maddeler: [
+        "Tüm aktif outletlerin genel görünümü standartlara uygun mu?",
+        "Masa, sandalye, masa üstü ekipmanları ve servis istasyonları hazır mı?",
+        "Büfe/servis alanlarının ürün doluluk seviyesi yeterli mi?",
+        "Büfe ürünlerinin sıcaklık ve sunum standartları uygun mu?",
+        "Ürün etiketleri ve alerjen bilgilendirmeleri doğru ve eksiksiz mi?",
+        "Kullanılmış tabak ve ekipmanlar zamanında toplanıyor mu?",
+        "Masaların temizlenme ve yeniden hazırlanma süresi uygun mu?",
+        "Servis hızı ve misafir bekleme süreleri kabul edilebilir seviyede mi?",
+        "Outletlerde misafir yoğunluğuna bağlı operasyonel problem var mı?",
+      ],
+    },
+    {
+      harf: "D",
+      baslik: "Barlar",
+      maddeler: [
+        "Barların genel temizlik ve düzeni standartlara uygun mu?",
+        "Kritik içecek, buz, garnitür ve sarf stokları yeterli mi?",
+        "Soğutucular, buz makineleri ve temel bar ekipmanları çalışıyor mu?",
+        "İçecek sunum ve reçete standartlarına uyuluyor mu?",
+        "Barlarda servis hızı ve misafir memnuniyeti uygun mu?",
+      ],
+    },
+    {
+      harf: "E",
+      baslik: "Mutfak & Ürün Kalitesi",
+      maddeler: [
+        "Mutfak üretim planı günlük F&B operasyonu ile uyumlu mu?",
+        "Yemeklerin kalite, lezzet, sıcaklık ve sunum standardı uygun mu?",
+        "Büfede kritik ürün eksikliği veya gecikmesi var mı?",
+        "Üretim miktarı doluluk ve tüketim beklentisine uygun mu?",
+        "Özel diyet, alerjen ve VIP talepleri doğru uygulanıyor mu?",
+        "Mutfak-servis koordinasyonunda operasyonu etkileyen problem var mı?",
+      ],
+    },
+    {
+      harf: "F",
+      baslik: "Misafir Memnuniyeti",
+      maddeler: [
+        "F&B ile ilgili güncel misafir şikayetleri kontrol edildi mi?",
+        "Tekrarlayan F&B şikayetleri tespit edildi mi?",
+        "Restoran ve barlarda misafir memnuniyeti sahada gözlemlendi mi?",
+        "Servis personelinin misafir iletişimi ve davranışları uygun mu?",
+        "VIP ve özel misafirlerin F&B deneyimi kontrol edildi mi?",
+        "Online yorumlarda F&B ile ilgili kritik geri bildirimler takip edildi mi?",
+      ],
+    },
+    {
+      harf: "G",
+      baslik: "Hijyen & Gıda Güvenliği",
+      maddeler: [
+        "Tüm F&B alanlarında genel hijyen standardı uygun mu?",
+        "Gıda güvenliği ve sıcaklık kontrol kayıtları düzenli tutuluyor mu?",
+        "Çapraz bulaşma ve yanlış ürün muhafazası riski var mı?",
+        "Personel hijyen kurallarına eksiksiz uyuyor mu?",
+        "Haşere, kötü koku, atık veya sanitasyon problemi var mı?",
+      ],
+    },
+    {
+      harf: "H",
+      baslik: "Stok & Maliyet",
+      maddeler: [
+        "Kritik F&B stoklarında eksik veya operasyonu riske atacak ürün var mı?",
+        "Son kullanma tarihi yaklaşan, bozulmuş veya hasarlı ürün var mı?",
+        "Günlük fire, kayıp, complimentary ve personel tüketimleri kontrol edildi mi?",
+        "Aşırı tüketim veya olağan dışı stok hareketi tespit edildi mi?",
+      ],
+    },
+    {
+      harf: "I",
+      baslik: "Gelir & Yönetim",
+      maddeler: [
+        "Günlük F&B geliri Budget/Forecast ve önceki dönem ile karşılaştırıldı mı?",
+        "Outlet bazında satış performansı kontrol edildi mi?",
+        "POS'ta indirim, void, iptal ve complimentary işlemleri kontrol edildi mi?",
+        "Gün içerisinde tespit edilen kritik problemler için sorumlu, termin ve aksiyon belirlendi mi?",
+      ],
+    },
+  ],
 };
 
 // Bu departmanlarda bir bölümdeki tüm maddeler tamamlanınca akordiyon
@@ -838,6 +953,7 @@ const DEPARTMAN_BOLUMLERI = {
 const DEPARTMAN_OTOMATIK_KAPAT = {
   "Gece Müdürü": true,
   Mutfak: true,
+  "Food & Beverage": true,
 };
 
 // Bu departmanlarda, evet/hayır tipi maddelerde OLUMSUZ seçilirse
@@ -852,6 +968,7 @@ const DEPARTMAN_YORUM_FOTO_IZINLI = {
 const DEPARTMAN_YORUM_FOTO_HERZAMAN = {
   "Teknik Servis": true,
   Mutfak: true,
+  "Food & Beverage": true,
 };
 
 // Bu departmanlarda, OLUMLU işaretlenen maddelerde açıklama alanı varsayılan
@@ -859,11 +976,13 @@ const DEPARTMAN_YORUM_FOTO_HERZAMAN = {
 // OLUMSUZ işaretlenirse açıklama yine de otomatik ve zorunlu olarak açılır.
 const DEPARTMAN_ACIKLAMA_BUTONLU = {
   Mutfak: true,
+  "Food & Beverage": true,
 };
 
 // Bu departmanlarda açıklama metni belirtilen karakter sayısını aşamaz.
 const DEPARTMAN_ACIKLAMA_MAX_UZUNLUK = {
   Mutfak: 150,
+  "Food & Beverage": 150,
 };
 
 // Bu departmanlarda madde metni, işaretlemeye göre renklendirilir:
@@ -871,6 +990,7 @@ const DEPARTMAN_ACIKLAMA_MAX_UZUNLUK = {
 const DEPARTMAN_MADDE_RENGI_DURUMA_GORE = {
   "Teknik Servis": true,
   Mutfak: true,
+  "Food & Beverage": true,
 };
 
 // Bu departmanlarda, harf başlıklı bölümlerden yalnızca biri aynı anda
