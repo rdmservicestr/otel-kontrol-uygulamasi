@@ -176,6 +176,14 @@ const KULLANICILAR_BASLANGIC = [
   },
   {
     hotelCode: "5556",
+    userCode: "1150",
+    password: "0050",
+    name: "Faruk Ateş",
+    department: "Mutfak",
+    pozisyon: "Müdür",
+  },
+  {
+    hotelCode: "5556",
     userCode: "1121",
     password: "0021",
     name: "Zeynep",
@@ -660,12 +668,176 @@ const DEPARTMAN_BOLUMLERI = {
       ],
     },
   ],
+
+  Mutfak: [
+    {
+      harf: "A",
+      baslik: "Gün Başlangıcı",
+      maddeler: [
+        "Personel devam durumu kontrol edildi.",
+        "Günlük görev dağılımı yapıldı.",
+        "Günlük kişi / rezervasyon sayısı kontrol edildi.",
+        "Günlük menü kontrol edildi.",
+        "Özel grup / VIP / etkinlikler kontrol edildi.",
+        "Özel diyet ve alerjen talepleri kontrol edildi.",
+        "Günlük üretim planı kontrol edildi.",
+        "Önceki vardiyadan kalan sorunlar kontrol edildi.",
+      ],
+    },
+    {
+      harf: "B",
+      baslik: "Gıda Güvenliği",
+      maddeler: [
+        "Soğuk oda sıcaklığı uygun.",
+        "Derin dondurucu sıcaklığı uygun.",
+        "Kuru depo koşulları uygun.",
+        "Ürün son kullanma tarihleri kontrol edildi.",
+        "FIFO / FEFO uygulanıyor.",
+        "Açılmış ürünlerin etiketleri ve tarihleri uygun.",
+        "Çiğ ve pişmiş ürünler uygun şekilde ayrılmış.",
+        "Çapraz bulaşma riski bulunmuyor.",
+        "Personel kişisel hijyen kurallarına uyuyor.",
+        "El yıkama noktaları uygun durumda.",
+        "Dezenfeksiyon malzemeleri yeterli.",
+        "Gıda temas yüzeyleri temiz ve hijyenik.",
+      ],
+    },
+    {
+      harf: "C",
+      baslik: "Üretim Kontrolü",
+      maddeler: [
+        "Günlük üretim miktarları yeterli.",
+        "Mise en place hazırlıkları tamamlandı.",
+        "Ürünler reçeteye uygun hazırlanıyor.",
+        "Porsiyon standartları uygulanıyor.",
+        "Lezzet kontrolü yapıldı.",
+        "Görsel sunum kontrol edildi.",
+        "Garnitür ve soslar yeterli.",
+        "Büfe ürünleri yeterli.",
+        "Eksilen ürünler zamanında tamamlanıyor.",
+        "Fazla üretim kontrol altında.",
+        "Artan ürünler prosedüre uygun şekilde değerlendiriliyor.",
+      ],
+    },
+    {
+      harf: "D",
+      baslik: "Büfe / Servis",
+      maddeler: [
+        "Büfe açılış öncesi kontrol edildi.",
+        "Ürünler doğru alanlarda bulunuyor.",
+        "Ürün isimlikleri doğru.",
+        "Alerjen bilgileri uygun.",
+        "Sıcak ürünlerin sıcaklıkları uygun.",
+        "Soğuk ürünlerin sıcaklıkları uygun.",
+        "Büfe temizliği uygun.",
+        "Servis ekipmanları yeterli.",
+        "Ürün yenileme operasyonu yeterli.",
+        "Misafir yoğunluğuna göre üretim düzenleniyor.",
+      ],
+    },
+    {
+      harf: "E",
+      baslik: "Personel",
+      maddeler: [
+        "Personel üniformaları uygun.",
+        "Personel hijyen kurallarına uyuyor.",
+        "Bone / gerekli koruyucu ekipman kullanılıyor.",
+        "Personel görev alanında bulunuyor.",
+        "İş güvenliği kurallarına uyuluyor.",
+        "Kesici ekipmanlar güvenli kullanılıyor.",
+        "Sıcak ekipmanlarla çalışma kurallarına uyuluyor.",
+        "Personel arasındaki koordinasyon yeterli.",
+      ],
+    },
+    {
+      harf: "F",
+      baslik: "Depo / Stok",
+      maddeler: [
+        "Kritik stoklar kontrol edildi.",
+        "Eksik ürünler belirlendi.",
+        "Günlük malzeme ihtiyaçları kontrol edildi.",
+        "Teslim alınan ürünlerin kalitesi uygun.",
+        "Teslim alınan ürünlerin miktarı uygun.",
+        "Ambalajlarda hasar bulunmuyor.",
+        "Son kullanma tarihi yaklaşan ürünler kontrol edildi.",
+        "Yüksek maliyetli ürünler kontrol edildi.",
+        "Fire / kayıp kontrol edildi.",
+      ],
+    },
+    {
+      harf: "G",
+      baslik: "Temizlik ve Hijyen",
+      maddeler: [
+        "Mutfak genel temizliği uygun.",
+        "Tezgâhlar temiz.",
+        "Zemin temiz.",
+        "Ocaklar temiz.",
+        "Fırınlar temiz.",
+        "Fritözler temiz.",
+        "Soğutucular temiz.",
+        "Derin dondurucular temiz.",
+        "Bulaşıkhane alanı temiz.",
+        "Çöp alanları uygun.",
+        "Lavabo ve giderler temiz.",
+        "Haşere / pest kontrol açısından sorun bulunmuyor.",
+      ],
+    },
+    {
+      harf: "H",
+      baslik: "Ekipman",
+      maddeler: [
+        "Ocaklar çalışıyor.",
+        "Fırınlar çalışıyor.",
+        "Fritözler çalışıyor.",
+        "Izgara ekipmanları çalışıyor.",
+        "Bulaşık makineleri çalışıyor.",
+        "Soğutucular çalışıyor.",
+        "Derin dondurucular çalışıyor.",
+        "Küçük mutfak ekipmanları çalışıyor.",
+        "Termometreler çalışıyor.",
+        "Gaz sistemi uygun.",
+        "Su sistemi uygun.",
+        "Giderler uygun.",
+        "Teknik arıza bulunmuyor.",
+      ],
+    },
+    {
+      harf: "I",
+      baslik: "Maliyet / Fire",
+      maddeler: [
+        "Günlük üretim ve tüketim dengesi kontrol edildi.",
+        "Fazla üretim kaynaklı fire bulunmuyor.",
+        "Bozulmuş ürünler kontrol edildi.",
+        "İmha edilen ürünler kayıt altına alındı.",
+        "Porsiyon aşımı kontrol edildi.",
+        "Personel yemeği tüketimi kontrol edildi.",
+        "Tekrarlayan fireler değerlendirildi.",
+      ],
+    },
+    {
+      harf: "J",
+      baslik: "Gün Sonu",
+      maddeler: [
+        "Kalan ürünler kontrol edildi.",
+        "Saklanacak ürünler uygun şekilde etiketlendi.",
+        "Ürünler uygun sıcaklıklarda muhafazaya alındı.",
+        "Kullanılmayacak ürünler prosedüre uygun imha edildi.",
+        "Mutfak kapanış temizliği tamamlandı.",
+        "Ekipmanların kapatılması kontrol edildi.",
+        "Gaz sistemleri kontrol edildi.",
+        "Soğuk odalar kontrol edildi.",
+        "Çöpler çıkarıldı.",
+        "Ertesi gün üretim planı hazırlandı.",
+      ],
+    },
+  ],
 };
 
 // Bu departmanlarda bir bölümdeki tüm maddeler tamamlanınca akordiyon
 // otomatik olarak kapanır (kullanıcı isterse tekrar açabilir).
 const DEPARTMAN_OTOMATIK_KAPAT = {
   "Gece Müdürü": true,
+  Mutfak: true,
 };
 
 // Bu departmanlarda, evet/hayır tipi maddelerde OLUMSUZ seçilirse
@@ -679,12 +851,26 @@ const DEPARTMAN_YORUM_FOTO_IZINLI = {
 // gözetmeksizin HER İKİ durumda da gösterilir.
 const DEPARTMAN_YORUM_FOTO_HERZAMAN = {
   "Teknik Servis": true,
+  Mutfak: true,
+};
+
+// Bu departmanlarda, OLUMLU işaretlenen maddelerde açıklama alanı varsayılan
+// olarak GİZLİDİR; kullanıcı "AÇIKLAMA" düğmesine basınca açılır (isteğe bağlı).
+// OLUMSUZ işaretlenirse açıklama yine de otomatik ve zorunlu olarak açılır.
+const DEPARTMAN_ACIKLAMA_BUTONLU = {
+  Mutfak: true,
+};
+
+// Bu departmanlarda açıklama metni belirtilen karakter sayısını aşamaz.
+const DEPARTMAN_ACIKLAMA_MAX_UZUNLUK = {
+  Mutfak: 150,
 };
 
 // Bu departmanlarda madde metni, işaretlemeye göre renklendirilir:
 // OLUMLU ise yeşil, OLUMSUZ ise kırmızı (diğerlerinde sadece "tamamlandı" yeşili kullanılır).
 const DEPARTMAN_MADDE_RENGI_DURUMA_GORE = {
   "Teknik Servis": true,
+  Mutfak: true,
 };
 
 // Bu departmanlarda, harf başlıklı bölümlerden yalnızca biri aynı anda
@@ -1155,6 +1341,58 @@ const ARZ_DURUMLAR = ["Yeni", "Atandı", "İşlemde", "Beklemede", "Kontrol Bekl
 const ARZ_TEKNIK_DEPARTMAN = "Teknik Servis";
 const ARZ_TEKRARLAYAN_GUN = 30;
 const ARZ_TEKRARLAYAN_ESIK = 3;
+
+/* ------------------------------------------------------------------
+   ODA SERVİSİ (Room Service) MODÜLÜ - sabit tanımlar
+-------------------------------------------------------------------*/
+const RS_KATEGORILER = [
+  "Kahvaltı", "Başlangıç", "Çorba", "Salata", "Sandviç", "Burger", "Ana Yemek",
+  "Pizza", "Tatlı", "Meyve", "İçecek", "Sıcak İçecek", "Çocuk Menüsü", "Diğer",
+];
+// Basit, sabit bir başlangıç menüsü (fiyatlar sadece bilgi amaçlıdır, gerçek ödeme alınmaz).
+const RS_MENU = [
+  { ad: "Kahvaltı Tabağı", kategori: "Kahvaltı", fiyat: 350 },
+  { ad: "Omlet", kategori: "Kahvaltı", fiyat: 220 },
+  { ad: "Menemen", kategori: "Kahvaltı", fiyat: 240 },
+  { ad: "Bruschetta", kategori: "Başlangıç", fiyat: 180 },
+  { ad: "Peynir Tabağı", kategori: "Başlangıç", fiyat: 260 },
+  { ad: "Mercimek Çorbası", kategori: "Çorba", fiyat: 140 },
+  { ad: "Ezogelin Çorbası", kategori: "Çorba", fiyat: 140 },
+  { ad: "Sezar Salata", kategori: "Salata", fiyat: 220 },
+  { ad: "Mevsim Salata", kategori: "Salata", fiyat: 180 },
+  { ad: "Club Sandwich", kategori: "Sandviç", fiyat: 280 },
+  { ad: "Tost", kategori: "Sandviç", fiyat: 200 },
+  { ad: "Klasik Burger", kategori: "Burger", fiyat: 320 },
+  { ad: "Cheeseburger", kategori: "Burger", fiyat: 340 },
+  { ad: "Izgara Tavuk", kategori: "Ana Yemek", fiyat: 380 },
+  { ad: "Izgara Köfte", kategori: "Ana Yemek", fiyat: 360 },
+  { ad: "Balık Izgara", kategori: "Ana Yemek", fiyat: 450 },
+  { ad: "Margherita Pizza", kategori: "Pizza", fiyat: 320 },
+  { ad: "Karışık Pizza", kategori: "Pizza", fiyat: 360 },
+  { ad: "Cheesecake", kategori: "Tatlı", fiyat: 180 },
+  { ad: "Sufle", kategori: "Tatlı", fiyat: 190 },
+  { ad: "Baklava", kategori: "Tatlı", fiyat: 170 },
+  { ad: "Meyve Tabağı", kategori: "Meyve", fiyat: 200 },
+  { ad: "Su", kategori: "İçecek", fiyat: 40 },
+  { ad: "Kola", kategori: "İçecek", fiyat: 90 },
+  { ad: "Meyve Suyu", kategori: "İçecek", fiyat: 90 },
+  { ad: "Ayran", kategori: "İçecek", fiyat: 70 },
+  { ad: "Türk Kahvesi", kategori: "Sıcak İçecek", fiyat: 90 },
+  { ad: "Çay", kategori: "Sıcak İçecek", fiyat: 50 },
+  { ad: "Filtre Kahve", kategori: "Sıcak İçecek", fiyat: 100 },
+  { ad: "Çocuk Menüsü", kategori: "Çocuk Menüsü", fiyat: 220 },
+  { ad: "Diğer / Özel İstek", kategori: "Diğer", fiyat: 0 },
+];
+// Kategoriye göre hedef hazırlama+teslimat süresi (dakika); SLA göstergesi için kullanılır.
+const RS_SLA_DAKIKA = {
+  "İçecek": 10, "Sıcak İçecek": 10, Kahvaltı: 25, Sandviç: 20, Burger: 20,
+  "Ana Yemek": 30, Pizza: 25, Başlangıç: 15, Çorba: 15, Salata: 15, Tatlı: 15,
+  Meyve: 10, "Çocuk Menüsü": 20, Diğer: 25,
+};
+const RS_VARSAYILAN_SLA = 35; // birden fazla farklı kategori varsa "komple sipariş" hedefi
+const RS_DURUMLAR = ["Yeni", "Onaylandı", "Hazırlanıyor", "Hazır", "Odaya Gönderildi", "Teslim Edildi", "İptal"];
+const RS_IPTAL_NEDENLERI = ["Misafir vazgeçti", "Yanlış sipariş", "Mutfak kaynaklı", "Ürün mevcut değil", "Çok uzun bekleme", "Diğer"];
+const RS_FB_DEPARTMAN = "Yiyecek & İçecek – F&B Yönetimi";
 
 const KAT_HIZMETLERI_BOLUMLER = [
   {
@@ -2384,6 +2622,7 @@ function App() {
             onGorevAta={() => setScreen("gorevAta")}
             onLostFound={() => setScreen("lostfound")}
             onArizaBildir={() => setScreen("ariza")}
+            onRoomService={() => setScreen("roomservice")}
             onGMYonetim={() => setScreen("gmYonetim")}
             bekleyenGorevler={bekleyenGorevler}
             onGorevKabul={gorevKabulEt}
@@ -2440,6 +2679,8 @@ function App() {
           <LostFoundEkrani user={currentUser} onGeri={() => setScreen("home")} toastGoster={toastGoster} />
         ) : screen === "ariza" ? (
           <ArizaEkrani user={currentUser} onGeri={() => setScreen("home")} toastGoster={toastGoster} />
+        ) : screen === "roomservice" ? (
+          <RoomServiceEkrani user={currentUser} onGeri={() => setScreen("home")} toastGoster={toastGoster} />
         ) : null}
 
         {toast && !pdfLinkUrl && <div style={styles.toastMesaj}>{toast}</div>}
@@ -2562,6 +2803,7 @@ function AnaSayfa({
   onGMYonetim,
   onLostFound,
   onArizaBildir,
+  onRoomService,
   bekleyenGorevler,
   onGorevKabul,
 }) {
@@ -2672,6 +2914,10 @@ function AnaSayfa({
           📦 Lost & Found
         </button>
 
+        <button style={styles.roomServiceButon} onClick={onRoomService}>
+          🍽️ Oda Servisi
+        </button>
+
         <button style={styles.ikincilButon} onClick={onGecmis}>
           Geçmiş Kayıtlar
         </button>
@@ -2764,6 +3010,8 @@ function KontrolListesiEkrani({
   const yorumFotoIzinli = !!DEPARTMAN_YORUM_FOTO_IZINLI[user.department];
   const yorumFotoHerZaman = !!DEPARTMAN_YORUM_FOTO_HERZAMAN[user.department];
   const maddeRenginiDurumaGoreBoya = !!DEPARTMAN_MADDE_RENGI_DURUMA_GORE[user.department];
+  const aciklamaButonlu = !!DEPARTMAN_ACIKLAMA_BUTONLU[user.department];
+  const aciklamaMaxUzunluk = DEPARTMAN_ACIKLAMA_MAX_UZUNLUK[user.department] || null;
   const tekBolumAcik = !!DEPARTMAN_TEK_BOLUM_ACIK[user.department];
   const [acikBolumHarfi, setAcikBolumHarfi] = useState(null);
   const odaBazliMi = !!DEPARTMAN_ODA_BAZLI[user.department];
@@ -2845,6 +3093,8 @@ function KontrolListesiEkrani({
               yorumFotoIzinli={yorumFotoIzinli}
               yorumFotoHerZaman={yorumFotoHerZaman}
               maddeRenginiDurumaGoreBoya={maddeRenginiDurumaGoreBoya}
+              aciklamaButonlu={aciklamaButonlu}
+              aciklamaMaxUzunluk={aciklamaMaxUzunluk}
               disardanAcik={tekBolumAcik ? acikBolumHarfi === b.harf : undefined}
               onAcikToggle={
                 tekBolumAcik ? () => setAcikBolumHarfi((h) => (h === b.harf ? null : b.harf)) : undefined
@@ -3283,6 +3533,8 @@ function BolumKarti({
   yorumFotoIzinli,
   yorumFotoHerZaman,
   maddeRenginiDurumaGoreBoya,
+  aciklamaButonlu,
+  aciklamaMaxUzunluk,
   disardanAcik,
   onAcikToggle,
   setStatus,
@@ -3294,6 +3546,7 @@ function BolumKarti({
   fileInputRefs,
 }) {
   const [icAcik, setIcAcik] = useState(false);
+  const [acikAciklamalar, setAcikAciklamalar] = useState({}); // { [taskId]: true } - "AÇIKLAMA" düğmesiyle manuel açılanlar
   const kontrolluMu = typeof onAcikToggle === "function";
   const acik = kontrolluMu ? !!disardanAcik : icAcik;
   const altTasks = tasks.filter((t) => t.bolum === bolum.harf);
@@ -3355,6 +3608,11 @@ function BolumKarti({
               : undefined;
             const yorumFotoGoster =
               (yorumFotoIzinli && t.status === "olumsuz") || (yorumFotoHerZaman && !!t.status);
+            const aciklamaZorunlu = t.status === "olumsuz";
+            const aciklamaGorunsun = aciklamaButonlu
+              ? aciklamaZorunlu || !!acikAciklamalar[t.id]
+              : yorumFotoGoster;
+            const fotoGorunsun = yorumFotoGoster;
             return (
             <div key={t.id} style={styles.gmMadde}>
               <div style={{ ...styles.gmMaddeMetin, ...(maddeRengi ? { color: maddeRengi } : {}) }}>
@@ -3430,18 +3688,40 @@ function BolumKarti({
                     </label>
                   </div>
 
-                  {yorumFotoGoster && (
+                  {aciklamaButonlu && t.status === "olumlu" && !acikAciklamalar[t.id] && (
+                    <button
+                      style={{ ...styles.fotoButon, marginTop: 10 }}
+                      onClick={() => setAcikAciklamalar((prev) => ({ ...prev, [t.id]: true }))}
+                    >
+                      ✏️ AÇIKLAMA
+                    </button>
+                  )}
+
+                  {aciklamaGorunsun && (
                     <div style={{ marginTop: 10 }}>
                       <textarea
                         placeholder={
-                          t.status === "olumsuz" ? "Açıklama girin (zorunlu)" : "Açıklama (isteğe bağlı)"
+                          aciklamaZorunlu
+                            ? "Açıklama girin (zorunlu)"
+                            : `Açıklama (isteğe bağlı)${aciklamaMaxUzunluk ? ` — en fazla ${aciklamaMaxUzunluk} karakter` : ""}`
                         }
                         value={t.aciklama}
                         disabled={!duzenlenebilir}
+                        maxLength={aciklamaMaxUzunluk || undefined}
                         onChange={(e) => setAciklama(t.id, e.target.value)}
                         style={styles.aciklamaAlani}
                         rows={2}
                       />
+                      {aciklamaMaxUzunluk && (
+                        <div style={styles.zamanNotu}>
+                          {(t.aciklama || "").length}/{aciklamaMaxUzunluk} karakter
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {fotoGorunsun && (
+                    <div style={{ marginTop: 10 }}>
                       <div style={styles.fotografSatiri}>
                         <input
                           ref={(el) => (fileInputRefs.current[t.id] = el)}
@@ -5847,6 +6127,649 @@ function ARZDetay({
 }
 
 
+/* ------------------------------------------------------------------
+   ODA SERVİSİ - depolama yardımcı fonksiyonları
+-------------------------------------------------------------------*/
+async function rsSiparisleriGetir(hotelCode) {
+  try {
+    const liste = await window.storage.list(`roomservice:${hotelCode}:`, true);
+    const keys = (liste && liste.keys) || [];
+    const kayitlar = [];
+    for (const k of keys) {
+      const r = await safeGet(k, true);
+      if (r) {
+        try {
+          kayitlar.push(JSON.parse(r.value));
+        } catch (e) {}
+      }
+    }
+    kayitlar.sort((a, b) => (a.olusturmaZamani < b.olusturmaZamani ? 1 : -1));
+    return kayitlar;
+  } catch (e) {
+    return [];
+  }
+}
+
+async function rsSiparisKaydet(siparis) {
+  await window.storage.set(`roomservice:${siparis.hotelCode}:${siparis.no}`, JSON.stringify(siparis), true);
+}
+
+function rsSlaHedefi(kalemler) {
+  const kategoriler = [...new Set((kalemler || []).map((k) => k.kategori))];
+  if (kategoriler.length === 0) return RS_VARSAYILAN_SLA;
+  if (kategoriler.length > 1) return RS_VARSAYILAN_SLA;
+  return RS_SLA_DAKIKA[kategoriler[0]] || RS_VARSAYILAN_SLA;
+}
+
+function rsGecenDakika(siparis) {
+  const bitisAn = siparis.teslimZamani ? new Date(siparis.teslimZamani) : new Date();
+  return Math.round((bitisAn - new Date(siparis.olusturmaZamani)) / 60000);
+}
+
+function rsSlaDurumu(siparis) {
+  if (siparis.durum === "İptal") return "iptal";
+  const gecen = rsGecenDakika(siparis);
+  const hedef = rsSlaHedefi(siparis.kalemler);
+  if (siparis.durum === "Teslim Edildi") return gecen <= hedef ? "yesil" : "kirmizi";
+  if (gecen > hedef) return "kirmizi";
+  if (gecen > hedef * 0.75) return "turuncu";
+  return "yesil";
+}
+
+/* ------------------------------------------------------------------
+   ODA SERVİSİ - ana ekran (KPI + liste + gezinme)
+-------------------------------------------------------------------*/
+function RoomServiceEkrani({ user, onGeri, toastGoster }) {
+  const [gorunum, setGorunum] = useState("liste"); // liste | yeni | detay
+  const [siparisler, setSiparisler] = useState([]);
+  const [yukleniyor, setYukleniyor] = useState(true);
+  const [secilenNo, setSecilenNo] = useState(null);
+  const [filtre, setFiltre] = useState("aktif");
+
+  const mutfakMi = user.department === RS_FB_DEPARTMAN && ["Mutfak", "Executive Chef", "Sous Chef", "Ana Mutfak"].includes(user.bolum);
+  const roomServiceMi = user.department === RS_FB_DEPARTMAN && user.bolum === "Room Service";
+  const yoneticiMi = LF_YONETICI_POZISYONLARI.includes(user.pozisyon);
+
+  useEffect(() => {
+    yukle();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function yukle() {
+    setYukleniyor(true);
+    const veri = await rsSiparisleriGetir(user.hotelCode);
+    setSiparisler(veri);
+    setYukleniyor(false);
+  }
+
+  async function auditEkle(islem) {
+    return { zaman: new Date().toISOString(), kullanici: user.name, islem };
+  }
+
+  async function siparisOlustur(form) {
+    const simdi = new Date();
+    const yil = simdi.getFullYear();
+    const sayac = siparisler.filter((s) => s.no.includes(`-${yil}-`)).length + 1;
+    const no = `RS-${yil}-${String(sayac).padStart(4, "0")}`;
+    const toplamTutar = form.kalemler.reduce((t, k) => t + k.fiyat * k.adet, 0);
+    const siparis = {
+      no,
+      hotelCode: user.hotelCode,
+      hotelName: user.hotelName,
+      odaNo: form.odaNo,
+      misafirAdi: form.misafirAdi,
+      kalemler: form.kalemler,
+      toplamTutar,
+      misafirNotu: form.misafirNotu,
+      oncelik: form.oncelik,
+      durum: "Yeni",
+      olusturanKullanici: user.name,
+      olusturanUserCode: user.userCode,
+      olusturmaZamani: simdi.toISOString(),
+      onaylanmaZamani: null,
+      hazirlanmaBaslangic: null,
+      hazirZamani: null,
+      gonderilmeZamani: null,
+      teslimZamani: null,
+      kapanisZamani: null,
+      iptalZamani: null,
+      iptalNedeni: "",
+      sorumluTeslimEden: null,
+      auditLog: [{ zaman: simdi.toISOString(), kullanici: user.name, islem: "Sipariş oluşturuldu" }],
+    };
+    await rsSiparisKaydet(siparis);
+
+    telegramMesajGonder(
+      `🍽️ YENİ ODA SERVİSİ SİPARİŞİ\n${siparis.hotelName}\n\nSipariş No: ${no}\nOda: ${form.odaNo}\n${form.kalemler
+        .map((k) => `${k.ad} x${k.adet}`)
+        .join(", ")}\n\nAlan: ${user.name}`
+    );
+
+    toastGoster(`✓ Sipariş oluşturuldu: ${no}`);
+    await yukle();
+    setGorunum("liste");
+  }
+
+  async function durumIlerlet(siparis, yeniDurum, ekAlanlar, islemMetni) {
+    const simdi = new Date();
+    const guncel = {
+      ...siparis,
+      durum: yeniDurum,
+      ...ekAlanlar,
+      auditLog: [...siparis.auditLog, await auditEkle(islemMetni)],
+    };
+    await rsSiparisKaydet(guncel);
+    toastGoster(`✓ ${islemMetni}`);
+    await yukle();
+  }
+
+  async function siparisIptalEt(siparis, neden, aciklama) {
+    const simdi = new Date();
+    const tamNeden = neden === "Diğer" ? `Diğer: ${aciklama}` : neden;
+    const guncel = {
+      ...siparis,
+      durum: "İptal",
+      iptalZamani: simdi.toISOString(),
+      iptalNedeni: tamNeden,
+      auditLog: [...siparis.auditLog, await auditEkle(`Sipariş iptal edildi: ${tamNeden}`)],
+    };
+    await rsSiparisKaydet(guncel);
+    toastGoster("✓ Sipariş iptal edildi");
+    await yukle();
+  }
+
+  const secilenSiparis = siparisler.find((s) => s.no === secilenNo);
+  const bugun = new Date().toLocaleDateString("tr-TR");
+  const bugunSiparisler = siparisler.filter((s) => new Date(s.olusturmaZamani).toLocaleDateString("tr-TR") === bugun);
+  const aktifMi = (s) => s.durum !== "Teslim Edildi" && s.durum !== "İptal";
+
+  const bugunToplam = bugunSiparisler.length;
+  const yeniSayisi = siparisler.filter((s) => s.durum === "Yeni").length;
+  const hazirlaniyorSayisi = siparisler.filter((s) => s.durum === "Hazırlanıyor").length;
+  const hazirSayisi = siparisler.filter((s) => s.durum === "Hazır").length;
+  const gonderildiSayisi = siparisler.filter((s) => s.durum === "Odaya Gönderildi").length;
+  const teslimEdilenBugun = bugunSiparisler.filter((s) => s.durum === "Teslim Edildi").length;
+  const iptalBugun = bugunSiparisler.filter((s) => s.durum === "İptal").length;
+  const teslimEdilenler = siparisler.filter((s) => s.durum === "Teslim Edildi");
+  const ortTeslimSuresi =
+    teslimEdilenler.length > 0
+      ? Math.round(teslimEdilenler.reduce((t, s) => t + rsGecenDakika(s), 0) / teslimEdilenler.length)
+      : 0;
+  const slaBasarili = teslimEdilenler.filter((s) => rsSlaDurumu(s) === "yesil").length;
+  const slaYuzde = teslimEdilenler.length > 0 ? Math.round((slaBasarili / teslimEdilenler.length) * 100) : 0;
+
+  let gosterilecekler = siparisler;
+  if (filtre === "aktif") gosterilecekler = siparisler.filter(aktifMi);
+  if (filtre === "mutfagim") gosterilecekler = siparisler.filter((s) => aktifMi(s) && ["Yeni", "Onaylandı", "Hazırlanıyor"].includes(s.durum));
+  if (filtre === "teslimatlarim") gosterilecekler = siparisler.filter((s) => aktifMi(s) && ["Hazır", "Odaya Gönderildi"].includes(s.durum));
+  if (filtre === "tamamlanan") gosterilecekler = siparisler.filter((s) => !aktifMi(s));
+
+  if (gorunum === "yeni") {
+    return <RSYeniSiparis user={user} onIptal={() => setGorunum("liste")} onKaydet={siparisOlustur} />;
+  }
+
+  if (gorunum === "detay" && secilenSiparis) {
+    return (
+      <RSDetay
+        siparis={secilenSiparis}
+        user={user}
+        mutfakMi={mutfakMi}
+        roomServiceMi={roomServiceMi}
+        yoneticiMi={yoneticiMi}
+        onGeri={() => {
+          setGorunum("liste");
+          setSecilenNo(null);
+        }}
+        onDurumIlerlet={durumIlerlet}
+        onIptalEt={siparisIptalEt}
+      />
+    );
+  }
+
+  return (
+    <div style={styles.icerik}>
+      <div style={styles.listeUstBaslik}>
+        <button style={styles.geriButon} onClick={onGeri} aria-label="Geri">
+          ←
+        </button>
+        <div>
+          <div className="baslik-font" style={styles.listeBaslikYazi}>
+            Oda Servisi
+          </div>
+          <div style={styles.ilerlemeYazi}>{user.hotelName}</div>
+        </div>
+      </div>
+
+      <button style={{ ...styles.anaButon, marginTop: 14 }} onClick={() => setGorunum("yeni")}>
+        + Yeni Sipariş
+      </button>
+
+      <div style={styles.lfKpiIzgara}>
+        {[
+          ["Bugün Toplam", bugunToplam, null],
+          ["Yeni", yeniSayisi, null],
+          ["Hazırlanıyor", hazirlaniyorSayisi, null],
+          ["Hazır", hazirSayisi, null],
+          ["Yolda", gonderildiSayisi, null],
+          ["Bugün Teslim", teslimEdilenBugun, null],
+          ["Bugün İptal", iptalBugun, null],
+          ["Ort. Süre (dk)", ortTeslimSuresi, null],
+          ["SLA Başarı %", `%${slaYuzde}`, null],
+        ].map(([etiket, sayi]) => (
+          <div key={etiket} style={{ ...styles.lfKpiKart, cursor: "default" }}>
+            <div style={styles.lfKpiSayi}>{sayi}</div>
+            <div style={styles.lfKpiEtiket}>{etiket}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+        {[
+          ["aktif", "Aktif"],
+          ["mutfagim", "Mutfak"],
+          ["teslimatlarim", "Teslimat"],
+          ["tamamlanan", "Tamamlanan"],
+          ["hepsi", "Tümü"],
+        ].map(([key, label]) => (
+          <button
+            key={key}
+            style={{ ...styles.gmSekmeButon, flex: "none", padding: "7px 14px", ...(filtre === key ? styles.gmSekmeButonAktif : {}) }}
+            onClick={() => setFiltre(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 14 }}>
+        {yukleniyor ? (
+          <div style={styles.merkezYukleniyor}>Yükleniyor…</div>
+        ) : gosterilecekler.length === 0 ? (
+          <div style={styles.bilgiKutusu}>Sipariş bulunamadı.</div>
+        ) : (
+          gosterilecekler.map((s) => {
+            const slaRengi = { yesil: "#2F7D5C", turuncu: "#B08D3E", kirmizi: "#B7472A", iptal: "#9CA3AF" }[rsSlaDurumu(s)];
+            const gecen = rsGecenDakika(s);
+            return (
+              <button
+                key={s.no}
+                style={styles.lfKayitKarti}
+                onClick={() => {
+                  setSecilenNo(s.no);
+                  setGorunum("detay");
+                }}
+              >
+                <div style={styles.lfKayitUst}>
+                  <span style={styles.lfKayitNo}>{s.no}</span>
+                  <span style={{ ...styles.lfDurumRozeti, color: slaRengi, background: `${slaRengi}1A` }}>{s.durum}</span>
+                </div>
+                <div style={styles.lfKayitAciklama}>
+                  Oda {s.odaNo} — {s.kalemler.map((k) => `${k.ad} x${k.adet}`).join(", ")}
+                </div>
+                <div style={styles.lfKayitAltBilgi}>
+                  {s.olusturanKullanici} · {new Date(s.olusturmaZamani).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })} ·{" "}
+                  {aktifMi(s) ? `${gecen} dk geçti` : `${gecen} dk sürdü`}
+                </div>
+              </button>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------
+   ODA SERVİSİ - yeni sipariş formu
+-------------------------------------------------------------------*/
+function RSYeniSiparis({ user, onIptal, onKaydet }) {
+  const [odaNo, setOdaNo] = useState("");
+  const [misafirAdi, setMisafirAdi] = useState("");
+  const [kategori, setKategori] = useState(RS_KATEGORILER[0]);
+  const [urunAdi, setUrunAdi] = useState(RS_MENU[0].ad);
+  const [urunAdet, setUrunAdet] = useState("1");
+  const [urunNot, setUrunNot] = useState("");
+  const [kalemler, setKalemler] = useState([]);
+  const [misafirNotu, setMisafirNotu] = useState("");
+  const [oncelik, setOncelik] = useState("Normal");
+  const [hata, setHata] = useState("");
+  const [kaydediliyor, setKaydediliyor] = useState(false);
+
+  const kategoriUrunleri = RS_MENU.filter((m) => m.kategori === kategori);
+
+  function urunEkle() {
+    const urun = RS_MENU.find((m) => m.ad === urunAdi);
+    if (!urun) return;
+    setKalemler((prev) => [...prev, { ad: urun.ad, kategori: urun.kategori, fiyat: urun.fiyat, adet: Number(urunAdet) || 1, not: urunNot }]);
+    setUrunNot("");
+    setUrunAdet("1");
+  }
+
+  function kalemSil(i) {
+    setKalemler((prev) => prev.filter((_, idx) => idx !== i));
+  }
+
+  const toplamTutar = kalemler.reduce((t, k) => t + k.fiyat * k.adet, 0);
+
+  async function kaydet() {
+    setHata("");
+    if (!odaNo.trim()) {
+      setHata("Oda numarası zorunludur.");
+      return;
+    }
+    if (kalemler.length === 0) {
+      setHata("En az bir ürün ekleyin.");
+      return;
+    }
+    setKaydediliyor(true);
+    await onKaydet({ odaNo: odaNo.trim(), misafirAdi, kalemler, misafirNotu, oncelik });
+    setKaydediliyor(false);
+  }
+
+  return (
+    <div style={styles.icerik}>
+      <div style={styles.listeUstBaslik}>
+        <button style={styles.geriButon} onClick={onIptal} aria-label="Geri">
+          ←
+        </button>
+        <div className="baslik-font" style={styles.listeBaslikYazi}>
+          Yeni Sipariş
+        </div>
+      </div>
+
+      <Etiket>ODA NO (zorunlu)</Etiket>
+      <input style={styles.epostaInput} value={odaNo} onChange={(e) => setOdaNo(e.target.value)} placeholder="örn. 325" />
+
+      <Etiket>MİSAFİR ADI (isteğe bağlı)</Etiket>
+      <input style={styles.epostaInput} value={misafirAdi} onChange={(e) => setMisafirAdi(e.target.value)} />
+
+      <div style={{ ...styles.gmSabitDeger, marginTop: 14 }}>Ürün Ekle</div>
+      <Etiket>KATEGORİ</Etiket>
+      <select
+        style={styles.gmSecim}
+        value={kategori}
+        onChange={(e) => {
+          setKategori(e.target.value);
+          const ilk = RS_MENU.find((m) => m.kategori === e.target.value);
+          setUrunAdi(ilk ? ilk.ad : "");
+        }}
+      >
+        {RS_KATEGORILER.map((k) => (
+          <option key={k} value={k}>
+            {k}
+          </option>
+        ))}
+      </select>
+
+      <Etiket>ÜRÜN</Etiket>
+      <select style={styles.gmSecim} value={urunAdi} onChange={(e) => setUrunAdi(e.target.value)}>
+        {kategoriUrunleri.map((m) => (
+          <option key={m.ad} value={m.ad}>
+            {m.ad} — {m.fiyat > 0 ? `${m.fiyat}₺` : "-"}
+          </option>
+        ))}
+      </select>
+
+      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+        <div style={{ flex: 1 }}>
+          <Etiket>ADET</Etiket>
+          <input
+            style={styles.epostaInput}
+            inputMode="numeric"
+            value={urunAdet}
+            onChange={(e) => setUrunAdet(e.target.value.replace(/\D/g, ""))}
+          />
+        </div>
+        <div style={{ flex: 2 }}>
+          <Etiket>NOT (örn. soğansız)</Etiket>
+          <input style={styles.epostaInput} value={urunNot} onChange={(e) => setUrunNot(e.target.value)} />
+        </div>
+      </div>
+      <button style={{ ...styles.ikincilButon, marginTop: 10 }} onClick={urunEkle}>
+        + Ürünü Sipariş Listesine Ekle
+      </button>
+
+      {kalemler.length > 0 && (
+        <div style={{ marginTop: 14 }}>
+          <Etiket>SİPARİŞ LİSTESİ</Etiket>
+          {kalemler.map((k, i) => (
+            <div key={i} style={styles.gmMaddeSatiri}>
+              <div style={styles.gmMaddeMetni}>
+                {k.ad} x{k.adet} {k.not ? `(${k.not})` : ""} — {k.fiyat > 0 ? `${k.fiyat * k.adet}₺` : "-"}
+              </div>
+              <button style={styles.gmKucukSilButon} onClick={() => kalemSil(i)}>
+                Sil
+              </button>
+            </div>
+          ))}
+          <div style={{ ...styles.gmSabitDeger, marginTop: 8, textAlign: "right" }}>
+            Toplam (bilgi amaçlı): {toplamTutar}₺
+          </div>
+        </div>
+      )}
+
+      <Etiket>MİSAFİR NOTU</Etiket>
+      <textarea
+        style={styles.aciklamaAlani}
+        rows={2}
+        value={misafirNotu}
+        onChange={(e) => setMisafirNotu(e.target.value)}
+        placeholder="örn. Kapı çalınmadan bırakılsın"
+      />
+
+      <Etiket>ÖNCELİK</Etiket>
+      <div style={{ display: "flex", gap: 8 }}>
+        {["Normal", "Acil"].map((o) => (
+          <button
+            key={o}
+            style={{
+              ...styles.secimKutusu,
+              flex: 1,
+              ...(oncelik === o ? { background: o === "Acil" ? "#B7472A" : "#2F7D5C", borderColor: o === "Acil" ? "#B7472A" : "#2F7D5C", color: "#fff" } : {}),
+            }}
+            onClick={() => setOncelik(o)}
+          >
+            {o === "Acil" ? "🔴 Acil" : "🟢 Normal"}
+          </button>
+        ))}
+      </div>
+
+      {hata && <div style={styles.hataKutusu}>{hata}</div>}
+
+      <button
+        style={{ ...styles.anaButon, marginTop: 16, marginBottom: 24, opacity: kaydediliyor ? 0.7 : 1 }}
+        onClick={kaydet}
+        disabled={kaydediliyor}
+      >
+        {kaydediliyor ? "Kaydediliyor…" : "Siparişi Oluştur"}
+      </button>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------
+   ODA SERVİSİ - sipariş detay ekranı
+-------------------------------------------------------------------*/
+function RSDetay({ siparis, user, mutfakMi, roomServiceMi, yoneticiMi, onGeri, onDurumIlerlet, onIptalEt }) {
+  const [islem, setIslem] = useState(false);
+  const [iptalAcik, setIptalAcik] = useState(false);
+  const [iptalNeden, setIptalNeden] = useState(RS_IPTAL_NEDENLERI[0]);
+  const [iptalAciklama, setIptalAciklama] = useState("");
+  const [auditAcik, setAuditAcik] = useState(false);
+
+  const slaHedefi = rsSlaHedefi(siparis.kalemler);
+  const gecen = rsGecenDakika(siparis);
+  const slaRengi = { yesil: "#2F7D5C", turuncu: "#B08D3E", kirmizi: "#B7472A", iptal: "#9CA3AF" }[rsSlaDurumu(siparis)];
+  const iptalEdilebilirMi = ["Yeni", "Onaylandı", "Hazırlanıyor"].includes(siparis.durum);
+
+  async function ilerlet(yeniDurum, ekAlanlar, mesaj) {
+    setIslem(true);
+    await onDurumIlerlet(siparis, yeniDurum, ekAlanlar, mesaj);
+    setIslem(false);
+  }
+
+  async function iptalGonder() {
+    if (iptalNeden === "Diğer" && !iptalAciklama.trim()) return;
+    setIslem(true);
+    await onIptalEt(siparis, iptalNeden, iptalAciklama.trim());
+    setIslem(false);
+  }
+
+  return (
+    <div style={styles.icerik}>
+      <div style={styles.listeUstBaslik}>
+        <button style={styles.geriButon} onClick={onGeri} aria-label="Geri">
+          ←
+        </button>
+        <div>
+          <div className="baslik-font" style={styles.listeBaslikYazi}>
+            {siparis.no}
+          </div>
+          <div style={styles.ilerlemeYazi}>Oda {siparis.odaNo}</div>
+        </div>
+      </div>
+
+      <div style={{ ...styles.lfUyariKutusu, background: `${slaRengi}1A`, color: slaRengi }}>
+        {siparis.durum === "İptal"
+          ? "İptal edildi"
+          : `${gecen} dk geçti · Hedef ${slaHedefi} dk ${gecen > slaHedefi ? "— SLA AŞILDI" : ""}`}
+      </div>
+
+      <div style={styles.lfBilgiKarti}>
+        <div style={styles.lfBilgiSatiri}>
+          <span>Durum</span>
+          <strong>{siparis.durum}</strong>
+        </div>
+        <div style={styles.lfBilgiSatiri}>
+          <span>Misafir</span>
+          <strong>{siparis.misafirAdi || "-"}</strong>
+        </div>
+        <div style={styles.lfBilgiSatiri}>
+          <span>Ürünler</span>
+          <strong>
+            {siparis.kalemler.map((k, i) => (
+              <div key={i}>
+                {k.ad} x{k.adet} {k.not ? `(${k.not})` : ""}
+              </div>
+            ))}
+          </strong>
+        </div>
+        <div style={styles.lfBilgiSatiri}>
+          <span>Toplam (bilgi amaçlı)</span>
+          <strong>{siparis.toplamTutar}₺</strong>
+        </div>
+        {siparis.misafirNotu && (
+          <div style={styles.lfBilgiSatiri}>
+            <span>Misafir Notu</span>
+            <strong>{siparis.misafirNotu}</strong>
+          </div>
+        )}
+        <div style={styles.lfBilgiSatiri}>
+          <span>Sipariş Alan</span>
+          <strong>{siparis.olusturanKullanici}</strong>
+        </div>
+        {siparis.iptalNedeni && (
+          <div style={styles.lfBilgiSatiri}>
+            <span>İptal Nedeni</span>
+            <strong>{siparis.iptalNedeni}</strong>
+          </div>
+        )}
+      </div>
+
+      {/* Durum bazlı işlem butonları */}
+      {siparis.durum === "Yeni" && (
+        <button style={{ ...styles.anaButon, marginTop: 14, opacity: islem ? 0.7 : 1 }} disabled={islem} onClick={() => ilerlet("Onaylandı", { onaylanmaZamani: new Date().toISOString() }, "Sipariş onaylandı")}>
+          Siparişi Onayla
+        </button>
+      )}
+
+      {siparis.durum === "Onaylandı" && mutfakMi && (
+        <button style={{ ...styles.anaButon, marginTop: 14, opacity: islem ? 0.7 : 1 }} disabled={islem} onClick={() => ilerlet("Hazırlanıyor", { hazirlanmaBaslangic: new Date().toISOString() }, "Hazırlamaya başlandı")}>
+          Hazırlamaya Başla
+        </button>
+      )}
+
+      {siparis.durum === "Hazırlanıyor" && mutfakMi && (
+        <button style={{ ...styles.anaButon, marginTop: 14, opacity: islem ? 0.7 : 1 }} disabled={islem} onClick={() => ilerlet("Hazır", { hazirZamani: new Date().toISOString() }, "Sipariş hazır")}>
+          Hazır
+        </button>
+      )}
+
+      {siparis.durum === "Hazır" && roomServiceMi && (
+        <button
+          style={{ ...styles.anaButon, marginTop: 14, opacity: islem ? 0.7 : 1 }}
+          disabled={islem}
+          onClick={() => ilerlet("Odaya Gönderildi", { gonderilmeZamani: new Date().toISOString(), sorumluTeslimEden: { userCode: user.userCode, name: user.name } }, "Sipariş odaya gönderiliyor")}
+        >
+          Siparişi Al
+        </button>
+      )}
+
+      {siparis.durum === "Odaya Gönderildi" && siparis.sorumluTeslimEden && siparis.sorumluTeslimEden.userCode === user.userCode && (
+        <button
+          style={{ ...styles.anaButon, marginTop: 14, opacity: islem ? 0.7 : 1 }}
+          disabled={islem}
+          onClick={() => {
+            const simdi = new Date().toISOString();
+            ilerlet("Teslim Edildi", { teslimZamani: simdi, kapanisZamani: simdi }, "Teslim edildi");
+          }}
+        >
+          Teslim Edildi
+        </button>
+      )}
+
+      {siparis.durum === "Teslim Edildi" && (
+        <div style={styles.basariMesaji}>✓ Teslim edildi ({lfZamanFormatla(siparis.teslimZamani)})</div>
+      )}
+
+      {iptalEdilebilirMi && (yoneticiMi || siparis.olusturanUserCode === user.userCode) && (
+        <>
+          <button style={{ ...styles.adminDuzenleButon, marginTop: 10 }} onClick={() => setIptalAcik((a) => !a)}>
+            ✕ Siparişi İptal Et
+          </button>
+          {iptalAcik && (
+            <div style={styles.gmMaddeSatiri}>
+              <Etiket>İPTAL NEDENİ</Etiket>
+              <select style={styles.gmSecim} value={iptalNeden} onChange={(e) => setIptalNeden(e.target.value)}>
+                {RS_IPTAL_NEDENLERI.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+              {iptalNeden === "Diğer" && (
+                <input
+                  style={{ ...styles.epostaInput, marginTop: 8 }}
+                  value={iptalAciklama}
+                  onChange={(e) => setIptalAciklama(e.target.value)}
+                  placeholder="Açıklama yazın"
+                />
+              )}
+              <button style={{ ...styles.gmKucukSilButon, marginTop: 10 }} onClick={iptalGonder} disabled={islem}>
+                İptali Onayla
+              </button>
+            </div>
+          )}
+        </>
+      )}
+
+      <button style={{ ...styles.adminDuzenleButon, marginTop: 14 }} onClick={() => setAuditAcik((a) => !a)}>
+        📜 İşlem Geçmişi (Audit Log) {auditAcik ? "▲" : "▼"}
+      </button>
+      {auditAcik && (
+        <div style={{ ...styles.gmMaddeSatiri, marginBottom: 24 }}>
+          {siparis.auditLog.map((a, idx) => (
+            <div key={idx} style={styles.zamanNotu}>
+              {lfZamanFormatla(a.zaman)} — {a.kullanici} — {a.islem}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 function AdminEkrani({ onCikis }) {
   const [yukleniyor, setYukleniyor] = useState(true);
   const [oteller, setOteller] = useState([]);
@@ -7171,6 +8094,17 @@ const styles = {
     marginTop: 10,
     paddingTop: 10,
     borderTop: "1px solid #E2DCCC",
+  },
+  roomServiceButon: {
+    width: "100%",
+    padding: "14px 16px",
+    borderRadius: 14,
+    border: "1.5px solid #B08D3E",
+    background: "#fff",
+    color: "#8A6A22",
+    fontSize: 15,
+    fontWeight: 700,
+    cursor: "pointer",
   },
   arizaButon: {
     width: "100%",
