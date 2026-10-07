@@ -1514,6 +1514,33 @@ const RS_DURUMLAR = ["Yeni", "Onaylandı", "Hazırlanıyor", "Hazır", "Odaya G�
 const RS_IPTAL_NEDENLERI = ["Misafir vazgeçti", "Yanlış sipariş", "Mutfak kaynaklı", "Ürün mevcut değil", "Çok uzun bekleme", "Diğer"];
 const RS_FB_DEPARTMAN = "Yiyecek & İçecek – F&B Yönetimi";
 
+/* ------------------------------------------------------------------
+   UYANDIRMA SERVİSİ (Wake-up Call) MODÜLÜ - sabit tanımlar
+-------------------------------------------------------------------*/
+const UYN_DURUMLAR = ["Bekliyor", "Cevap Verdi", "Cevap Yok", "Ulaşılamadı", "İptal"];
+const UYN_KAPALI_DURUMLAR = ["Cevap Verdi", "Ulaşılamadı", "İptal"];
+// Aramayı yapıp sonucunu işaretleyebilen departmanlar (santral / ön büro tarafı).
+// Bu departmanlardaki kullanıcılar ayrıca, saati gelen uyandırmalar için her
+// ekranda kırmızı uyarı bandı görür.
+const UYN_ARAMA_DEPARTMANLARI = ["Önbüro", "Ön Büro / Front Office", "Gece Müdürü"];
+const UYN_IPTAL_NEDENLERI = ["Misafir vazgeçti", "Yanlış kayıt", "Oda değişti", "Check-out yapıldı", "Diğer"];
+const UYN_ACIKLAMA_MAX = 200;
+
+/* ------------------------------------------------------------------
+   PAVILION REZERVASYON MODÜLÜ - sabit tanımlar
+   İskele: 8001-8010 (10 adet) | Sahil: 7001-7005 (5 adet)
+-------------------------------------------------------------------*/
+const PAV_ALANLAR = ["İskele", "Sahil"];
+const PAV_LISTESI = [
+  ...Array.from({ length: 10 }, (_, i) => ({ no: String(8001 + i), alan: "İskele" })),
+  ...Array.from({ length: 5 }, (_, i) => ({ no: String(7001 + i), alan: "Sahil" })),
+];
+const PAV_DURUMLAR = ["Rezerve", "Kullanıldı", "Gelmedi", "İptal"];
+// Pavilion'u o gün için "dolu" sayan durumlar. Gelmedi/İptal kayıtları geçmişte
+// kalır ama pavilion'u tekrar boşa çıkarır.
+const PAV_AKTIF_DURUMLAR = ["Rezerve", "Kullanıldı"];
+const PAV_RENKLER = { bos: "#2F7D5C", rezerve: "#B08D3E", kullanildi: "#B7472A" };
+
 const KAT_HIZMETLERI_BOLUMLER = [
   {
     harf: "A",
@@ -1946,6 +1973,37 @@ function App() {
   // Genel Müdürlük'ten Kat Hizmetleri kullanıcısına atanan, henüz kabul
   // edilmemiş oda görevleri.
   const [bekleyenGorevler, setBekleyenGorevler] = useState([]);
+
+  // Uyandırma servisi: saati gelmiş ama henüz aranmamış talepler. Yalnızca
+  // arama yapabilen departmanlar (Ön Büro/Santral/Gece Müdürü) için izlenir;
+  // her ekranda uyarı bandı olarak gösterilir. Uygulama açıkken çalışır.
+  const [uyandirmaGeciken, setUyandirmaGeciken] = useState([]);
+  const oncekiUyandirmaSayisi = useRef(0);
+
+  useEffect(() => {
+    if (!currentUser || !UYN_ARAMA_DEPARTMANLARI.includes(currentUser.department)) {
+      setUyandirmaGeciken([]);
+      oncekiUyandirmaSayisi.current = 0;
+      return;
+    }
+    let iptal = false;
+    async function kontrolEt() {
+      const kayitlar = await uynKayitlariGetir(currentUser.hotelCode);
+      if (iptal) return;
+      const geciken = kayitlar
+        .filter(uynZamaniGeldiMi)
+        .sort((a, b) => uynPlanZamani(a) - uynPlanZamani(b));
+      setUyandirmaGeciken(geciken);
+      if (geciken.length > oncekiUyandirmaSayisi.current) uynBipSesi();
+      oncekiUyandirmaSayisi.current = geciken.length;
+    }
+    kontrolEt();
+    const id = setInterval(kontrolEt, 20000);
+    return () => {
+      iptal = true;
+      clearInterval(id);
+    };
+  }, [currentUser, screen]);
 
   useEffect(() => {
     seedData();
@@ -2689,6 +2747,7 @@ function App() {
         * { box-sizing: border-box; }
         .telefon-govde { font-family: 'Inter', sans-serif; }
         .baslik-font { font-family: 'Sora', sans-serif; }
+        @keyframes uynYanipSon { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
         input:focus, textarea:focus, button:focus-visible {
           outline: 2px solid #B08D3E;
           outline-offset: 2px;
@@ -2743,6 +2802,8 @@ function App() {
             onLostFound={() => setScreen("lostfound")}
             onArizaBildir={() => setScreen("ariza")}
             onRoomService={() => setScreen("roomservice")}
+            onUyandirma={() => setScreen("uyandirma")}
+            onPavilion={() => setScreen("pavilion")}
             onGMYonetim={() => setScreen("gmYonetim")}
             bekleyenGorevler={bekleyenGorevler}
             onGorevKabul={gorevKabulEt}
@@ -2801,7 +2862,22 @@ function App() {
           <ArizaEkrani user={currentUser} onGeri={() => setScreen("home")} toastGoster={toastGoster} />
         ) : screen === "roomservice" ? (
           <RoomServiceEkrani user={currentUser} onGeri={() => setScreen("home")} toastGoster={toastGoster} />
+        ) : screen === "uyandirma" ? (
+          <UyandirmaEkrani user={currentUser} onGeri={() => setScreen("home")} toastGoster={toastGoster} />
+        ) : screen === "pavilion" ? (
+          <PavilionEkrani user={currentUser} onGeri={() => setScreen("home")} toastGoster={toastGoster} />
         ) : null}
+
+        {uyandirmaGeciken.length > 0 && screen !== "uyandirma" && screen !== "login" && (
+          <button style={styles.uynBanner} onClick={() => setScreen("uyandirma")}>
+            ⏰ {uyandirmaGeciken.length} uyandırma bekliyor —{" "}
+            {uyandirmaGeciken
+              .slice(0, 3)
+              .map((k) => `Oda ${k.odaNo} (${k.saat})`)
+              .join(", ")}
+            {uyandirmaGeciken.length > 3 ? "…" : ""}
+          </button>
+        )}
 
         {toast && !pdfLinkUrl && <div style={styles.toastMesaj}>{toast}</div>}
 
@@ -2924,6 +3000,8 @@ function AnaSayfa({
   onLostFound,
   onArizaBildir,
   onRoomService,
+  onUyandirma,
+  onPavilion,
   bekleyenGorevler,
   onGorevKabul,
 }) {
@@ -3036,6 +3114,14 @@ function AnaSayfa({
 
         <button style={styles.roomServiceButon} onClick={onRoomService}>
           🍽️ Oda Servisi
+        </button>
+
+        <button style={styles.uyandirmaButon} onClick={onUyandirma}>
+          ⏰ Uyandırma Servisi
+        </button>
+
+        <button style={styles.pavilionButon} onClick={onPavilion}>
+          🏖️ Pavilion Rezervasyon
         </button>
 
         <button style={styles.ikincilButon} onClick={onGecmis}>
@@ -6890,6 +6976,1702 @@ function RSDetay({ siparis, user, mutfakMi, roomServiceMi, yoneticiMi, onGeri, o
 }
 
 
+/* ------------------------------------------------------------------
+   UYANDIRMA SERVİSİ - yardımcı fonksiyonlar
+-------------------------------------------------------------------*/
+async function uynKayitlariGetir(hotelCode) {
+  try {
+    const liste = await window.storage.list(`uyandirma:${hotelCode}:`, true);
+    const keys = (liste && liste.keys) || [];
+    const kayitlar = [];
+    for (const k of keys) {
+      const r = await safeGet(k, true);
+      if (r) {
+        try {
+          kayitlar.push(JSON.parse(r.value));
+        } catch (e) {}
+      }
+    }
+    return kayitlar;
+  } catch (e) {
+    return [];
+  }
+}
+
+async function uynKayitKaydet(kayit) {
+  await window.storage.set(`uyandirma:${kayit.hotelCode}:${kayit.no}`, JSON.stringify(kayit), true);
+}
+
+// Kayıttaki tarih ("YYYY-MM-DD") + saat ("HH:MM") bilgisinden planlanan an.
+function uynPlanZamani(kayit) {
+  const [y, m, d] = kayit.tarih.split("-").map(Number);
+  const [hh, mm] = kayit.saat.split(":").map(Number);
+  return new Date(y, m - 1, d, hh, mm, 0, 0);
+}
+
+// Saati gelmiş (veya geçmiş) ama henüz aranmamış mı?
+function uynZamaniGeldiMi(kayit) {
+  return kayit.durum === "Bekliyor" && uynPlanZamani(kayit) <= new Date();
+}
+
+function uynYarinTarihi() {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+// Kısa uyarı sesi + titreşim (uygulama içi uyarı).
+function uynBipSesi() {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (AC) {
+      const ctx = new AC();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.7);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.75);
+    }
+    if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+  } catch (e) {}
+}
+
+/* ------------------------------------------------------------------
+   UYANDIRMA SERVİSİ - ana ekran (KPI + uyarı + liste + gezinme)
+-------------------------------------------------------------------*/
+function UyandirmaEkrani({ user, onGeri, toastGoster }) {
+  const [gorunum, setGorunum] = useState("liste"); // liste | yeni | detay
+  const [kayitlar, setKayitlar] = useState([]);
+  const [yukleniyor, setYukleniyor] = useState(true);
+  const [secilenNo, setSecilenNo] = useState(null);
+  const [filtre, setFiltre] = useState("bugun");
+  const [, setTick] = useState(0);
+
+  const aramaYapabilirMi = UYN_ARAMA_DEPARTMANLARI.includes(user.department);
+  const yoneticiMi = LF_YONETICI_POZISYONLARI.includes(user.pozisyon);
+
+  useEffect(() => {
+    yukle(true);
+    const id = setInterval(() => {
+      setTick((x) => x + 1);
+      yukle(false);
+    }, 15000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function yukle(goster) {
+    if (goster) setYukleniyor(true);
+    const veri = await uynKayitlariGetir(user.hotelCode);
+    setKayitlar(veri);
+    setYukleniyor(false);
+  }
+
+  async function talepOlustur(form) {
+    const simdi = new Date();
+    const yil = simdi.getFullYear();
+    const sayac = kayitlar.filter((k) => k.no.includes(`-${yil}-`)).length + 1;
+    const no = `UYN-${yil}-${String(sayac).padStart(4, "0")}`;
+    const kayit = {
+      no,
+      hotelCode: user.hotelCode,
+      hotelName: user.hotelName,
+      tarih: form.tarih,
+      saat: form.saat,
+      odaNo: form.odaNo,
+      aciklama: form.aciklama,
+      durum: "Bekliyor",
+      olusturanKullanici: user.name,
+      olusturanUserCode: user.userCode,
+      olusturmaZamani: simdi.toISOString(),
+      denemeler: [],
+      iptalNedeni: "",
+      auditLog: [{ zaman: simdi.toISOString(), kullanici: user.name, islem: "Uyandırma talebi alındı" }],
+    };
+    await uynKayitKaydet(kayit);
+    toastGoster(`✓ Uyandırma kaydedildi: ${no}`);
+    await yukle(true);
+    setGorunum("liste");
+  }
+
+  async function sonucIsaretle(kayit, sonuc, not) {
+    const simdi = new Date();
+    const guncel = {
+      ...kayit,
+      durum: sonuc,
+      denemeler: [
+        ...(kayit.denemeler || []),
+        { zaman: simdi.toISOString(), sonuc, kullanici: user.name, not: not || "" },
+      ],
+      auditLog: [
+        ...kayit.auditLog,
+        { zaman: simdi.toISOString(), kullanici: user.name, islem: `Arama sonucu: ${sonuc}${not ? ` — ${not}` : ""}` },
+      ],
+    };
+    await uynKayitKaydet(guncel);
+    toastGoster(`✓ "${sonuc}" olarak işaretlendi`);
+    await yukle(false);
+  }
+
+  async function iptalEt(kayit, neden, aciklama) {
+    const simdi = new Date();
+    const tamNeden = neden === "Diğer" ? `Diğer: ${aciklama}` : neden;
+    const guncel = {
+      ...kayit,
+      durum: "İptal",
+      iptalNedeni: tamNeden,
+      auditLog: [
+        ...kayit.auditLog,
+        { zaman: simdi.toISOString(), kullanici: user.name, islem: `Uyandırma iptal edildi: ${tamNeden}` },
+      ],
+    };
+    await uynKayitKaydet(guncel);
+    toastGoster("✓ Uyandırma talebi iptal edildi");
+    await yukle(false);
+  }
+
+  const secilenKayit = kayitlar.find((k) => k.no === secilenNo);
+  const bugun = bugunTarihi();
+  const yarin = uynYarinTarihi();
+  const bugunKayitlari = kayitlar.filter((k) => k.tarih === bugun);
+  const simdiAranacaklar = kayitlar
+    .filter(uynZamaniGeldiMi)
+    .sort((a, b) => uynPlanZamani(a) - uynPlanZamani(b));
+
+  const artan = (a, b) => uynPlanZamani(a) - uynPlanZamani(b);
+  const azalan = (a, b) => uynPlanZamani(b) - uynPlanZamani(a);
+  let gosterilecekler = [];
+  if (filtre === "bugun") gosterilecekler = bugunKayitlari.slice().sort(artan);
+  if (filtre === "yarin") gosterilecekler = kayitlar.filter((k) => k.tarih === yarin).sort(artan);
+  if (filtre === "tumu") gosterilecekler = kayitlar.slice().sort(azalan);
+  if (filtre === "tamamlanan")
+    gosterilecekler = kayitlar.filter((k) => UYN_KAPALI_DURUMLAR.includes(k.durum)).sort(azalan);
+
+  if (gorunum === "yeni") {
+    return <UYNYeniTalep mevcutKayitlar={kayitlar} onIptal={() => setGorunum("liste")} onKaydet={talepOlustur} />;
+  }
+
+  if (gorunum === "detay" && secilenKayit) {
+    return (
+      <UYNDetay
+        kayit={secilenKayit}
+        user={user}
+        aramaYapabilirMi={aramaYapabilirMi}
+        yoneticiMi={yoneticiMi}
+        onGeri={() => {
+          setGorunum("liste");
+          setSecilenNo(null);
+        }}
+        onSonucIsaretle={sonucIsaretle}
+        onIptalEt={iptalEt}
+      />
+    );
+  }
+
+  return (
+    <div style={styles.icerik}>
+      <div style={styles.listeUstBaslik}>
+        <button style={styles.geriButon} onClick={onGeri} aria-label="Geri">
+          ←
+        </button>
+        <div>
+          <div className="baslik-font" style={styles.listeBaslikYazi}>
+            Uyandırma Servisi
+          </div>
+          <div style={styles.ilerlemeYazi}>{user.hotelName}</div>
+        </div>
+      </div>
+
+      <button style={{ ...styles.anaButon, marginTop: 14 }} onClick={() => setGorunum("yeni")}>
+        + Yeni Uyandırma Talebi
+      </button>
+
+      {simdiAranacaklar.length > 0 && (
+        <div style={styles.uynUyariKutusu}>
+          <div style={{ fontWeight: 700, fontSize: 13 }}>⏰ ŞİMDİ ARANACAKLAR ({simdiAranacaklar.length})</div>
+          {simdiAranacaklar.map((k) => (
+            <button
+              key={k.no}
+              style={styles.uynUyariSatiri}
+              onClick={() => {
+                setSecilenNo(k.no);
+                setGorunum("detay");
+              }}
+            >
+              Oda {k.odaNo} — {k.saat} ({formatTarihSadece(k.tarih)}){k.aciklama ? ` — ${k.aciklama}` : ""}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div style={styles.lfKpiIzgara}>
+        {[
+          ["Bugün Toplam", bugunKayitlari.length],
+          ["Bekleyen", bugunKayitlari.filter((k) => k.durum === "Bekliyor").length],
+          ["Cevap Verdi", bugunKayitlari.filter((k) => k.durum === "Cevap Verdi").length],
+          ["Cevap Yok", bugunKayitlari.filter((k) => k.durum === "Cevap Yok").length],
+          ["Geciken", simdiAranacaklar.length],
+          ["İptal", bugunKayitlari.filter((k) => k.durum === "İptal").length],
+        ].map(([etiket, sayi]) => (
+          <div key={etiket} style={{ ...styles.lfKpiKart, cursor: "default" }}>
+            <div style={styles.lfKpiSayi}>{sayi}</div>
+            <div style={styles.lfKpiEtiket}>{etiket}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+        {[
+          ["bugun", "Bugün"],
+          ["yarin", "Yarın"],
+          ["tumu", "Tümü"],
+          ["tamamlanan", "Tamamlanan"],
+        ].map(([key, label]) => (
+          <button
+            key={key}
+            style={{ ...styles.gmSekmeButon, flex: "none", padding: "7px 14px", ...(filtre === key ? styles.gmSekmeButonAktif : {}) }}
+            onClick={() => setFiltre(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 14 }}>
+        {yukleniyor ? (
+          <div style={styles.merkezYukleniyor}>Yükleniyor…</div>
+        ) : gosterilecekler.length === 0 ? (
+          <div style={styles.bilgiKutusu}>Uyandırma kaydı bulunamadı.</div>
+        ) : (
+          gosterilecekler.map((k) => {
+            const geldi = uynZamaniGeldiMi(k);
+            const kalanDk = Math.round((uynPlanZamani(k) - new Date()) / 60000);
+            let renk = "#2F7D5C";
+            let etiket = k.durum;
+            if (k.durum === "Bekliyor") {
+              if (geldi) {
+                renk = "#B7472A";
+                etiket = "ŞİMDİ ARANACAK";
+              } else if (kalanDk <= 5) {
+                renk = "#B08D3E";
+                etiket = `${kalanDk} dk kaldı`;
+              }
+            } else if (k.durum === "Cevap Yok") {
+              renk = "#B08D3E";
+            } else if (k.durum === "Ulaşılamadı") {
+              renk = "#B7472A";
+            } else if (k.durum === "İptal") {
+              renk = "#9CA3AF";
+            }
+            return (
+              <button
+                key={k.no}
+                style={{
+                  ...styles.lfKayitKarti,
+                  ...(geldi ? { borderColor: "#B7472A", borderWidth: 2, animation: "uynYanipSon 1.2s ease-in-out infinite" } : {}),
+                }}
+                onClick={() => {
+                  setSecilenNo(k.no);
+                  setGorunum("detay");
+                }}
+              >
+                <div style={styles.lfKayitUst}>
+                  <span style={styles.lfKayitNo}>
+                    ⏰ {k.saat} · Oda {k.odaNo}
+                  </span>
+                  <span style={{ ...styles.lfDurumRozeti, color: renk, background: `${renk}1A` }}>{etiket}</span>
+                </div>
+                <div style={styles.lfKayitAciklama}>{k.aciklama ? k.aciklama : "Açıklama yok"}</div>
+                <div style={styles.lfKayitAltBilgi}>
+                  {formatTarihSadece(k.tarih)} · {k.no} · {(k.denemeler || []).length} arama
+                </div>
+              </button>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------
+   UYANDIRMA SERVİSİ - yeni talep formu
+-------------------------------------------------------------------*/
+function UYNYeniTalep({ mevcutKayitlar, onIptal, onKaydet }) {
+  const [tarih, setTarih] = useState(bugunTarihi());
+  const [saat, setSaat] = useState("");
+  const [odaNo, setOdaNo] = useState("");
+  const [aciklama, setAciklama] = useState("");
+  const [hata, setHata] = useState("");
+  const [kaydediliyor, setKaydediliyor] = useState(false);
+
+  async function kaydet() {
+    setHata("");
+    const oda = odaNo.trim();
+    if (!tarih) {
+      setHata("Tarih zorunludur.");
+      return;
+    }
+    if (!saat) {
+      setHata("Saat zorunludur.");
+      return;
+    }
+    if (!oda) {
+      setHata("Oda numarası zorunludur.");
+      return;
+    }
+    const [y, m, d] = tarih.split("-").map(Number);
+    const [hh, mm] = saat.split(":").map(Number);
+    if (new Date(y, m - 1, d, hh, mm, 0, 0) < new Date()) {
+      setHata("Geçmiş bir tarih/saat için uyandırma kaydedilemez.");
+      return;
+    }
+    const mukerrer = mevcutKayitlar.some(
+      (k) => k.odaNo === oda && k.tarih === tarih && k.saat === saat && k.durum !== "İptal"
+    );
+    if (mukerrer) {
+      setHata("Bu oda için aynı tarih ve saatte zaten bir uyandırma kaydı var.");
+      return;
+    }
+    setKaydediliyor(true);
+    await onKaydet({ tarih, saat, odaNo: oda, aciklama: aciklama.trim() });
+    setKaydediliyor(false);
+  }
+
+  return (
+    <div style={styles.icerik}>
+      <div style={styles.listeUstBaslik}>
+        <button style={styles.geriButon} onClick={onIptal} aria-label="Geri">
+          ←
+        </button>
+        <div className="baslik-font" style={styles.listeBaslikYazi}>
+          Yeni Uyandırma Talebi
+        </div>
+      </div>
+
+      <Etiket>TARİH (zorunlu)</Etiket>
+      <input type="date" style={styles.epostaInput} value={tarih} min={bugunTarihi()} onChange={(e) => setTarih(e.target.value)} />
+
+      <Etiket>SAAT (zorunlu)</Etiket>
+      <input type="time" style={styles.epostaInput} value={saat} onChange={(e) => setSaat(e.target.value)} />
+
+      <Etiket>ODA NUMARASI (zorunlu)</Etiket>
+      <input style={styles.epostaInput} value={odaNo} onChange={(e) => setOdaNo(e.target.value)} placeholder="örn. 325" />
+
+      <Etiket>AÇIKLAMA</Etiket>
+      <textarea
+        style={styles.aciklamaAlani}
+        rows={3}
+        maxLength={UYN_ACIKLAMA_MAX}
+        value={aciklama}
+        onChange={(e) => setAciklama(e.target.value)}
+        placeholder="örn. 2 kez arayın, VIP misafir, ismiyle hitap edin"
+      />
+      <div style={styles.zamanNotu}>
+        {aciklama.length}/{UYN_ACIKLAMA_MAX} karakter
+      </div>
+
+      {hata && <div style={styles.hataKutusu}>{hata}</div>}
+
+      <button
+        style={{ ...styles.anaButon, marginTop: 16, marginBottom: 24, opacity: kaydediliyor ? 0.7 : 1 }}
+        onClick={kaydet}
+        disabled={kaydediliyor}
+      >
+        {kaydediliyor ? "Kaydediliyor…" : "Talebi Kaydet"}
+      </button>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------
+   UYANDIRMA SERVİSİ - kayıt detay ekranı
+-------------------------------------------------------------------*/
+function UYNDetay({ kayit, user, aramaYapabilirMi, yoneticiMi, onGeri, onSonucIsaretle, onIptalEt }) {
+  const [not, setNot] = useState("");
+  const [islem, setIslem] = useState(false);
+  const [iptalAcik, setIptalAcik] = useState(false);
+  const [iptalNeden, setIptalNeden] = useState(UYN_IPTAL_NEDENLERI[0]);
+  const [iptalAciklama, setIptalAciklama] = useState("");
+  const [auditAcik, setAuditAcik] = useState(false);
+
+  const geldi = uynZamaniGeldiMi(kayit);
+  const durumRengi = {
+    Bekliyor: geldi ? "#B7472A" : "#2F7D5C",
+    "Cevap Verdi": "#2F7D5C",
+    "Cevap Yok": "#B08D3E",
+    Ulaşılamadı: "#B7472A",
+    İptal: "#9CA3AF",
+  }[kayit.durum];
+  const islemYapilabilir = kayit.durum === "Bekliyor" || kayit.durum === "Cevap Yok";
+  const iptalEdebilir = islemYapilabilir && (yoneticiMi || kayit.olusturanUserCode === user.userCode);
+
+  async function isaretle(sonuc) {
+    setIslem(true);
+    await onSonucIsaretle(kayit, sonuc, not.trim());
+    setNot("");
+    setIslem(false);
+  }
+
+  async function iptalGonder() {
+    if (iptalNeden === "Diğer" && !iptalAciklama.trim()) return;
+    setIslem(true);
+    await onIptalEt(kayit, iptalNeden, iptalAciklama.trim());
+    setIslem(false);
+  }
+
+  return (
+    <div style={styles.icerik}>
+      <div style={styles.listeUstBaslik}>
+        <button style={styles.geriButon} onClick={onGeri} aria-label="Geri">
+          ←
+        </button>
+        <div>
+          <div className="baslik-font" style={styles.listeBaslikYazi}>
+            {kayit.no}
+          </div>
+          <div style={styles.ilerlemeYazi}>
+            Oda {kayit.odaNo} · {kayit.saat}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ ...styles.lfUyariKutusu, background: `${durumRengi}1A`, color: durumRengi }}>
+        {kayit.durum === "Bekliyor" && geldi ? "⏰ ŞİMDİ ARANACAK" : `Durum: ${kayit.durum}`}
+      </div>
+
+      <div style={styles.lfBilgiKarti}>
+        <div style={styles.lfBilgiSatiri}>
+          <span>Tarih / Saat</span>
+          <strong>
+            {formatTarihSadece(kayit.tarih)} · {kayit.saat}
+          </strong>
+        </div>
+        <div style={styles.lfBilgiSatiri}>
+          <span>Oda</span>
+          <strong>{kayit.odaNo}</strong>
+        </div>
+        <div style={styles.lfBilgiSatiri}>
+          <span>Açıklama</span>
+          <strong>{kayit.aciklama || "-"}</strong>
+        </div>
+        <div style={styles.lfBilgiSatiri}>
+          <span>Talebi Alan</span>
+          <strong>{kayit.olusturanKullanici}</strong>
+        </div>
+        {kayit.iptalNedeni && (
+          <div style={styles.lfBilgiSatiri}>
+            <span>İptal Nedeni</span>
+            <strong>{kayit.iptalNedeni}</strong>
+          </div>
+        )}
+      </div>
+
+      {islemYapilabilir && aramaYapabilirMi && (
+        <div style={{ marginTop: 14 }}>
+          <Etiket>NOT (isteğe bağlı)</Etiket>
+          <input
+            style={styles.epostaInput}
+            value={not}
+            onChange={(e) => setNot(e.target.value)}
+            placeholder="örn. oda telefonu meşgul"
+          />
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <button
+              style={{ ...styles.anaButon, flex: 1, opacity: islem ? 0.7 : 1 }}
+              disabled={islem}
+              onClick={() => isaretle("Cevap Verdi")}
+            >
+              ✔ Cevap Verdi
+            </button>
+            <button
+              style={{ ...styles.ikincilButon, flex: 1, opacity: islem ? 0.7 : 1 }}
+              disabled={islem}
+              onClick={() => isaretle("Cevap Yok")}
+            >
+              ✖ Cevap Yok
+            </button>
+          </div>
+          {kayit.durum === "Cevap Yok" && (
+            <button
+              style={{ ...styles.gmKucukSilButon, width: "100%", marginTop: 8, padding: "10px 12px" }}
+              disabled={islem}
+              onClick={() => isaretle("Ulaşılamadı")}
+            >
+              🚫 Ulaşılamadı (kaydı kapat)
+            </button>
+          )}
+        </div>
+      )}
+
+      {islemYapilabilir && !aramaYapabilirMi && (
+        <div style={styles.bilgiKutusu}>
+          Arama sonucunu yalnızca Ön Büro / Santral / Gece Müdürü kullanıcıları işaretleyebilir.
+        </div>
+      )}
+
+      {kayit.denemeler && kayit.denemeler.length > 0 && (
+        <>
+          <Etiket>ARAMA GEÇMİŞİ ({kayit.denemeler.length})</Etiket>
+          <div style={styles.gmMaddeSatiri}>
+            {kayit.denemeler.map((d, i) => (
+              <div key={i} style={styles.zamanNotu}>
+                {lfZamanFormatla(d.zaman)} — {d.sonuc} — {d.kullanici}
+                {d.not ? ` — ${d.not}` : ""}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {iptalEdebilir && (
+        <>
+          <button style={{ ...styles.adminDuzenleButon, marginTop: 14 }} onClick={() => setIptalAcik((a) => !a)}>
+            ✕ Talebi İptal Et
+          </button>
+          {iptalAcik && (
+            <div style={styles.gmMaddeSatiri}>
+              <Etiket>İPTAL NEDENİ</Etiket>
+              <select style={styles.gmSecim} value={iptalNeden} onChange={(e) => setIptalNeden(e.target.value)}>
+                {UYN_IPTAL_NEDENLERI.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+              {iptalNeden === "Diğer" && (
+                <input
+                  style={{ ...styles.epostaInput, marginTop: 8 }}
+                  value={iptalAciklama}
+                  onChange={(e) => setIptalAciklama(e.target.value)}
+                  placeholder="Açıklama yazın (zorunlu)"
+                />
+              )}
+              <button style={{ ...styles.gmKucukSilButon, marginTop: 10 }} onClick={iptalGonder} disabled={islem}>
+                İptali Onayla
+              </button>
+            </div>
+          )}
+        </>
+      )}
+
+      <button style={{ ...styles.adminDuzenleButon, marginTop: 14 }} onClick={() => setAuditAcik((a) => !a)}>
+        📜 İşlem Geçmişi (Audit Log) {auditAcik ? "▲" : "▼"}
+      </button>
+      {auditAcik && (
+        <div style={{ ...styles.gmMaddeSatiri, marginBottom: 24 }}>
+          {kayit.auditLog.map((a, idx) => (
+            <div key={idx} style={styles.zamanNotu}>
+              {lfZamanFormatla(a.zaman)} — {a.kullanici} — {a.islem}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------
+   PAVILION REZERVASYON MODÜLÜ - yardımcı fonksiyonlar
+-------------------------------------------------------------------*/
+async function pavKayitlariGetir(hotelCode) {
+  try {
+    const liste = await window.storage.list(`pavilion:${hotelCode}:`, true);
+    const keys = (liste && liste.keys) || [];
+    const kayitlar = [];
+    for (const k of keys) {
+      const r = await safeGet(k, true);
+      if (r) {
+        try {
+          kayitlar.push(JSON.parse(r.value));
+        } catch (e) {}
+      }
+    }
+    return kayitlar;
+  } catch (e) {
+    return [];
+  }
+}
+
+async function pavKayitKaydet(kayit) {
+  await window.storage.set(`pavilion:${kayit.hotelCode}:${kayit.no}`, JSON.stringify(kayit), true);
+}
+
+// Belirli bir pavilion + gün için geçerli (Rezerve / Kullanıldı) kaydı döner.
+function pavAktifKayit(kayitlar, pavNo, tarih) {
+  return (
+    kayitlar.find((k) => k.pavilionNo === pavNo && k.tarih === tarih && PAV_AKTIF_DURUMLAR.includes(k.durum)) || null
+  );
+}
+
+function pavTarihEkle(tarih, gun) {
+  const [y, m, d] = tarih.split("-").map(Number);
+  const dt = new Date(y, m - 1, d + gun);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+}
+
+function pavTarihKisa(tarih) {
+  const [, m, d] = tarih.split("-");
+  return `${d}.${m}`;
+}
+
+function pavGunAdi(tarih) {
+  const [y, m, d] = tarih.split("-").map(Number);
+  return ["Paz", "Pzt", "Sal", "Çar", "Per", "Cum", "Cmt"][new Date(y, m - 1, d).getDay()];
+}
+
+function pavPara(n) {
+  return Number(n || 0).toLocaleString("tr-TR");
+}
+
+function pavDurumRengi(k) {
+  if (!k) return PAV_RENKLER.bos;
+  return k.durum === "Kullanıldı" ? PAV_RENKLER.kullanildi : PAV_RENKLER.rezerve;
+}
+
+function pavHexToRgb(hex) {
+  const h = hex.replace("#", "");
+  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+}
+
+function pavPdfFontYukle(doc) {
+  try {
+    doc.addFileToVFS("TurkceFontRegular.ttf", TURKCE_FONT_REGULAR_B64);
+    doc.addFont("TurkceFontRegular.ttf", "TurkceFont", "normal");
+    doc.addFileToVFS("TurkceFontBold.ttf", TURKCE_FONT_BOLD_B64);
+    doc.addFont("TurkceFontBold.ttf", "TurkceFont", "bold");
+    return "TurkceFont";
+  } catch (e) {
+    return "helvetica";
+  }
+}
+
+// Günlük rapor: üstte renkli pavilion çizelgesi (chart), altında ayrıntılı tablo ve toplamlar.
+function pavPdfGunluk(kayitlar, tarih, hotelName, kullaniciAdi) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
+  const font = pavPdfFontYukle(doc);
+  const W = doc.internal.pageSize.getWidth();
+  const H = doc.internal.pageSize.getHeight();
+  const m = 40;
+  let y = m;
+
+  const satirlar = PAV_LISTESI.map((p) => ({ p, k: pavAktifKayit(kayitlar, p.no, tarih) }));
+  const doluSayisi = satirlar.filter((s) => s.k).length;
+  const toplamKisi = satirlar.reduce((t, s) => t + (s.k ? Number(s.k.kisiSayisi) || 0 : 0), 0);
+  const toplamUcret = satirlar.reduce((t, s) => t + (s.k ? Number(s.k.ucret) || 0 : 0), 0);
+
+  doc.setFont(font, "bold");
+  doc.setFontSize(17);
+  doc.setTextColor(22, 50, 58);
+  doc.text("Pavilion Rezervasyon Raporu", m, y + 6);
+  doc.setDrawColor(176, 141, 62);
+  doc.setLineWidth(1.2);
+  doc.line(m, y + 14, W - m, y + 14);
+  y += 32;
+
+  doc.setFont(font, "normal");
+  doc.setFontSize(10);
+  doc.setTextColor(70, 70, 70);
+  doc.text(`${hotelName}   |   Tarih: ${formatTarihSadece(tarih)}`, m, y);
+  y += 14;
+  doc.text(
+    `Doluluk: ${doluSayisi}/${PAV_LISTESI.length}   |   Toplam kişi: ${toplamKisi}   |   Toplam ücret: ${pavPara(toplamUcret)} TL`,
+    m,
+    y
+  );
+  y += 14;
+  doc.text(`Hazırlayan: ${kullaniciAdi}   |   ${new Date().toLocaleString("tr-TR")}`, m, y);
+  y += 22;
+
+  // --- Çizelge (chart) ---
+  function kutulariCiz(baslik, liste) {
+    doc.setFont(font, "bold");
+    doc.setFontSize(11);
+    doc.setTextColor(22, 50, 58);
+    doc.text(baslik, m, y);
+    y += 8;
+    const kolon = 5;
+    const bosluk = 8;
+    const kw = (W - 2 * m - bosluk * (kolon - 1)) / kolon;
+    const kh = 48;
+    liste.forEach((p, i) => {
+      const r = Math.floor(i / kolon);
+      const c = i % kolon;
+      const x = m + c * (kw + bosluk);
+      const yy = y + r * (kh + bosluk);
+      const k = pavAktifKayit(kayitlar, p.no, tarih);
+      const [rr, gg, bb] = pavHexToRgb(pavDurumRengi(k));
+      doc.setFillColor(rr, gg, bb);
+      doc.roundedRect(x, yy, kw, kh, 5, 5, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.setFont(font, "bold");
+      doc.setFontSize(12);
+      doc.text(p.no, x + 8, yy + 16);
+      doc.setFont(font, "normal");
+      doc.setFontSize(8);
+      doc.text(k ? `Oda ${k.odaNo} - ${k.kisiSayisi} kişi` : "BOŞ", x + 8, yy + 29);
+      if (k) doc.text(`${pavPara(k.ucret)} TL`, x + 8, yy + 40);
+    });
+    const satirSayisi = Math.ceil(liste.length / kolon);
+    y += satirSayisi * (kh + bosluk) + 14;
+  }
+
+  PAV_ALANLAR.forEach((alan) => {
+    const liste = PAV_LISTESI.filter((p) => p.alan === alan);
+    kutulariCiz(`${alan} (${liste[0].no} - ${liste[liste.length - 1].no})`, liste);
+  });
+
+  // Gösterge
+  [
+    ["Boş", PAV_RENKLER.bos],
+    ["Rezerve", PAV_RENKLER.rezerve],
+    ["Kullanıldı", PAV_RENKLER.kullanildi],
+  ].forEach(([etiket, renk], i) => {
+    const [rr, gg, bb] = pavHexToRgb(renk);
+    const x = m + i * 90;
+    doc.setFillColor(rr, gg, bb);
+    doc.rect(x, y - 8, 10, 10, "F");
+    doc.setFont(font, "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(70, 70, 70);
+    doc.text(etiket, x + 15, y);
+  });
+  y += 20;
+
+  // --- Ayrıntılı tablo ---
+  const kolonlar = [
+    { b: "Pavilion", w: 56 },
+    { b: "Durum", w: 62 },
+    { b: "Oda", w: 42 },
+    { b: "Kişi", w: 34 },
+    { b: "Ücret (TL)", w: 74 },
+    { b: "Açıklama", w: W - 2 * m - 56 - 62 - 42 - 34 - 74 },
+  ];
+  const xKonum = [0, 56, 118, 160, 194, 268].map((v) => m + v);
+
+  function baslikCiz() {
+    doc.setFillColor(22, 50, 58);
+    doc.rect(m, y, W - 2 * m, 20, "F");
+    doc.setFont(font, "bold");
+    doc.setFontSize(9);
+    doc.setTextColor(255, 255, 255);
+    kolonlar.forEach((c, i) => doc.text(c.b, xKonum[i] + 5, y + 13));
+    y += 20;
+  }
+
+  if (y + 60 > H - 60) {
+    doc.addPage();
+    y = m;
+  }
+  baslikCiz();
+
+  satirlar.forEach((s, i) => {
+    const k = s.k;
+    const aciklamaSatirlari = doc.splitTextToSize(k ? k.aciklama : "-", kolonlar[5].w - 10);
+    const h = Math.max(20, aciklamaSatirlari.length * 10 + 10);
+    if (y + h > H - 60) {
+      doc.addPage();
+      y = m;
+      baslikCiz();
+    }
+    if (i % 2 === 0) {
+      doc.setFillColor(246, 245, 241);
+      doc.rect(m, y, W - 2 * m, h, "F");
+    }
+    doc.setFont(font, "bold");
+    doc.setFontSize(9);
+    doc.setTextColor(22, 50, 58);
+    doc.text(s.p.no, xKonum[0] + 5, y + 13);
+    const [rr, gg, bb] = pavHexToRgb(pavDurumRengi(k));
+    doc.setTextColor(rr, gg, bb);
+    doc.text(k ? k.durum : "Boş", xKonum[1] + 5, y + 13);
+    doc.setFont(font, "normal");
+    doc.setTextColor(40, 40, 40);
+    doc.text(k ? String(k.odaNo) : "-", xKonum[2] + 5, y + 13);
+    doc.text(k ? String(k.kisiSayisi) : "-", xKonum[3] + 5, y + 13);
+    doc.text(k ? pavPara(k.ucret) : "-", xKonum[4] + 5, y + 13);
+    doc.text(aciklamaSatirlari, xKonum[5] + 5, y + 13);
+    y += h;
+  });
+
+  if (y + 24 > H - 60) {
+    doc.addPage();
+    y = m;
+  }
+  doc.setFillColor(230, 225, 210);
+  doc.rect(m, y, W - 2 * m, 22, "F");
+  doc.setFont(font, "bold");
+  doc.setFontSize(9);
+  doc.setTextColor(22, 50, 58);
+  doc.text("TOPLAM", xKonum[0] + 5, y + 14);
+  doc.text(`${doluSayisi} dolu`, xKonum[1] + 5, y + 14);
+  doc.text(String(toplamKisi), xKonum[3] + 5, y + 14);
+  doc.text(pavPara(toplamUcret), xKonum[4] + 5, y + 14);
+
+  const sayfaSayisi = doc.getNumberOfPages();
+  for (let i = 1; i <= sayfaSayisi; i++) {
+    doc.setPage(i);
+    doc.setFont(font, "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(120, 120, 120);
+    doc.text(`Sayfa ${i}/${sayfaSayisi}`, W / 2, H - 24, { align: "center" });
+  }
+  return doc;
+}
+
+// Haftalık rapor: yatay sayfada pavilion x gün matrisi.
+function pavPdfHaftalik(kayitlar, baslangic, hotelName, kullaniciAdi) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "landscape" });
+  const font = pavPdfFontYukle(doc);
+  const W = doc.internal.pageSize.getWidth();
+  const m = 36;
+  let y = m;
+  const gunler = Array.from({ length: 7 }, (_, i) => pavTarihEkle(baslangic, i));
+
+  doc.setFont(font, "bold");
+  doc.setFontSize(16);
+  doc.setTextColor(22, 50, 58);
+  doc.text("Pavilion Haftalık Rezervasyon Çizelgesi", m, y + 6);
+  doc.setDrawColor(176, 141, 62);
+  doc.setLineWidth(1.2);
+  doc.line(m, y + 13, W - m, y + 13);
+  y += 28;
+  doc.setFont(font, "normal");
+  doc.setFontSize(9);
+  doc.setTextColor(70, 70, 70);
+  doc.text(
+    `${hotelName}   |   ${formatTarihSadece(gunler[0])} - ${formatTarihSadece(gunler[6])}   |   Hazırlayan: ${kullaniciAdi}   |   ${new Date().toLocaleString("tr-TR")}`,
+    m,
+    y
+  );
+  y += 14;
+
+  const etiketW = 80;
+  const hW = (W - 2 * m - etiketW) / 7;
+  const hH = 23;
+
+  // Başlık satırı
+  doc.setFillColor(22, 50, 58);
+  doc.rect(m, y, W - 2 * m, 20, "F");
+  doc.setFont(font, "bold");
+  doc.setFontSize(9);
+  doc.setTextColor(255, 255, 255);
+  doc.text("Pavilion", m + 6, y + 13);
+  gunler.forEach((g, i) => {
+    doc.text(`${pavGunAdi(g)} ${pavTarihKisa(g)}`, m + etiketW + i * hW + hW / 2, y + 13, { align: "center" });
+  });
+  y += 20;
+
+  doc.setDrawColor(210, 205, 190);
+  doc.setLineWidth(0.5);
+
+  PAV_ALANLAR.forEach((alan) => {
+    doc.setFillColor(230, 225, 210);
+    doc.rect(m, y, W - 2 * m, 16, "F");
+    doc.setFont(font, "bold");
+    doc.setFontSize(9);
+    doc.setTextColor(22, 50, 58);
+    doc.text(alan, m + 6, y + 11);
+    y += 16;
+
+    PAV_LISTESI.filter((p) => p.alan === alan).forEach((p) => {
+      doc.setFont(font, "bold");
+      doc.setFontSize(9);
+      doc.setTextColor(22, 50, 58);
+      doc.rect(m, y, etiketW, hH, "S");
+      doc.text(p.no, m + 6, y + 15);
+      gunler.forEach((g, i) => {
+        const k = pavAktifKayit(kayitlar, p.no, g);
+        const x = m + etiketW + i * hW;
+        if (!k) doc.setFillColor(232, 243, 237);
+        else if (k.durum === "Kullanıldı") doc.setFillColor(244, 214, 208);
+        else doc.setFillColor(245, 232, 198);
+        doc.rect(x, y, hW, hH, "FD");
+        if (k) {
+          doc.setFont(font, "bold");
+          doc.setFontSize(8);
+          doc.setTextColor(22, 50, 58);
+          doc.text(`Oda ${k.odaNo}  ${k.kisiSayisi} kişi`, x + 4, y + 10);
+          doc.setFont(font, "normal");
+          doc.setFontSize(7);
+          doc.text(`${pavPara(k.ucret)} TL`, x + 4, y + 19);
+        } else {
+          doc.setFont(font, "normal");
+          doc.setFontSize(8);
+          doc.setTextColor(140, 150, 145);
+          doc.text("-", x + hW / 2, y + 14, { align: "center" });
+        }
+      });
+      y += hH;
+    });
+  });
+
+  // Günlük toplam satırı
+  doc.setFillColor(22, 50, 58);
+  doc.rect(m, y, W - 2 * m, 24, "F");
+  doc.setFont(font, "bold");
+  doc.setFontSize(8);
+  doc.setTextColor(255, 255, 255);
+  doc.text("Günlük Toplam", m + 6, y + 15);
+  gunler.forEach((g, i) => {
+    const aktifler = PAV_LISTESI.map((p) => pavAktifKayit(kayitlar, p.no, g)).filter(Boolean);
+    const ucret = aktifler.reduce((t, k) => t + (Number(k.ucret) || 0), 0);
+    const x = m + etiketW + i * hW;
+    doc.text(`${aktifler.length}/${PAV_LISTESI.length} dolu`, x + 4, y + 10);
+    doc.setFont(font, "normal");
+    doc.text(`${pavPara(ucret)} TL`, x + 4, y + 19);
+    doc.setFont(font, "bold");
+  });
+  y += 36;
+
+  // Gösterge
+  [
+    ["Boş", PAV_RENKLER.bos],
+    ["Rezerve", PAV_RENKLER.rezerve],
+    ["Kullanıldı", PAV_RENKLER.kullanildi],
+  ].forEach(([etiket, renk], i) => {
+    const [rr, gg, bb] = pavHexToRgb(renk);
+    const x = m + i * 90;
+    doc.setFillColor(rr, gg, bb);
+    doc.rect(x, y - 8, 10, 10, "F");
+    doc.setFont(font, "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(70, 70, 70);
+    doc.text(etiket, x + 15, y);
+  });
+  return doc;
+}
+
+/* ------------------------------------------------------------------
+   PAVILION REZERVASYON - ana ekran (çizelge + gezinme + PDF)
+-------------------------------------------------------------------*/
+function PavilionEkrani({ user, onGeri, toastGoster }) {
+  const [gorunum, setGorunum] = useState("chart"); // chart | yeni | detay
+  const [kayitlar, setKayitlar] = useState([]);
+  const [yukleniyor, setYukleniyor] = useState(true);
+  const [tarih, setTarih] = useState(bugunTarihi());
+  const [tip, setTip] = useState("gunluk"); // gunluk | haftalik
+  const [secilenNo, setSecilenNo] = useState(null);
+  const [onDeger, setOnDeger] = useState({ pavilionNo: "", tarih: bugunTarihi() });
+  const [pdfLink, setPdfLink] = useState(null);
+  const [pdfMesaj, setPdfMesaj] = useState("");
+
+  const yoneticiMi = LF_YONETICI_POZISYONLARI.includes(user.pozisyon);
+  const yetkiliMi = yoneticiMi || user.department === "Genel Müdürlük";
+
+  useEffect(() => {
+    yukle(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function yukle(goster) {
+    if (goster) setYukleniyor(true);
+    const veri = await pavKayitlariGetir(user.hotelCode);
+    setKayitlar(veri);
+    setYukleniyor(false);
+  }
+
+  async function rezervasyonOlustur(form) {
+    const taze = await pavKayitlariGetir(user.hotelCode);
+    if (pavAktifKayit(taze, form.pavilionNo, form.tarih)) {
+      throw new Error("Bu pavilion bu tarihte zaten rezerve edilmiş.");
+    }
+    const simdi = new Date();
+    const yil = simdi.getFullYear();
+    const sayac = taze.filter((k) => k.no.includes(`-${yil}-`)).length + 1;
+    const no = `PAV-${yil}-${String(sayac).padStart(4, "0")}`;
+    const pav = PAV_LISTESI.find((p) => p.no === form.pavilionNo);
+    const kayit = {
+      no,
+      hotelCode: user.hotelCode,
+      hotelName: user.hotelName,
+      pavilionNo: form.pavilionNo,
+      alan: pav ? pav.alan : "",
+      tarih: form.tarih,
+      odaNo: form.odaNo,
+      kisiSayisi: form.kisiSayisi,
+      ucret: form.ucret,
+      aciklama: form.aciklama,
+      durum: "Rezerve",
+      olusturanKullanici: user.name,
+      olusturanUserCode: user.userCode,
+      olusturmaZamani: simdi.toISOString(),
+      iptalNedeni: "",
+      auditLog: [{ zaman: simdi.toISOString(), kullanici: user.name, islem: "Rezervasyon oluşturuldu" }],
+    };
+    await pavKayitKaydet(kayit);
+    toastGoster(`✓ Rezervasyon kaydedildi: ${form.pavilionNo} (${no})`);
+    setTarih(form.tarih);
+    await yukle(true);
+    setGorunum("chart");
+  }
+
+  async function durumGuncelle(kayit, yeniDurum, neden) {
+    const simdi = new Date();
+    const guncel = {
+      ...kayit,
+      durum: yeniDurum,
+      iptalNedeni: yeniDurum === "İptal" ? neden : kayit.iptalNedeni,
+      auditLog: [
+        ...kayit.auditLog,
+        {
+          zaman: simdi.toISOString(),
+          kullanici: user.name,
+          islem: `Durum: ${yeniDurum}${yeniDurum === "İptal" && neden ? ` — ${neden}` : ""}`,
+        },
+      ],
+    };
+    await pavKayitKaydet(guncel);
+    toastGoster(`✓ "${yeniDurum}" olarak işaretlendi`);
+    await yukle(false);
+  }
+
+  async function bilgiDuzenle(kayit, yeni) {
+    const simdi = new Date();
+    const degisiklikler = [];
+    if (yeni.odaNo !== kayit.odaNo) degisiklikler.push(`oda ${kayit.odaNo} → ${yeni.odaNo}`);
+    if (yeni.kisiSayisi !== kayit.kisiSayisi) degisiklikler.push(`kişi ${kayit.kisiSayisi} → ${yeni.kisiSayisi}`);
+    if (yeni.ucret !== kayit.ucret) degisiklikler.push(`ücret ${kayit.ucret} → ${yeni.ucret}`);
+    if (yeni.aciklama !== kayit.aciklama) degisiklikler.push("açıklama güncellendi");
+    if (degisiklikler.length === 0) return;
+    const guncel = {
+      ...kayit,
+      ...yeni,
+      auditLog: [
+        ...kayit.auditLog,
+        { zaman: simdi.toISOString(), kullanici: user.name, islem: `Düzenlendi: ${degisiklikler.join(", ")}` },
+      ],
+    };
+    await pavKayitKaydet(guncel);
+    toastGoster("✓ Rezervasyon güncellendi");
+    await yukle(false);
+  }
+
+  function pdfAl(tur) {
+    setPdfMesaj("");
+    setPdfLink(null);
+    if (!(window.jspdf && window.jspdf.jsPDF)) {
+      setPdfMesaj("PDF oluşturucu henüz hazırlanıyor, birkaç saniye sonra tekrar deneyin.");
+      return;
+    }
+    try {
+      const doc =
+        tur === "haftalik"
+          ? pavPdfHaftalik(kayitlar, tarih, user.hotelName, user.name)
+          : pavPdfGunluk(kayitlar, tarih, user.hotelName, user.name);
+      const ad = `pavilion-${tur}-${tarih}.pdf`;
+      try {
+        doc.save(ad);
+      } catch (e) {}
+      try {
+        const url = doc.output("bloburl");
+        setPdfLink({ url: url.toString ? url.toString() : url, ad });
+      } catch (e) {}
+      setPdfMesaj("PDF hazır. İnmediyse aşağıdaki bağlantıya dokunun.");
+    } catch (e) {
+      setPdfMesaj("PDF oluşturulurken hata oluştu: " + (e && e.message ? e.message : String(e)));
+    }
+  }
+
+  const secilenKayit = kayitlar.find((k) => k.no === secilenNo);
+
+  function bosaTikla(pavNo, gun) {
+    setOnDeger({ pavilionNo: pavNo, tarih: gun < bugunTarihi() ? bugunTarihi() : gun });
+    setGorunum("yeni");
+  }
+  function doluyaTikla(k) {
+    setSecilenNo(k.no);
+    setGorunum("detay");
+  }
+
+  if (gorunum === "yeni") {
+    return (
+      <PAVYeniRezervasyon
+        kayitlar={kayitlar}
+        onDeger={onDeger}
+        onIptal={() => setGorunum("chart")}
+        onKaydet={rezervasyonOlustur}
+      />
+    );
+  }
+
+  if (gorunum === "detay" && secilenKayit) {
+    return (
+      <PAVDetay
+        kayit={secilenKayit}
+        yetkiliMi={yetkiliMi || secilenKayit.olusturanUserCode === user.userCode}
+        onGeri={() => {
+          setGorunum("chart");
+          setSecilenNo(null);
+        }}
+        onDurum={durumGuncelle}
+        onDuzenle={bilgiDuzenle}
+      />
+    );
+  }
+
+  const gunler = tip === "haftalik" ? Array.from({ length: 7 }, (_, i) => pavTarihEkle(tarih, i)) : [tarih];
+  const aralikAktifler = kayitlar.filter((k) => gunler.includes(k.tarih) && PAV_AKTIF_DURUMLAR.includes(k.durum));
+  const toplamKisi = aralikAktifler.reduce((t, k) => t + (Number(k.kisiSayisi) || 0), 0);
+  const toplamUcret = aralikAktifler.reduce((t, k) => t + (Number(k.ucret) || 0), 0);
+  const kapasite = PAV_LISTESI.length * gunler.length;
+
+  const matrisSatirlari = [];
+  if (tip === "haftalik") {
+    PAV_ALANLAR.forEach((alan) => {
+      matrisSatirlari.push(
+        <tr key={`g-${alan}`}>
+          <td colSpan={gunler.length + 1} style={styles.pavTabloGrup}>
+            {alan}
+          </td>
+        </tr>
+      );
+      PAV_LISTESI.filter((p) => p.alan === alan).forEach((p) => {
+        matrisSatirlari.push(
+          <tr key={p.no}>
+            <td style={styles.pavTabloEtiket}>{p.no}</td>
+            {gunler.map((g) => {
+              const k = pavAktifKayit(kayitlar, p.no, g);
+              const renk = pavDurumRengi(k);
+              return (
+                <td
+                  key={g}
+                  style={{ ...styles.pavHucre, background: `${renk}22`, color: k ? "#16323A" : "#9CA3AF" }}
+                  onClick={() => (k ? doluyaTikla(k) : bosaTikla(p.no, g))}
+                >
+                  {k ? k.odaNo : "·"}
+                </td>
+              );
+            })}
+          </tr>
+        );
+      });
+    });
+  }
+
+  return (
+    <div style={styles.icerik}>
+      <div style={styles.listeUstBaslik}>
+        <button style={styles.geriButon} onClick={onGeri} aria-label="Geri">
+          ←
+        </button>
+        <div>
+          <div className="baslik-font" style={styles.listeBaslikYazi}>
+            Pavilion Rezervasyon
+          </div>
+          <div style={styles.ilerlemeYazi}>
+            {user.hotelName} · İskele 8001–8010 · Sahil 7001–7005
+          </div>
+        </div>
+      </div>
+
+      <button
+        style={{ ...styles.anaButon, marginTop: 14 }}
+        onClick={() => {
+          setOnDeger({ pavilionNo: "", tarih: tarih < bugunTarihi() ? bugunTarihi() : tarih });
+          setGorunum("yeni");
+        }}
+      >
+        + Yeni Rezervasyon
+      </button>
+
+      <div style={styles.pavTarihSatiri}>
+        <button style={styles.pavTarihOk} onClick={() => setTarih(pavTarihEkle(tarih, tip === "haftalik" ? -7 : -1))}>
+          ◀
+        </button>
+        <input
+          type="date"
+          style={{ ...styles.epostaInput, textAlign: "center", flex: 1 }}
+          value={tarih}
+          onChange={(e) => e.target.value && setTarih(e.target.value)}
+        />
+        <button style={styles.pavTarihOk} onClick={() => setTarih(pavTarihEkle(tarih, tip === "haftalik" ? 7 : 1))}>
+          ▶
+        </button>
+        <button style={{ ...styles.pavTarihOk, width: "auto", padding: "0 12px", fontSize: 12 }} onClick={() => setTarih(bugunTarihi())}>
+          Bugün
+        </button>
+      </div>
+
+      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+        {[
+          ["gunluk", "Günlük Çizelge"],
+          ["haftalik", "Haftalık Çizelge"],
+        ].map(([key, label]) => (
+          <button
+            key={key}
+            style={{ ...styles.gmSekmeButon, ...(tip === key ? styles.gmSekmeButonAktif : {}) }}
+            onClick={() => setTip(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ ...styles.lfKpiIzgara, marginTop: 12 }}>
+        {[
+          [tip === "haftalik" ? "Dolu (pavilion-gün)" : "Dolu Pavilion", `${aralikAktifler.length}/${kapasite}`],
+          ["Toplam Kişi", toplamKisi],
+          ["Toplam Ücret", `${pavPara(toplamUcret)} ₺`],
+        ].map(([etiket, sayi]) => (
+          <div key={etiket} style={{ ...styles.lfKpiKart, cursor: "default" }}>
+            <div style={{ ...styles.lfKpiSayi, fontSize: 16 }}>{sayi}</div>
+            <div style={styles.lfKpiEtiket}>{etiket}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={styles.pavLejant}>
+        {[
+          ["Boş", PAV_RENKLER.bos],
+          ["Rezerve", PAV_RENKLER.rezerve],
+          ["Kullanıldı", PAV_RENKLER.kullanildi],
+        ].map(([etiket, renk]) => (
+          <span key={etiket} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+            <span style={{ width: 10, height: 10, borderRadius: 3, background: renk, display: "inline-block" }} />
+            {etiket}
+          </span>
+        ))}
+      </div>
+
+      {yukleniyor ? (
+        <div style={styles.merkezYukleniyor}>Yükleniyor…</div>
+      ) : tip === "gunluk" ? (
+        PAV_ALANLAR.map((alan) => {
+          const liste = PAV_LISTESI.filter((p) => p.alan === alan);
+          return (
+            <div key={alan}>
+              <div style={styles.pavGrupBaslik}>
+                {alan} ({liste[0].no}–{liste[liste.length - 1].no})
+              </div>
+              <div style={styles.pavIzgara}>
+                {liste.map((p) => {
+                  const k = pavAktifKayit(kayitlar, p.no, tarih);
+                  const renk = pavDurumRengi(k);
+                  return (
+                    <button
+                      key={p.no}
+                      style={{ ...styles.pavKutu, borderColor: renk, background: `${renk}14` }}
+                      onClick={() => (k ? doluyaTikla(k) : bosaTikla(p.no, tarih))}
+                    >
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#16323A" }}>{p.no}</div>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: renk }}>{k ? k.durum.toUpperCase() : "BOŞ"}</div>
+                      {k && (
+                        <div style={{ fontSize: 10, color: "#16323A", marginTop: 2 }}>
+                          Oda {k.odaNo} · {k.kisiSayisi} kişi
+                        </div>
+                      )}
+                      {k && <div style={{ fontSize: 10, color: "#6B7280" }}>{pavPara(k.ucret)} ₺</div>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })
+      ) : (
+        <div style={{ overflowX: "auto", marginTop: 12 }}>
+          <table style={styles.pavTablo}>
+            <thead>
+              <tr>
+                <th style={styles.pavTabloBaslik}>Pav.</th>
+                {gunler.map((g) => (
+                  <th key={g} style={styles.pavTabloBaslik}>
+                    {pavGunAdi(g)}
+                    <br />
+                    {pavTarihKisa(g)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>{matrisSatirlari}</tbody>
+          </table>
+          <div style={styles.zamanNotu}>Hücrede oda numarası görünür; dokununca ayrıntı veya yeni rezervasyon açılır.</div>
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+        <button style={{ ...styles.ikincilButon, flex: 1 }} onClick={() => pdfAl("gunluk")}>
+          📄 Günlük PDF
+        </button>
+        <button style={{ ...styles.ikincilButon, flex: 1 }} onClick={() => pdfAl("haftalik")}>
+          📄 Haftalık PDF
+        </button>
+      </div>
+      {pdfMesaj && <div style={styles.bilgiKutusu}>{pdfMesaj}</div>}
+      {pdfLink && (
+        <a href={pdfLink.url} target="_blank" rel="noreferrer" style={styles.pavPdfBaglanti}>
+          📄 {pdfLink.ad} — Aç / İndir
+        </a>
+      )}
+      <div style={{ height: 24 }} />
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------
+   PAVILION REZERVASYON - yeni rezervasyon formu
+-------------------------------------------------------------------*/
+function PAVYeniRezervasyon({ kayitlar, onDeger, onIptal, onKaydet }) {
+  const [pavilionNo, setPavilionNo] = useState(onDeger.pavilionNo || "");
+  const [tarih, setTarih] = useState(onDeger.tarih || bugunTarihi());
+  const [odaNo, setOdaNo] = useState("");
+  const [kisi, setKisi] = useState("");
+  const [ucret, setUcret] = useState("");
+  const [aciklama, setAciklama] = useState("");
+  const [hata, setHata] = useState("");
+  const [kaydediliyor, setKaydediliyor] = useState(false);
+
+  const mevcut = pavilionNo && tarih ? pavAktifKayit(kayitlar, pavilionNo, tarih) : null;
+
+  async function kaydet() {
+    setHata("");
+    if (!pavilionNo) {
+      setHata("Lütfen bir pavilion seçin.");
+      return;
+    }
+    if (!tarih) {
+      setHata("Tarih zorunludur.");
+      return;
+    }
+    if (tarih < bugunTarihi()) {
+      setHata("Geçmiş bir tarih için rezervasyon yapılamaz.");
+      return;
+    }
+    if (!odaNo.trim()) {
+      setHata("Oda numarası zorunludur.");
+      return;
+    }
+    const kisiSayisi = parseInt(kisi, 10);
+    if (!kisiSayisi || kisiSayisi < 1 || kisiSayisi > 99) {
+      setHata("Kişi sayısı 1 ile 99 arasında olmalıdır.");
+      return;
+    }
+    const ucretSayi = Number(String(ucret).replace(",", "."));
+    if (String(ucret).trim() === "" || Number.isNaN(ucretSayi) || ucretSayi < 0) {
+      setHata("Ücret zorunludur (ücretsiz ise 0 yazın).");
+      return;
+    }
+    if (!aciklama.trim()) {
+      setHata("Açıklama zorunludur.");
+      return;
+    }
+    setKaydediliyor(true);
+    try {
+      await onKaydet({
+        pavilionNo,
+        tarih,
+        odaNo: odaNo.trim(),
+        kisiSayisi,
+        ucret: ucretSayi,
+        aciklama: aciklama.trim(),
+      });
+    } catch (e) {
+      setHata(e && e.message ? e.message : "Kayıt sırasında bir hata oluştu.");
+      setKaydediliyor(false);
+    }
+  }
+
+  return (
+    <div style={styles.icerik}>
+      <div style={styles.listeUstBaslik}>
+        <button style={styles.geriButon} onClick={onIptal} aria-label="Geri">
+          ←
+        </button>
+        <div className="baslik-font" style={styles.listeBaslikYazi}>
+          Yeni Pavilion Rezervasyonu
+        </div>
+      </div>
+
+      <Etiket>PAVILION (zorunlu)</Etiket>
+      <select style={styles.gmSecim} value={pavilionNo} onChange={(e) => setPavilionNo(e.target.value)}>
+        <option value="">Seçiniz</option>
+        {PAV_ALANLAR.map((alan) => (
+          <optgroup key={alan} label={alan}>
+            {PAV_LISTESI.filter((p) => p.alan === alan).map((p) => (
+              <option key={p.no} value={p.no}>
+                {p.no}
+              </option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
+
+      <Etiket>TARİH (zorunlu)</Etiket>
+      <input type="date" style={styles.epostaInput} value={tarih} min={bugunTarihi()} onChange={(e) => setTarih(e.target.value)} />
+
+      {mevcut && (
+        <div style={styles.hataKutusu}>
+          Bu pavilion bu tarihte zaten {mevcut.durum.toLowerCase()} (Oda {mevcut.odaNo}, {mevcut.kisiSayisi} kişi).
+        </div>
+      )}
+
+      <Etiket>ODA NUMARASI (zorunlu)</Etiket>
+      <input style={styles.epostaInput} value={odaNo} onChange={(e) => setOdaNo(e.target.value)} placeholder="örn. 325" />
+
+      <Etiket>KİŞİ SAYISI (zorunlu)</Etiket>
+      <input
+        style={styles.epostaInput}
+        inputMode="numeric"
+        value={kisi}
+        onChange={(e) => setKisi(e.target.value.replace(/\D/g, "").slice(0, 2))}
+        placeholder="örn. 4"
+      />
+
+      <Etiket>ÜCRET - TL (zorunlu)</Etiket>
+      <input
+        style={styles.epostaInput}
+        inputMode="decimal"
+        value={ucret}
+        onChange={(e) => setUcret(e.target.value.replace(/[^0-9.,]/g, ""))}
+        placeholder="örn. 2500"
+      />
+
+      <Etiket>AÇIKLAMA (zorunlu)</Etiket>
+      <textarea
+        style={styles.aciklamaAlani}
+        rows={3}
+        maxLength={300}
+        value={aciklama}
+        onChange={(e) => setAciklama(e.target.value)}
+        placeholder="örn. Doğum günü organizasyonu, 18:00 servis, ikram paketi dahil"
+      />
+      <div style={styles.zamanNotu}>{aciklama.length}/300 karakter</div>
+
+      {hata && <div style={styles.hataKutusu}>{hata}</div>}
+
+      <button
+        style={{ ...styles.anaButon, marginTop: 16, marginBottom: 24, opacity: kaydediliyor || mevcut ? 0.7 : 1 }}
+        onClick={kaydet}
+        disabled={kaydediliyor || !!mevcut}
+      >
+        {kaydediliyor ? "Kaydediliyor…" : "Rezervasyonu Kaydet"}
+      </button>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------
+   PAVILION REZERVASYON - ayrıntı / durum / düzenleme ekranı
+-------------------------------------------------------------------*/
+function PAVDetay({ kayit, yetkiliMi, onGeri, onDurum, onDuzenle }) {
+  const [islem, setIslem] = useState(false);
+  const [duzenle, setDuzenle] = useState(false);
+  const [odaNo, setOdaNo] = useState(kayit.odaNo);
+  const [kisi, setKisi] = useState(String(kayit.kisiSayisi));
+  const [ucret, setUcret] = useState(String(kayit.ucret));
+  const [aciklama, setAciklama] = useState(kayit.aciklama);
+  const [hata, setHata] = useState("");
+  const [iptalAcik, setIptalAcik] = useState(false);
+  const [iptalNedeni, setIptalNedeni] = useState("");
+  const [auditAcik, setAuditAcik] = useState(false);
+
+  const aktifMi = PAV_AKTIF_DURUMLAR.includes(kayit.durum);
+  const renk = aktifMi ? pavDurumRengi(kayit) : "#9CA3AF";
+
+  async function durumDegistir(yeniDurum, neden) {
+    setIslem(true);
+    await onDurum(kayit, yeniDurum, neden);
+    setIslem(false);
+  }
+
+  async function duzenlemeKaydet() {
+    setHata("");
+    if (!odaNo.trim()) {
+      setHata("Oda numarası zorunludur.");
+      return;
+    }
+    const kisiSayisi = parseInt(kisi, 10);
+    if (!kisiSayisi || kisiSayisi < 1 || kisiSayisi > 99) {
+      setHata("Kişi sayısı 1 ile 99 arasında olmalıdır.");
+      return;
+    }
+    const ucretSayi = Number(String(ucret).replace(",", "."));
+    if (String(ucret).trim() === "" || Number.isNaN(ucretSayi) || ucretSayi < 0) {
+      setHata("Ücret zorunludur (ücretsiz ise 0 yazın).");
+      return;
+    }
+    if (!aciklama.trim()) {
+      setHata("Açıklama zorunludur.");
+      return;
+    }
+    setIslem(true);
+    await onDuzenle(kayit, { odaNo: odaNo.trim(), kisiSayisi, ucret: ucretSayi, aciklama: aciklama.trim() });
+    setIslem(false);
+    setDuzenle(false);
+  }
+
+  return (
+    <div style={styles.icerik}>
+      <div style={styles.listeUstBaslik}>
+        <button style={styles.geriButon} onClick={onGeri} aria-label="Geri">
+          ←
+        </button>
+        <div>
+          <div className="baslik-font" style={styles.listeBaslikYazi}>
+            Pavilion {kayit.pavilionNo}
+          </div>
+          <div style={styles.ilerlemeYazi}>
+            {kayit.alan} · {kayit.no}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ ...styles.lfUyariKutusu, background: `${renk}1A`, color: renk }}>
+        Durum: {kayit.durum} · {formatTarihSadece(kayit.tarih)}
+      </div>
+
+      {!duzenle && (
+        <div style={styles.lfBilgiKarti}>
+          <div style={styles.lfBilgiSatiri}>
+            <span>Oda Numarası</span>
+            <strong>{kayit.odaNo}</strong>
+          </div>
+          <div style={styles.lfBilgiSatiri}>
+            <span>Kişi Sayısı</span>
+            <strong>{kayit.kisiSayisi}</strong>
+          </div>
+          <div style={styles.lfBilgiSatiri}>
+            <span>Ücret</span>
+            <strong>{pavPara(kayit.ucret)} ₺</strong>
+          </div>
+          <div style={styles.lfBilgiSatiri}>
+            <span>Açıklama</span>
+            <strong>{kayit.aciklama}</strong>
+          </div>
+          <div style={styles.lfBilgiSatiri}>
+            <span>Rezervasyonu Alan</span>
+            <strong>{kayit.olusturanKullanici}</strong>
+          </div>
+          {kayit.iptalNedeni && (
+            <div style={styles.lfBilgiSatiri}>
+              <span>İptal Nedeni</span>
+              <strong>{kayit.iptalNedeni}</strong>
+            </div>
+          )}
+        </div>
+      )}
+
+      {duzenle && (
+        <div style={styles.gmMaddeSatiri}>
+          <Etiket>ODA NUMARASI</Etiket>
+          <input style={styles.epostaInput} value={odaNo} onChange={(e) => setOdaNo(e.target.value)} />
+          <Etiket>KİŞİ SAYISI</Etiket>
+          <input
+            style={styles.epostaInput}
+            inputMode="numeric"
+            value={kisi}
+            onChange={(e) => setKisi(e.target.value.replace(/\D/g, "").slice(0, 2))}
+          />
+          <Etiket>ÜCRET - TL</Etiket>
+          <input
+            style={styles.epostaInput}
+            inputMode="decimal"
+            value={ucret}
+            onChange={(e) => setUcret(e.target.value.replace(/[^0-9.,]/g, ""))}
+          />
+          <Etiket>AÇIKLAMA (zorunlu)</Etiket>
+          <textarea
+            style={styles.aciklamaAlani}
+            rows={3}
+            maxLength={300}
+            value={aciklama}
+            onChange={(e) => setAciklama(e.target.value)}
+          />
+          {hata && <div style={styles.hataKutusu}>{hata}</div>}
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <button style={{ ...styles.gmKucukButon, flex: 1 }} onClick={duzenlemeKaydet} disabled={islem}>
+              Kaydet
+            </button>
+            <button style={{ ...styles.gmKucukIptalButon, flex: 1 }} onClick={() => setDuzenle(false)}>
+              Vazgeç
+            </button>
+          </div>
+        </div>
+      )}
+
+      {aktifMi && yetkiliMi && !duzenle && (
+        <div style={{ marginTop: 14 }}>
+          {kayit.durum === "Rezerve" && (
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                style={{ ...styles.anaButon, flex: 1, opacity: islem ? 0.7 : 1 }}
+                disabled={islem}
+                onClick={() => durumDegistir("Kullanıldı", "")}
+              >
+                ✔ Kullanıldı
+              </button>
+              <button
+                style={{ ...styles.ikincilButon, flex: 1, opacity: islem ? 0.7 : 1 }}
+                disabled={islem}
+                onClick={() => durumDegistir("Gelmedi", "")}
+              >
+                ✖ Gelmedi
+              </button>
+            </div>
+          )}
+          <button style={{ ...styles.adminDuzenleButon, marginTop: 10 }} onClick={() => setDuzenle(true)}>
+            ✏️ Bilgileri Düzenle
+          </button>
+          {kayit.durum === "Rezerve" && (
+            <>
+              <button style={{ ...styles.adminDuzenleButon, marginTop: 8 }} onClick={() => setIptalAcik((a) => !a)}>
+                ✕ Rezervasyonu İptal Et
+              </button>
+              {iptalAcik && (
+                <div style={styles.gmMaddeSatiri}>
+                  <Etiket>İPTAL NEDENİ (zorunlu)</Etiket>
+                  <input
+                    style={styles.epostaInput}
+                    value={iptalNedeni}
+                    onChange={(e) => setIptalNedeni(e.target.value)}
+                    placeholder="örn. Misafir vazgeçti"
+                  />
+                  <button
+                    style={{ ...styles.gmKucukSilButon, marginTop: 10 }}
+                    disabled={islem || !iptalNedeni.trim()}
+                    onClick={() => durumDegistir("İptal", iptalNedeni.trim())}
+                  >
+                    İptali Onayla
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {aktifMi && !yetkiliMi && (
+        <div style={styles.bilgiKutusu}>
+          Durumu yalnızca rezervasyonu alan kişi veya yönetici pozisyonundaki (Müdür / Supervisor / Şef / Vardiya
+          Amiri) kullanıcılar değiştirebilir.
+        </div>
+      )}
+
+      <button style={{ ...styles.adminDuzenleButon, marginTop: 14 }} onClick={() => setAuditAcik((a) => !a)}>
+        📜 İşlem Geçmişi (Audit Log) {auditAcik ? "▲" : "▼"}
+      </button>
+      {auditAcik && (
+        <div style={{ ...styles.gmMaddeSatiri, marginBottom: 24 }}>
+          {kayit.auditLog.map((a, idx) => (
+            <div key={idx} style={styles.zamanNotu}>
+              {lfZamanFormatla(a.zaman)} — {a.kullanici} — {a.islem}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AdminEkrani({ onCikis }) {
   const [yukleniyor, setYukleniyor] = useState(true);
   const [oteller, setOteller] = useState([]);
@@ -8214,6 +9996,161 @@ const styles = {
     marginTop: 10,
     paddingTop: 10,
     borderTop: "1px solid #E2DCCC",
+  },
+  pavilionButon: {
+    width: "100%",
+    padding: "14px 16px",
+    borderRadius: 14,
+    border: "1.5px solid #0F766E",
+    background: "#fff",
+    color: "#0F766E",
+    fontSize: 15,
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  pavTarihSatiri: {
+    display: "flex",
+    gap: 6,
+    marginTop: 12,
+    alignItems: "center",
+  },
+  pavTarihOk: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    border: "1px solid #E2DCCC",
+    background: "#fff",
+    color: "#16323A",
+    fontSize: 13,
+    fontWeight: 700,
+    cursor: "pointer",
+    flexShrink: 0,
+  },
+  pavLejant: {
+    display: "flex",
+    gap: 14,
+    marginTop: 10,
+    fontSize: 11,
+    color: "#6B7280",
+    fontWeight: 600,
+  },
+  pavGrupBaslik: {
+    fontSize: 13,
+    fontWeight: 700,
+    color: "#16323A",
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  pavIzgara: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, 1fr)",
+    gap: 8,
+  },
+  pavKutu: {
+    textAlign: "center",
+    border: "2px solid",
+    borderRadius: 12,
+    padding: "8px 4px",
+    cursor: "pointer",
+    minHeight: 72,
+  },
+  pavTablo: {
+    borderCollapse: "collapse",
+    width: "100%",
+    fontSize: 10,
+  },
+  pavTabloBaslik: {
+    background: "#16323A",
+    color: "#fff",
+    padding: "6px 3px",
+    fontSize: 10,
+    fontWeight: 700,
+  },
+  pavTabloGrup: {
+    background: "#E6E1D2",
+    color: "#16323A",
+    fontWeight: 700,
+    fontSize: 11,
+    padding: "4px 6px",
+  },
+  pavTabloEtiket: {
+    fontWeight: 700,
+    color: "#16323A",
+    padding: "6px 4px",
+    border: "1px solid #E2DCCC",
+    background: "#fff",
+    fontSize: 10,
+  },
+  pavHucre: {
+    border: "1px solid #E2DCCC",
+    textAlign: "center",
+    padding: "6px 2px",
+    fontSize: 10,
+    fontWeight: 700,
+    cursor: "pointer",
+    minWidth: 38,
+  },
+  pavPdfBaglanti: {
+    display: "block",
+    marginTop: 10,
+    padding: "10px 14px",
+    border: "1.5px solid #B08D3E",
+    borderRadius: 12,
+    background: "#fff",
+    color: "#8A6A22",
+    fontSize: 12,
+    fontWeight: 700,
+    textDecoration: "none",
+  },
+  uyandirmaButon: {
+    width: "100%",
+    padding: "14px 16px",
+    borderRadius: 14,
+    border: "1.5px solid #3F6C8F",
+    background: "#fff",
+    color: "#3F6C8F",
+    fontSize: 15,
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  uynBanner: {
+    position: "absolute",
+    top: 34,
+    left: 12,
+    right: 12,
+    zIndex: 60,
+    background: "#B7472A",
+    color: "#fff",
+    border: "none",
+    borderRadius: 12,
+    padding: "10px 14px",
+    fontSize: 12,
+    fontWeight: 700,
+    textAlign: "left",
+    cursor: "pointer",
+    boxShadow: "0 8px 24px rgba(0,0,0,0.25)",
+    animation: "uynYanipSon 1.2s ease-in-out infinite",
+  },
+  uynUyariKutusu: {
+    marginTop: 14,
+    background: "#FBEAE5",
+    border: "1.5px solid #B7472A",
+    borderRadius: 12,
+    padding: "12px 14px",
+    color: "#7A2A17",
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+  },
+  uynUyariSatiri: {
+    textAlign: "left",
+    border: "none",
+    background: "transparent",
+    padding: 0,
+    color: "#7A2A17",
+    fontSize: 12,
+    fontWeight: 600,
+    cursor: "pointer",
   },
   roomServiceButon: {
     width: "100%",
