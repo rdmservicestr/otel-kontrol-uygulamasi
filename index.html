@@ -14,6 +14,7 @@
 <link rel="apple-touch-icon" href="icon-192-v2.png" />
 <link rel="icon" href="icon-192-v2.png" />
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.10/babel.min.js"></script>
@@ -43,24 +44,190 @@
 <div id="hataKutusu"><b>Bir hata oluştu:</b><span id="hataMetni"></span></div>
 
 <script>
-window.storage = {
-  async get(key) {
-    const v = localStorage.getItem(key);
-    return v !== null ? { key, value: v } : null;
-  },
-  async set(key, value) {
-    localStorage.setItem(key, value);
-    return { key, value };
-  },
-  async delete(key) {
-    localStorage.removeItem(key);
-    return { key, deleted: true };
-  },
-  async list(prefix) {
-    const keys = Object.keys(localStorage).filter((k) => !prefix || k.startsWith(prefix));
-    return { keys, prefix };
-  },
-};
+/* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
+(function () {
+  var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
+  var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
+  var EPOSTA_ALANI = "otel.example.com";
+  var istemci = null;
+
+  function sb() {
+    if (istemci) return istemci;
+    if (!window.supabase || !window.supabase.createClient) {
+      throw new Error("Veritabanı kütüphanesi yüklenemedi. İnternet bağlantınızı kontrol edip sayfayı yenileyin.");
+    }
+    istemci = window.supabase.createClient(SB_URL, SB_KEY, {
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
+    });
+    return istemci;
+  }
+
+  // ---- kısa ömürlü önbellek: list() ile gelen değerler hemen ardından yapılan get() çağrılarında yeniden istenmez ----
+  var onbellek = new Map();
+  var OMUR_MS = 4000;
+  function oYaz(key, str) { onbellek.set(key, { t: Date.now(), value: str }); }
+  function oOku(key) {
+    var e = onbellek.get(key);
+    return e && Date.now() - e.t < OMUR_MS ? e : null;
+  }
+
+  function anahtarOtel(key) {
+    if (key.indexOf("ozeldept:") === 0) return "*"; // tüm otellerde ortak şablonlar
+    var p = key.split(":");
+    if (/^\d{4}$/.test(p[1] || "")) return p[1];
+    throw new Error("Bilinmeyen kayıt anahtarı: " + key);
+  }
+  function likeKacis(s) { return s.replace(/[\\%_]/g, "\\$&"); }
+  function hataMesaji(e) { return (e && e.message) || String(e); }
+
+  // ---- kullanıcı / otel kayıtları sanaldır: profiles ve hotels tablolarından okunur (şifre YOKTUR) ----
+  function profilKaydi(p) {
+    var k = { hotelCode: p.hotel_code, userCode: p.user_code, name: p.name, department: p.department };
+    if (p.bolum) k.bolum = p.bolum;
+    if (p.pozisyon) k.pozisyon = p.pozisyon;
+    return k;
+  }
+  async function sanalKullanicilar(prefix) {
+    var r = await sb().from("profiles").select("hotel_code,user_code,name,department,bolum,pozisyon").eq("active", true);
+    if (r.error) throw new Error(hataMesaji(r.error));
+    var keys = [];
+    r.data.forEach(function (p) {
+      var key = "users:" + p.hotel_code + ":" + p.user_code;
+      if (key.indexOf(prefix) !== 0) return;
+      oYaz(key, JSON.stringify(profilKaydi(p)));
+      keys.push(key);
+    });
+    return { keys: keys, prefix: prefix };
+  }
+  async function sanalOteller(prefix) {
+    var r = await sb().from("hotels").select("code,name").eq("active", true);
+    if (r.error) throw new Error(hataMesaji(r.error));
+    var keys = [];
+    r.data.forEach(function (h) {
+      var key = "hotels:" + h.code;
+      if (key.indexOf(prefix) !== 0) return;
+      oYaz(key, JSON.stringify({ code: h.code, name: h.name }));
+      keys.push(key);
+    });
+    return { keys: keys, prefix: prefix };
+  }
+
+  window.storage = {
+    async get(key) {
+      var c = oOku(key);
+      if (c) return { key: key, value: c.value };
+      var p = key.split(":");
+      if (p[0] === "users" && p.length === 3) {
+        var u = await sb().from("profiles").select("hotel_code,user_code,name,department,bolum,pozisyon")
+          .eq("hotel_code", p[1]).eq("user_code", p[2]).eq("active", true).maybeSingle();
+        if (u.error) throw new Error(hataMesaji(u.error));
+        return u.data ? { key: key, value: JSON.stringify(profilKaydi(u.data)) } : null;
+      }
+      if (p[0] === "hotels" && p.length === 2) {
+        var h = await sb().from("hotels").select("code,name").eq("code", p[1]).maybeSingle();
+        if (h.error) throw new Error(hataMesaji(h.error));
+        return h.data ? { key: key, value: JSON.stringify(h.data) } : null;
+      }
+      var r = await sb().from("kv_store").select("value").eq("hotel_code", anahtarOtel(key)).eq("key", key).maybeSingle();
+      if (r.error) throw new Error(hataMesaji(r.error)); // "kayıt yok" ile "ulaşılamadı" ASLA karıştırılmaz
+      if (!r.data) return null;
+      var s = JSON.stringify(r.data.value);
+      oYaz(key, s);
+      return { key: key, value: s };
+    },
+
+    async set(key, value) {
+      if (key.indexOf("users:") === 0 || key.indexOf("hotels:") === 0) {
+        throw new Error("Kullanıcı ve otel kayıtları bu sürümde uygulamadan değiştirilemez (güvenlik gereği sunucu tarafında yönetilir).");
+      }
+      var r = await sb().rpc("kv_set", {
+        p_hotel: anahtarOtel(key), p_key: key, p_value: JSON.parse(value), p_expected: null,
+      });
+      if (r.error) throw new Error(hataMesaji(r.error));
+      oYaz(key, value);
+      return { key: key, value: value };
+    },
+
+    async delete(key) {
+      var r = await sb().from("kv_store").delete().eq("hotel_code", anahtarOtel(key)).eq("key", key);
+      if (r.error) throw new Error(hataMesaji(r.error));
+      onbellek.delete(key);
+      return { key: key, deleted: true };
+    },
+
+    async list(prefix) {
+      prefix = prefix || "";
+      if (prefix.indexOf("users:") === 0) return sanalKullanicilar(prefix);
+      if (prefix.indexOf("hotels:") === 0) return sanalOteller(prefix);
+      var r = await sb().from("kv_store").select("key,value")
+        .eq("hotel_code", anahtarOtel(prefix)).like("key", likeKacis(prefix) + "%").limit(1000);
+      if (r.error) throw new Error(hataMesaji(r.error));
+      var keys = r.data.map(function (x) { oYaz(x.key, JSON.stringify(x.value)); return x.key; });
+      return { keys: keys, prefix: prefix };
+    },
+  };
+
+  // ---- Giriş / oturum ----
+  async function profilYukle() {
+    var s = await sb().auth.getSession();
+    var oturum = s.data && s.data.session;
+    if (!oturum) return null;
+    var r = await sb().from("profiles")
+      .select("hotel_code,user_code,name,department,bolum,pozisyon,is_admin,active,must_change_pin")
+      .eq("id", oturum.user.id).maybeSingle();
+    if (r.error) throw new Error(hataMesaji(r.error));
+    if (!r.data || !r.data.active) {
+      await sb().auth.signOut();
+      return null;
+    }
+    var h = await sb().from("hotels").select("name").eq("code", r.data.hotel_code).maybeSingle();
+    var p = r.data;
+    return {
+      hotelCode: p.hotel_code, userCode: p.user_code, name: p.name, department: p.department,
+      bolum: p.bolum || undefined, pozisyon: p.pozisyon || undefined,
+      hotelName: (h.data && h.data.name) || p.hotel_code,
+      isAdmin: !!p.is_admin, mustChangePin: !!p.must_change_pin,
+    };
+  }
+
+  function pinZayifMi(pin) {
+    return /^(\d)\1{5}$/.test(pin) || "0123456789".indexOf(pin) >= 0 || "9876543210".indexOf(pin) >= 0;
+  }
+
+  window.OtelAuth = {
+    pinZayifMi: pinZayifMi,
+    async restore() {
+      try { return await profilYukle(); } catch (e) { return null; }
+    },
+    async signIn(otel, kod, pin) {
+      var r = await sb().auth.signInWithPassword({ email: otel + "-" + kod + "@" + EPOSTA_ALANI, password: pin });
+      if (r.error) {
+        var m = (r.error.message || "").toLowerCase();
+        if (r.error.status === 429 || m.indexOf("rate") >= 0) throw new Error("Çok fazla deneme yapıldı. Lütfen birkaç dakika bekleyin.");
+        if (m.indexOf("invalid") >= 0 || r.error.status === 400) throw new Error("Otel kodu, kullanıcı kodu veya PIN hatalı.");
+        throw new Error("Bağlantı hatası. İnternetinizi kontrol edip tekrar deneyin.");
+      }
+      var kullanici = await profilYukle();
+      if (!kullanici) throw new Error("Bu kullanıcı pasif veya tanımlı değil. Yöneticinize başvurun.");
+      return kullanici;
+    },
+    async changePin(yeni) {
+      if (!/^\d{6}$/.test(yeni)) throw new Error("PIN 6 haneli rakamlardan oluşmalıdır.");
+      if (pinZayifMi(yeni)) throw new Error("Çok kolay bir PIN (örn. 111111, 123456). Başka bir PIN seçin.");
+      var r = await sb().auth.updateUser({ password: yeni });
+      if (r.error) {
+        if ((r.error.message || "").toLowerCase().indexOf("different") >= 0) throw new Error("Yeni PIN, geçici PIN'den farklı olmalıdır.");
+        throw new Error("PIN değiştirilemedi: " + hataMesaji(r.error));
+      }
+      var r2 = await sb().rpc("pin_degistirildi");
+      if (r2.error) throw new Error("PIN değişti ama kayıt güncellenemedi: " + hataMesaji(r2.error));
+    },
+    async signOut() {
+      onbellek.clear();
+      try { await sb().auth.signOut(); } catch (e) {}
+    },
+  };
+})();
 
 function hataGoster(mesaj) {
   var kutu = document.getElementById("hataKutusu");
@@ -81,11 +248,12 @@ window.addEventListener("load", function () {
     if (typeof React === "undefined") eksikler.push("React");
     if (typeof ReactDOM === "undefined") eksikler.push("ReactDOM");
     if (typeof Babel === "undefined") eksikler.push("Babel");
+    if (typeof supabase === "undefined") eksikler.push("Supabase");
     if (eksikler.length > 0) {
       hataGoster(
         "Şu kütüphaneler yüklenemedi: " + eksikler.join(", ") +
         ".\n\nBu genellikle internet bağlantınızın veya kullandığınız ağın " +
-        "cdnjs.cloudflare.com adresine erişimi engellemesinden kaynaklanır. " +
+        "cdnjs.cloudflare.com / cdn.jsdelivr.net adreslerine erişimi engellemesinden kaynaklanır. " +
         "Lütfen farklı bir ağ (örn. mobil veri / farklı Wi-Fi) ile tekrar deneyin."
       );
     }
@@ -115,103 +283,8 @@ const OTELLER_BASLANGIC = [
   { code: "0001", name: "RDM Services Yönetim" },
 ];
 
-const KULLANICILAR_BASLANGIC = [
-  {
-    hotelCode: "5555",
-    userCode: "6666",
-    password: "7777",
-    name: "ERDEM",
-    department: "Önbüro",
-  },
-  {
-    hotelCode: "5555",
-    userCode: "6667",
-    password: "7778",
-    name: "ONUR",
-    department: "Housekeeping",
-  },
-  {
-    hotelCode: "5555",
-    userCode: "1111",
-    password: "0001",
-    name: "Murat",
-    department: "Genel Müdürlük",
-  },
-  {
-    hotelCode: "5555",
-    userCode: "1112",
-    password: "0002",
-    name: "Serkan",
-    department: "Gece Müdürü",
-  },
-  {
-    hotelCode: "5556",
-    userCode: "1113",
-    password: "0003",
-    name: "Ercan",
-    department: "Genel Müdürlük",
-  },
-  {
-    hotelCode: "5555",
-    userCode: "1117",
-    password: "0017",
-    name: "Ayşe",
-    department: "Kat Hizmetleri",
-  },
-  {
-    hotelCode: "5555",
-    userCode: "1118",
-    password: "0018",
-    name: "Fatma",
-    department: "Kat Hizmetleri",
-  },
-  {
-    hotelCode: "5556",
-    userCode: "1141",
-    password: "0041",
-    name: "Okan",
-    department: "Teknik Servis",
-    bolum: "A", // Bölüm: A = Elektrik Sistemleri (bkz. DEPARTMAN_BOLUMLERI["Teknik Servis"])
-    pozisyon: "Teknisyen", // Pozisyon (unvan) - serbest metin
-  },
-  {
-    hotelCode: "5556",
-    userCode: "1150",
-    password: "0050",
-    name: "Faruk Ateş",
-    department: "Mutfak",
-    pozisyon: "Müdür",
-  },
-  {
-    hotelCode: "5556",
-    userCode: "1160",
-    password: "0060",
-    name: "Volkan Menev",
-    department: "Food & Beverage",
-    pozisyon: "Müdür",
-  },
-  {
-    hotelCode: "5556",
-    userCode: "1121",
-    password: "0021",
-    name: "Zeynep",
-    department: "Kat Hizmetleri",
-  },
-  {
-    hotelCode: "5556",
-    userCode: "1122",
-    password: "0022",
-    name: "Handan",
-    department: "Kat Hizmetleri",
-  },
-  {
-    hotelCode: "0001",
-    userCode: "0001",
-    password: "0001",
-    name: "Admin",
-    department: "Admin",
-  },
-];
+// Kullanıcılar artık Supabase'de (profiles tablosu); şifre/PIN koda yazılmaz.
+const KULLANICILAR_BASLANGIC = [];
 
 const DEPARTMAN_LISTELERI = {
   Önbüro: [
@@ -1751,13 +1824,23 @@ const HATIRLATMALAR = {
   },
 };
 
-const BASLANGIC_SAATI = 8; // 08:00
-const BITIS_SAATI = 16; // 16:00
+// Kontrol listesi saat pencereleri DEPARTMAN BAZLIDIR. Burada listelenen
+// departmanların listesi yalnızca belirtilen saatler arasında düzenlenebilir
+// (sınır dışında salt okunur). Listede OLMAYAN departmanlar için zaman kısıtı
+// yoktur; çünkü bu listelerin bir kısmı gün sonu/gece işlemlerini içerir
+// (Mutfak "Gün Sonu", Gece Müdürü vb.) ve gündüz penceresiyle çelişir.
+// Bir departmana pencere eklemek için buraya satır eklemeniz yeterlidir.
+const DEPARTMAN_ZAMAN_PENCERELERI = {
+  Önbüro: { baslangic: 8, bitis: 16 }, // 08:00 - 16:00
+};
 
-// TEST AMAÇLI: Bu değeri true yaptığınızda 08:00-16:00 zaman kısıtlaması
-// devre dışı kalır, liste her zaman düzenlenebilir olur. Gerçek kullanıma
-// geçerken bunu tekrar false yapmayı unutmayın.
-const ZAMANLAMA_DEVRE_DISI = true;
+// TEST AMAÇLI: true yapılırsa TÜM zaman kısıtları kapanır (her liste her zaman
+// düzenlenebilir olur). Pilot ve gerçek kullanımda false kalmalıdır.
+const ZAMANLAMA_DEVRE_DISI = false;
+
+function saatMetni(saat) {
+  return `${String(saat).padStart(2, "0")}:00`;
+}
 
 const JSPDF_URL = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
 
@@ -1814,12 +1897,13 @@ function bugunTarihi() {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-function pencereDurumu() {
-  if (ZAMANLAMA_DEVRE_DISI) return "aktif";
+function pencereDurumu(department) {
+  const pencere = DEPARTMAN_ZAMAN_PENCERELERI[department];
+  if (ZAMANLAMA_DEVRE_DISI || !pencere) return "aktif";
   const simdi = new Date();
   const saat = simdi.getHours() + simdi.getMinutes() / 60;
-  if (saat < BASLANGIC_SAATI) return "once";
-  if (saat >= BITIS_SAATI) return "sonra";
+  if (saat < pencere.baslangic) return "once";
+  if (saat >= pencere.bitis) return "sonra";
   return "aktif";
 }
 
@@ -1923,9 +2007,7 @@ function App() {
   }
 
   async function yeniKullaniciOlustur({ hotelCode, userCode, password, name, department, bolum, pozisyon }) {
-    if (userCode.length !== 4 || password.length !== 4) {
-      throw new Error("Kullanıcı kodu ve şifre 4 haneli olmalıdır.");
-    }
+    throw new Error("Kullanıcı ekleme bu sürümde kapalı: kullanıcılar güvenlik gereği sunucu tarafında oluşturulur. Yöneticinize başvurun.");
     if (!name.trim()) throw new Error("İsim boş olamaz.");
     const mevcut = await safeGet(`users:${hotelCode}:${userCode}`, true);
     if (mevcut) throw new Error("Bu kullanıcı kodu bu otelde zaten kullanılıyor.");
@@ -2015,69 +2097,92 @@ function App() {
   }, []);
 
   async function seedData() {
-    for (const h of OTELLER_BASLANGIC) {
-      const mevcut = await safeGet(`hotels:${h.code}`, true);
-      if (!mevcut) await window.storage.set(`hotels:${h.code}`, JSON.stringify(h), true);
-    }
-    for (const u of KULLANICILAR_BASLANGIC) {
-      const mevcut = await safeGet(`users:${u.hotelCode}:${u.userCode}`, true);
-      if (!mevcut)
-        await window.storage.set(`users:${u.hotelCode}:${u.userCode}`, JSON.stringify(u), true);
-    }
-    await ozelDepartmanlariYukle();
+    try {
+      const user = await window.OtelAuth.restore();
+      if (user) await girisTamamla(user);
+    } catch (e) {}
     setHazirlaniyor(false);
   }
 
-  function digitInput(value, setter) {
-    setter(value.replace(/\D/g, "").slice(0, 4));
+  function digitInput(value, setter, max = 4) {
+    setter(value.replace(/\D/g, "").slice(0, max));
   }
 
-  async function handleLogin() {
-    setGirisHatasi("");
-    if (hotelCode.length !== 4 || userCode.length !== 4 || password.length !== 4) {
-      setGirisHatasi("Otel kodu, kullanıcı kodu ve şifre 4 haneli olmalıdır.");
+  // PIN değiştirme ekranı için durum
+  const [pinHatasi, setPinHatasi] = useState("");
+  const [yeniPin, setYeniPin] = useState("");
+  const [yeniPin2, setYeniPin2] = useState("");
+  const [pinIsleniyor, setPinIsleniyor] = useState(false);
+
+  // Giriş (ya da kayıtlı oturum) başarılı olunca ortak devam yolu
+  async function girisTamamla(user) {
+    setCurrentUser(user);
+    if (user.mustChangePin) {
+      setScreen("pinDegistir");
       return;
     }
-    setGirisYukleniyor(true);
-    const hotelRes = await safeGet(`hotels:${hotelCode}`, true);
-    if (!hotelRes) {
-      setGirisHatasi("Otel kodu bulunamadı.");
-      setGirisYukleniyor(false);
-      return;
-    }
-    const userRes = await safeGet(`users:${hotelCode}:${userCode}`, true);
-    if (!userRes) {
-      setGirisHatasi("Kullanıcı kodu bulunamadı.");
-      setGirisYukleniyor(false);
-      return;
-    }
-    const hotel = JSON.parse(hotelRes.value);
-    const user = JSON.parse(userRes.value);
-    if (user.password !== password) {
-      setGirisHatasi("Şifre hatalı.");
-      setGirisYukleniyor(false);
-      return;
-    }
-    const tamUser = { ...user, hotelName: hotel.name };
-    setCurrentUser(tamUser);
-    setGirisYukleniyor(false);
+    try {
+      await ozelDepartmanlariYukle();
+    } catch (e) {}
     if (user.department === "Admin") {
       setScreen("admin");
       return;
     }
     setScreen("home");
-    await bugununKaydiniYukle(tamUser);
+    await bugununKaydiniYukle(user);
     if (DEPARTMAN_ODA_BAZLI[user.department]) {
-      bekleyenGorevleriGetir(tamUser);
+      bekleyenGorevleriGetir(user);
     }
   }
 
-  function handleLogout() {
+  async function handleLogin() {
+    setGirisHatasi("");
+    if (hotelCode.length !== 4 || userCode.length !== 4 || password.length !== 6) {
+      setGirisHatasi("Otel kodu (4 hane), kullanıcı kodu (4 hane) ve PIN (6 hane) eksiksiz girilmelidir.");
+      return;
+    }
+    setGirisYukleniyor(true);
+    try {
+      const user = await window.OtelAuth.signIn(hotelCode, userCode, password);
+      setPassword("");
+      setGirisYukleniyor(false);
+      await girisTamamla(user);
+    } catch (e) {
+      setGirisHatasi((e && e.message) || "Giriş yapılamadı.");
+      setGirisYukleniyor(false);
+    }
+  }
+
+  async function pinDegistirKaydet() {
+    setPinHatasi("");
+    if (yeniPin !== yeniPin2) {
+      setPinHatasi("İki PIN birbiriyle aynı değil.");
+      return;
+    }
+    setPinIsleniyor(true);
+    try {
+      await window.OtelAuth.changePin(yeniPin);
+      const guncel = { ...currentUser, mustChangePin: false };
+      setYeniPin("");
+      setYeniPin2("");
+      setPinIsleniyor(false);
+      await girisTamamla(guncel);
+    } catch (e) {
+      setPinHatasi((e && e.message) || "PIN değiştirilemedi.");
+      setPinIsleniyor(false);
+    }
+  }
+
+  async function handleLogout() {
+    await window.OtelAuth.signOut();
     setCurrentUser(null);
     setRecord(null);
     setHotelCode("");
     setUserCode("");
     setPassword("");
+    setYeniPin("");
+    setYeniPin2("");
+    setPinHatasi("");
     setRaporPaneliAcik(false);
     setRaporMesaj("");
     setBekleyenGorevler([]);
@@ -2121,7 +2226,18 @@ function App() {
     setKayitYukleniyor(true);
     const tarih = bugunTarihi();
     const key = `checklist:${user.hotelCode}:${user.department}:${tarih}`;
-    const mevcut = await safeGet(key, true);
+    let mevcut = null;
+    try {
+      mevcut = await window.storage.get(key, true);
+    } catch (e) {
+      // "Kayıt yok" ile "sunucuya ulaşılamadı" karıştırılmaz: ulaşılamıyorsa
+      // boş kayıt açıp mevcut kaydın üzerine yazmayız.
+      setListeHatasi("Bağlantı hatası: bugünün kaydı yüklenemedi. İnternetinizi kontrol edip uygulamayı yeniden açın.");
+      toastGoster("⚠ Bağlantı hatası: bugünün kaydı yüklenemedi");
+      setRecord(null);
+      setKayitYukleniyor(false);
+      return;
+    }
     const odaBazliMi = !!DEPARTMAN_ODA_BAZLI[user.department];
 
     if (mevcut) {
@@ -2197,7 +2313,7 @@ function App() {
         record.key,
         JSON.stringify({ ...record, sonGuncelleme: new Date().toISOString() }),
         true
-      );
+      ).catch(() => toastGoster("⚠ Kaydedilemedi: bağlantıyı kontrol edin"));
     }, 600);
     return () => clearTimeout(autosaveTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2261,6 +2377,7 @@ function App() {
           ...t,
           status: yeniDurum,
           zaman: yeniDurum ? new Date().toLocaleTimeString("tr-TR", { hour12: false }) : null,
+          isaretleyen: yeniDurum && currentUser ? currentUser.name : null,
         };
       }),
     }));
@@ -2323,6 +2440,7 @@ function App() {
               ...g,
               status: yeniDurum,
               zaman: yeniDurum ? new Date().toLocaleTimeString("tr-TR", { hour12: false }) : null,
+              isaretleyen: yeniDurum && currentUser ? currentUser.name : null,
             };
           }),
         };
@@ -2580,7 +2698,7 @@ function App() {
         y += satirlar.length * 13;
       } else {
         const durum = t.status === "olumlu" ? "OLUMLU" : t.status === "olumsuz" ? "OLUMSUZ" : "İşaretlenmedi";
-        const zamanEki = t.zaman ? `  (Saat: ${t.zaman})` : "";
+        const zamanEki = t.zaman ? `  (Saat: ${t.zaman}${t.isaretleyen ? " - " + t.isaretleyen : ""})` : "";
         if (olumsuzMu) {
           doc.setFont(fontAdi, "bold");
           doc.setTextColor(...kirmizi);
@@ -2735,7 +2853,7 @@ function App() {
     setRaporIsleniyor(false);
   }
 
-  const durum = pencereDurumu();
+  const durum = pencereDurumu(currentUser && currentUser.department);
   const tamamlanan = kayitTamamlananSayisiKullanici(record, currentUser);
   const toplamMadde = kayitToplamMaddeSayisiKullanici(record, currentUser);
   const duzenlenebilir = durum === "aktif";
@@ -2773,10 +2891,21 @@ function App() {
             password={password}
             setHotelCode={(v) => digitInput(v, setHotelCode)}
             setUserCode={(v) => digitInput(v, setUserCode)}
-            setPassword={(v) => digitInput(v, setPassword)}
+            setPassword={(v) => digitInput(v, setPassword, 6)}
             hata={girisHatasi}
             yukleniyor={girisYukleniyor}
             onGiris={handleLogin}
+          />
+        ) : screen === "pinDegistir" ? (
+          <PinDegistirEkrani
+            yeniPin={yeniPin}
+            yeniPin2={yeniPin2}
+            setYeniPin={(v) => digitInput(v, setYeniPin, 6)}
+            setYeniPin2={(v) => digitInput(v, setYeniPin2, 6)}
+            hata={pinHatasi}
+            yukleniyor={pinIsleniyor}
+            onKaydet={pinDegistirKaydet}
+            onCikis={handleLogout}
           />
         ) : screen === "home" ? (
           <AnaSayfa
@@ -2950,14 +3079,15 @@ function GirisEkrani({
           onChange={(e) => setUserCode(e.target.value)}
         />
 
-        <Etiket>ŞİFRE</Etiket>
+        <Etiket>PIN (6 haneli)</Etiket>
         <input
           className="kod-input"
           style={styles.kodInput}
           inputMode="numeric"
           type="password"
-          placeholder="••••"
-          maxLength={4}
+          autoComplete="current-password"
+          placeholder="••••••"
+          maxLength={6}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
@@ -2970,6 +3100,68 @@ function GirisEkrani({
           disabled={yukleniyor}
         >
           {yukleniyor ? "Giriş yapılıyor…" : "Giriş Yap"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PinDegistirEkrani({ yeniPin, yeniPin2, setYeniPin, setYeniPin2, hata, yukleniyor, onKaydet, onCikis }) {
+  return (
+    <div style={styles.icerik}>
+      <div style={styles.anahtarKart}>
+        <div style={styles.anahtarUst}>
+          <span style={styles.anahtarEtiket}>GÜVENLİK</span>
+          <div style={styles.manyetikSerit} />
+        </div>
+        <div className="baslik-font" style={styles.anahtarBaslik}>
+          Yeni PIN Belirleyin
+        </div>
+      </div>
+
+      <div style={{ marginTop: 20, fontSize: 13, color: "#4A5A60", lineHeight: 1.5 }}>
+        İlk girişiniz için size geçici bir PIN verilmişti. Devam etmek için yalnızca sizin bileceğiniz
+        6 haneli yeni bir PIN belirleyin. 111111 veya 123456 gibi kolay PIN'ler kabul edilmez.
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        <Etiket>YENİ PIN (6 haneli)</Etiket>
+        <input
+          className="kod-input"
+          style={styles.kodInput}
+          inputMode="numeric"
+          type="password"
+          autoComplete="new-password"
+          placeholder="••••••"
+          maxLength={6}
+          value={yeniPin}
+          onChange={(e) => setYeniPin(e.target.value)}
+        />
+
+        <Etiket>YENİ PIN (tekrar)</Etiket>
+        <input
+          className="kod-input"
+          style={styles.kodInput}
+          inputMode="numeric"
+          type="password"
+          autoComplete="new-password"
+          placeholder="••••••"
+          maxLength={6}
+          value={yeniPin2}
+          onChange={(e) => setYeniPin2(e.target.value)}
+        />
+
+        {hata && <div style={styles.hataKutusu}>{hata}</div>}
+
+        <button
+          style={{ ...styles.anaButon, marginTop: 20, opacity: yukleniyor ? 0.7 : 1 }}
+          onClick={onKaydet}
+          disabled={yukleniyor || yeniPin.length !== 6 || yeniPin2.length !== 6}
+        >
+          {yukleniyor ? "Kaydediliyor…" : "PIN'i Kaydet ve Devam Et"}
+        </button>
+        <button style={{ ...styles.anaButon, marginTop: 10, background: "#8A9296" }} onClick={onCikis}>
+          Çıkış
         </button>
       </div>
     </div>
@@ -3005,17 +3197,20 @@ function AnaSayfa({
   bekleyenGorevler,
   onGorevKabul,
 }) {
+  const zamanPenceresi = DEPARTMAN_ZAMAN_PENCERELERI[user.department];
+  const baslangicMetni = zamanPenceresi ? saatMetni(zamanPenceresi.baslangic) : "";
+  const bitisMetni = zamanPenceresi ? saatMetni(zamanPenceresi.bitis) : "";
   let durumYazisi = "";
   let durumRengi = "#6B7280";
   if (durum === "once") {
-    durumYazisi = "Bugünkü kontrol listesi henüz başlamadı (08:00'de açılır)";
+    durumYazisi = `Bugünkü kontrol listesi henüz başlamadı (${baslangicMetni}'de açılır)`;
   } else if (durum === "aktif") {
     durumYazisi = `Devam ediyor · ${tamamlanan}/${toplamMadde} madde işaretlendi`;
     durumRengi = "#B08D3E";
   } else {
     durumYazisi = record
-      ? `Süre doldu (16:00) · ${tamamlanan}/${toplamMadde} madde ile kaydedildi`
-      : "Süre doldu (16:00) · bugün için kayıt oluşturulmadı";
+      ? `Süre doldu (${bitisMetni}) · ${tamamlanan}/${toplamMadde} madde ile kaydedildi`
+      : `Süre doldu (${bitisMetni}) · bugün için kayıt oluşturulmadı`;
     durumRengi = "#B7472A";
   }
 
@@ -3074,7 +3269,7 @@ function AnaSayfa({
 
       <div style={styles.durumKarti}>
         <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, color: "#6B7280" }}>
-          BUGÜN · 08:00 – 16:00
+          {zamanPenceresi ? `BUGÜN · ${baslangicMetni} – ${bitisMetni}` : "BUGÜN"}
         </div>
         <div style={{ fontSize: 14, fontWeight: 600, color: durumRengi, marginTop: 4 }}>
           {kayitYukleniyor ? "Yükleniyor…" : durumYazisi}
@@ -3386,7 +3581,7 @@ function KontrolListesiEkrani({
               </label>
             </div>
 
-            {t.zaman && <div style={styles.zamanNotu}>🕒 İşaretlendi: {t.zaman}</div>}
+            {t.zaman && <div style={styles.zamanNotu}>🕒 İşaretlendi: {t.zaman}{t.isaretleyen ? ` · ${t.isaretleyen}` : ""}</div>}
 
             <textarea
               placeholder={t.status === "olumsuz" ? "Açıklama girin (zorunlu)" : "Açıklama (isteğe bağlı)"}
@@ -3447,7 +3642,7 @@ function KontrolListesiEkrani({
         </button>
       ) : (
         <div style={{ ...styles.bilgiKutusu, marginTop: 20, marginBottom: 24 }}>
-          İşaretlemeleriniz otomatik olarak kaydedildi. 08:00–16:00 dışında düzenleme yapılamaz.
+          İşaretlemeleriniz otomatik olarak kaydedildi.{DEPARTMAN_ZAMAN_PENCERELERI[user.department] ? ` ${saatMetni(DEPARTMAN_ZAMAN_PENCERELERI[user.department].baslangic)}–${saatMetni(DEPARTMAN_ZAMAN_PENCERELERI[user.department].bitis)} dışında düzenleme yapılamaz.` : ""}
         </div>
       )}
     </div>
@@ -3715,7 +3910,7 @@ function OdaKarti({ oda, duzenlenebilir, onOdaGorevDurum, onOdaGorevAciklama, on
                               </div>
                             )}
 
-                            {g.zaman && <div style={styles.zamanNotu}>🕒 İşaretlendi: {g.zaman}</div>}
+                            {g.zaman && <div style={styles.zamanNotu}>🕒 İşaretlendi: {g.zaman}{g.isaretleyen ? ` · ${g.isaretleyen}` : ""}</div>}
                           </div>
                         )}
                       </div>
@@ -3964,7 +4159,7 @@ function BolumKarti({
                 </>
               )}
 
-              {t.zaman && <div style={styles.zamanNotu}>🕒 İşaretlendi: {t.zaman}</div>}
+              {t.zaman && <div style={styles.zamanNotu}>🕒 İşaretlendi: {t.zaman}{t.isaretleyen ? ` · ${t.isaretleyen}` : ""}</div>}
             </div>
             );
           })}
@@ -8789,7 +8984,7 @@ function AdminEkrani({ onCikis }) {
       department: k.department,
       bolum: k.bolum || "",
       pozisyon: k.pozisyon || "",
-      password: k.password,
+      password: "",
     });
     setDuzenleMesaj("");
   }
@@ -8801,9 +8996,6 @@ function AdminEkrani({ onCikis }) {
       if (!duzenleForm.department) throw new Error("Lütfen bir Departman seçin.");
       if (!duzenleForm.bolum) throw new Error("Lütfen bir Bölüm seçin.");
       if (!duzenleForm.pozisyon) throw new Error("Lütfen bir Pozisyon seçin.");
-      if (duzenleForm.password.length !== 4) {
-        throw new Error("Şifre 4 haneli olmalıdır.");
-      }
       const guncel = {
         hotelCode: k.hotelCode,
         userCode: k.userCode,
@@ -8878,7 +9070,7 @@ function AdminEkrani({ onCikis }) {
                             <div style={styles.adminHucreKod}>{k.userCode}</div>
                             <div style={styles.adminHucreIsim}>{k.name}</div>
                             <div style={styles.adminHucreDepartman}>{k.department}</div>
-                            <div style={styles.adminHucreSifre}>{k.password}</div>
+                            <div style={styles.adminHucreSifre}>••••••</div>
                             <div style={styles.adminOkIsareti}>{acik ? "▲" : "▼"}</div>
                           </button>
 
@@ -10378,7 +10570,6 @@ const styles = {
     cursor: "pointer",
   },
 };
-
 
 ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
 </script>
