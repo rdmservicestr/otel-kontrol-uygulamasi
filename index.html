@@ -222,6 +222,22 @@
       var r2 = await sb().rpc("pin_degistirildi");
       if (r2.error) throw new Error("PIN değişti ama kayıt güncellenemedi: " + hataMesaji(r2.error));
     },
+    // Gönüllü PIN değişimi: önce mevcut PIN doğrulanır (başkası açık bir telefondan değiştiremesin)
+    async changePinWithCurrent(mevcut, yeni) {
+      if (!/^\d{6}$/.test(mevcut)) throw new Error("Mevcut PIN 6 haneli olmalıdır.");
+      var oturum = await sb().auth.getSession();
+      var email = oturum.data && oturum.data.session && oturum.data.session.user.email;
+      if (!email) throw new Error("Oturum bulunamadı. Lütfen yeniden giriş yapın.");
+      var d = await sb().auth.signInWithPassword({ email: email, password: mevcut });
+      if (d.error) {
+        var m = (d.error.message || "").toLowerCase();
+        if (d.error.status === 429 || m.indexOf("rate") >= 0) throw new Error("Çok fazla deneme yapıldı. Lütfen birkaç dakika bekleyin.");
+        if (m.indexOf("invalid") >= 0 || d.error.status === 400) throw new Error("Mevcut PIN hatalı.");
+        throw new Error("Bağlantı hatası. İnternetinizi kontrol edip tekrar deneyin.");
+      }
+      if (mevcut === yeni) throw new Error("Yeni PIN, mevcut PIN'den farklı olmalıdır.");
+      await window.OtelAuth.changePin(yeni);
+    },
     async signOut() {
       onbellek.clear();
       try { await sb().auth.signOut(); } catch (e) {}
@@ -2113,6 +2129,26 @@ function App() {
   const [yeniPin, setYeniPin] = useState("");
   const [yeniPin2, setYeniPin2] = useState("");
   const [pinIsleniyor, setPinIsleniyor] = useState(false);
+  const [pinGonullu, setPinGonullu] = useState(false); // true: kullanıcı kendi isteğiyle değiştiriyor
+  const [mevcutPin, setMevcutPin] = useState("");
+
+  function pinEkraniAc() {
+    setPinGonullu(true);
+    setPinHatasi("");
+    setMevcutPin("");
+    setYeniPin("");
+    setYeniPin2("");
+    setScreen("pinDegistir");
+  }
+
+  function pinVazgec() {
+    setPinGonullu(false);
+    setPinHatasi("");
+    setMevcutPin("");
+    setYeniPin("");
+    setYeniPin2("");
+    setScreen(currentUser && currentUser.department === "Admin" ? "admin" : "home");
+  }
 
   // Giriş (ya da kayıtlı oturum) başarılı olunca ortak devam yolu
   async function girisTamamla(user) {
@@ -2159,8 +2195,23 @@ function App() {
       setPinHatasi("İki PIN birbiriyle aynı değil.");
       return;
     }
+    if (pinGonullu && mevcutPin.length !== 6) {
+      setPinHatasi("Mevcut PIN'inizi 6 hane olarak girin.");
+      return;
+    }
     setPinIsleniyor(true);
     try {
+      if (pinGonullu) {
+        await window.OtelAuth.changePinWithCurrent(mevcutPin, yeniPin);
+        setPinGonullu(false);
+        setMevcutPin("");
+        setYeniPin("");
+        setYeniPin2("");
+        setPinIsleniyor(false);
+        setScreen(currentUser.department === "Admin" ? "admin" : "home");
+        toastGoster("✓ PIN'iniz değiştirildi");
+        return;
+      }
       await window.OtelAuth.changePin(yeniPin);
       const guncel = { ...currentUser, mustChangePin: false };
       setYeniPin("");
@@ -2183,6 +2234,8 @@ function App() {
     setYeniPin("");
     setYeniPin2("");
     setPinHatasi("");
+    setMevcutPin("");
+    setPinGonullu(false);
     setRaporPaneliAcik(false);
     setRaporMesaj("");
     setBekleyenGorevler([]);
@@ -2906,6 +2959,10 @@ function App() {
             yukleniyor={pinIsleniyor}
             onKaydet={pinDegistirKaydet}
             onCikis={handleLogout}
+            gonullu={pinGonullu}
+            mevcutPin={mevcutPin}
+            setMevcutPin={(v) => digitInput(v, setMevcutPin, 6)}
+            onVazgec={pinVazgec}
           />
         ) : screen === "home" ? (
           <AnaSayfa
@@ -2918,6 +2975,7 @@ function App() {
             onBaslat={() => setScreen("checklist")}
             onGecmis={gecmiseGit}
             onCikis={handleLogout}
+            onPinDegistir={pinEkraniAc}
             raporPaneliAcik={raporPaneliAcik}
             setRaporPaneliAcik={setRaporPaneliAcik}
             raporEposta={raporEposta}
@@ -2971,7 +3029,7 @@ function App() {
             jsPdfHazirMi={jsPdfHazirMi}
           />
         ) : screen === "admin" ? (
-          <AdminEkrani onCikis={handleLogout} />
+          <AdminEkrani onCikis={handleLogout} onPinDegistir={pinEkraniAc} />
         ) : screen === "gorevAta" ? (
           <GorevAtaEkrani user={currentUser} onGeri={() => setScreen("home")} toastGoster={toastGoster} />
         ) : screen === "gmYonetim" ? (
@@ -3106,7 +3164,7 @@ function GirisEkrani({
   );
 }
 
-function PinDegistirEkrani({ yeniPin, yeniPin2, setYeniPin, setYeniPin2, hata, yukleniyor, onKaydet, onCikis }) {
+function PinDegistirEkrani({ yeniPin, yeniPin2, setYeniPin, setYeniPin2, hata, yukleniyor, onKaydet, onCikis, gonullu, mevcutPin, setMevcutPin, onVazgec }) {
   return (
     <div style={styles.icerik}>
       <div style={styles.anahtarKart}>
@@ -3115,16 +3173,33 @@ function PinDegistirEkrani({ yeniPin, yeniPin2, setYeniPin, setYeniPin2, hata, y
           <div style={styles.manyetikSerit} />
         </div>
         <div className="baslik-font" style={styles.anahtarBaslik}>
-          Yeni PIN Belirleyin
+          {gonullu ? "PIN Değiştir" : "Yeni PIN Belirleyin"}
         </div>
       </div>
 
       <div style={{ marginTop: 20, fontSize: 13, color: "#4A5A60", lineHeight: 1.5 }}>
-        İlk girişiniz için size geçici bir PIN verilmişti. Devam etmek için yalnızca sizin bileceğiniz
-        6 haneli yeni bir PIN belirleyin. 111111 veya 123456 gibi kolay PIN'ler kabul edilmez.
+        {gonullu
+          ? "Güvenliğiniz için önce mevcut PIN'inizi, sonra yeni 6 haneli PIN'inizi girin. PIN'inizi kimseyle paylaşmayın."
+          : "İlk girişiniz için size geçici bir PIN verilmişti. Devam etmek için yalnızca sizin bileceğiniz 6 haneli yeni bir PIN belirleyin. 111111 veya 123456 gibi kolay PIN'ler kabul edilmez."}
       </div>
 
       <div style={{ marginTop: 16 }}>
+        {gonullu && (
+          <>
+            <Etiket>MEVCUT PIN</Etiket>
+            <input
+              className="kod-input"
+              style={styles.kodInput}
+              inputMode="numeric"
+              type="password"
+              autoComplete="current-password"
+              placeholder="••••••"
+              maxLength={6}
+              value={mevcutPin}
+              onChange={(e) => setMevcutPin(e.target.value)}
+            />
+          </>
+        )}
         <Etiket>YENİ PIN (6 haneli)</Etiket>
         <input
           className="kod-input"
@@ -3156,12 +3231,12 @@ function PinDegistirEkrani({ yeniPin, yeniPin2, setYeniPin, setYeniPin2, hata, y
         <button
           style={{ ...styles.anaButon, marginTop: 20, opacity: yukleniyor ? 0.7 : 1 }}
           onClick={onKaydet}
-          disabled={yukleniyor || yeniPin.length !== 6 || yeniPin2.length !== 6}
+          disabled={yukleniyor || yeniPin.length !== 6 || yeniPin2.length !== 6 || (gonullu && mevcutPin.length !== 6)}
         >
           {yukleniyor ? "Kaydediliyor…" : "PIN'i Kaydet ve Devam Et"}
         </button>
-        <button style={{ ...styles.anaButon, marginTop: 10, background: "#8A9296" }} onClick={onCikis}>
-          Çıkış
+        <button style={{ ...styles.anaButon, marginTop: 10, background: "#8A9296" }} onClick={gonullu ? onVazgec : onCikis}>
+          {gonullu ? "Vazgeç" : "Çıkış"}
         </button>
       </div>
     </div>
@@ -3178,6 +3253,7 @@ function AnaSayfa({
   onBaslat,
   onGecmis,
   onCikis,
+  onPinDegistir,
   raporPaneliAcik,
   setRaporPaneliAcik,
   raporEposta,
@@ -3368,6 +3444,9 @@ function AnaSayfa({
           </div>
         )}
 
+        <button style={styles.metinButon} onClick={onPinDegistir}>
+          🔑 PIN Değiştir
+        </button>
         <button style={styles.metinButon} onClick={onCikis}>
           Çıkış Yap
         </button>
@@ -8867,7 +8946,7 @@ function PAVDetay({ kayit, yetkiliMi, onGeri, onDurum, onDuzenle }) {
   );
 }
 
-function AdminEkrani({ onCikis }) {
+function AdminEkrani({ onCikis, onPinDegistir }) {
   const [yukleniyor, setYukleniyor] = useState(true);
   const [oteller, setOteller] = useState([]);
   const [kullanicilar, setKullanicilar] = useState([]);
@@ -9219,11 +9298,14 @@ function AdminEkrani({ onCikis }) {
       )}
 
       <div style={styles.notMetni}>
-        Not: Şifreler burada okunabilir şekilde gösteriliyor. Bu ekranın erişimini yalnızca
-        yetkili yöneticilerle sınırlı tutun.
+        Not: PIN'ler güvenlik gereği burada gösterilmez; yalnızca kullanıcının kendisi değiştirebilir
+        ya da yönetici sunucu tarafında sıfırlayabilir.
       </div>
 
-      <button style={{ ...styles.metinButon, marginTop: 12, marginBottom: 24 }} onClick={onCikis}>
+      <button style={{ ...styles.metinButon, marginTop: 12 }} onClick={onPinDegistir}>
+        🔑 PIN Değiştir
+      </button>
+      <button style={{ ...styles.metinButon, marginTop: 4, marginBottom: 24 }} onClick={onCikis}>
         Çıkış Yap
       </button>
     </div>
