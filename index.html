@@ -77,6 +77,90 @@
     if (/^\d{4}$/.test(p[1] || "")) return p[1];
     throw new Error("Bilinmeyen kayıt anahtarı: " + key);
   }
+  // ---- Fotoğraf deposu (Supabase Storage, özel kova "fotograflar") ----
+  // Uygulamanın geri kalanı fotoğrafı hâlâ "data:image/..." olarak üretir/gösterir.
+  // Kayıt yazılırken data-URL'ler depoya yüklenip "depo:<yol>" referansına çevrilir;
+  // kayıt okunurken referanslar 12 saatlik imzalı adreslere çevrilir (img etiketi doğrudan gösterir).
+  var KOVA = "fotograflar";
+  var IMZA_SN = 43200;
+  var imzaOnbellek = new Map(); // yol -> { url, t }
+  var yuklenenler = new Map(); // otel|dataUrl -> "depo:yol"
+
+  function imzaYolu(s) {
+    var m = /\/object\/sign\/fotograflar\/([^?]+)\?/.exec(s);
+    return m ? decodeURIComponent(m[1]) : null;
+  }
+  async function ozetHex(buf) {
+    if (window.crypto && window.crypto.subtle) {
+      var h = await window.crypto.subtle.digest("SHA-256", buf);
+      return Array.prototype.map.call(new Uint8Array(h), function (b) { return ("0" + b.toString(16)).slice(-2); }).join("");
+    }
+    return Date.now().toString(16) + Math.random().toString(16).slice(2);
+  }
+  async function fotoYukle(otel, dataUrl) {
+    var onceki = yuklenenler.get(otel + "|" + dataUrl);
+    if (onceki) return onceki;
+    var blob = await (await fetch(dataUrl)).blob();
+    var yol = otel + "/" + (await ozetHex(await blob.arrayBuffer())) + ".jpg";
+    var r = await sb().storage.from(KOVA).upload(yol, blob, { contentType: blob.type || "image/jpeg", upsert: false });
+    if (r.error) {
+      var m = (r.error.message || "") + " " + (r.error.statusCode || "") + " " + (r.error.status || "");
+      if (!/exists|duplicate|409/i.test(m)) throw new Error("Fotoğraf yüklenemedi: " + hataMesaji(r.error));
+    }
+    var ref = "depo:" + yol;
+    yuklenenler.set(otel + "|" + dataUrl, ref);
+    return ref;
+  }
+  async function fotolariYukle(deger, otel) {
+    if (typeof deger === "string") {
+      if (deger.indexOf("data:image/") === 0) return await fotoYukle(otel, deger);
+      if (deger.indexOf("http") === 0) {
+        var p = imzaYolu(deger); // imzalı adres geri yazılırsa referansa dönüştür
+        if (p) return "depo:" + p;
+      }
+      return deger;
+    }
+    if (Array.isArray(deger)) {
+      var d = [];
+      for (var i = 0; i < deger.length; i++) d.push(await fotolariYukle(deger[i], otel));
+      return d;
+    }
+    if (deger && typeof deger === "object") {
+      var o = {};
+      for (var k in deger) o[k] = await fotolariYukle(deger[k], otel);
+      return o;
+    }
+    return deger;
+  }
+  function depoYollari(deger, kume) {
+    if (typeof deger === "string") { if (deger.indexOf("depo:") === 0) kume[deger.slice(5)] = 1; }
+    else if (Array.isArray(deger)) deger.forEach(function (x) { depoYollari(x, kume); });
+    else if (deger && typeof deger === "object") Object.keys(deger).forEach(function (k) { depoYollari(deger[k], kume); });
+  }
+  async function imzaYenile(yollar) {
+    var esik = (IMZA_SN - 3600) * 1000;
+    var eksik = yollar.filter(function (y) { var e = imzaOnbellek.get(y); return !e || Date.now() - e.t > esik; });
+    if (!eksik.length) return;
+    var r = await sb().storage.from(KOVA).createSignedUrls(eksik, IMZA_SN);
+    if (r.error) throw new Error(hataMesaji(r.error));
+    r.data.forEach(function (x) { if (x.signedUrl && x.path) imzaOnbellek.set(x.path, { url: x.signedUrl, t: Date.now() }); });
+  }
+  function depoCoz(deger) {
+    if (typeof deger === "string") {
+      if (deger.indexOf("depo:") === 0) { var e = imzaOnbellek.get(deger.slice(5)); return e ? e.url : deger; }
+      return deger;
+    }
+    if (Array.isArray(deger)) return deger.map(depoCoz);
+    if (deger && typeof deger === "object") { var o = {}; Object.keys(deger).forEach(function (k) { o[k] = depoCoz(deger[k]); }); return o; }
+    return deger;
+  }
+  async function okumaHazirla(degerler) {
+    var kume = {};
+    degerler.forEach(function (v) { depoYollari(v, kume); });
+    var yollar = Object.keys(kume);
+    if (yollar.length) await imzaYenile(yollar);
+  }
+
   function likeKacis(s) { return s.replace(/[\\%_]/g, "\\$&"); }
   function hataMesaji(e) { return (e && e.message) || String(e); }
 
@@ -131,7 +215,8 @@
       var r = await sb().from("kv_store").select("value").eq("hotel_code", anahtarOtel(key)).eq("key", key).maybeSingle();
       if (r.error) throw new Error(hataMesaji(r.error)); // "kayıt yok" ile "ulaşılamadı" ASLA karıştırılmaz
       if (!r.data) return null;
-      var s = JSON.stringify(r.data.value);
+      await okumaHazirla([r.data.value]);
+      var s = JSON.stringify(depoCoz(r.data.value));
       oYaz(key, s);
       return { key: key, value: s };
     },
@@ -140,8 +225,11 @@
       if (key.indexOf("users:") === 0 || key.indexOf("hotels:") === 0) {
         throw new Error("Kullanıcı ve otel kayıtları bu sürümde uygulamadan değiştirilemez (güvenlik gereği sunucu tarafında yönetilir).");
       }
+      var otel = anahtarOtel(key);
+      var govde = JSON.parse(value);
+      if (otel !== "*") govde = await fotolariYukle(govde, otel); // fotoğraflar depoya, kayda yalnızca referans
       var r = await sb().rpc("kv_set", {
-        p_hotel: anahtarOtel(key), p_key: key, p_value: JSON.parse(value), p_expected: null,
+        p_hotel: otel, p_key: key, p_value: govde, p_expected: null,
       });
       if (r.error) throw new Error(hataMesaji(r.error));
       oYaz(key, value);
@@ -162,7 +250,8 @@
       var r = await sb().from("kv_store").select("key,value")
         .eq("hotel_code", anahtarOtel(prefix)).like("key", likeKacis(prefix) + "%").limit(1000);
       if (r.error) throw new Error(hataMesaji(r.error));
-      var keys = r.data.map(function (x) { oYaz(x.key, JSON.stringify(x.value)); return x.key; });
+      await okumaHazirla(r.data.map(function (x) { return x.value; }));
+      var keys = r.data.map(function (x) { oYaz(x.key, JSON.stringify(depoCoz(x.value))); return x.key; });
       return { keys: keys, prefix: prefix };
     },
   };
@@ -241,6 +330,19 @@
     async signOut() {
       onbellek.clear();
       try { await sb().auth.signOut(); } catch (e) {}
+    },
+  };
+
+  // PDF için: imzalı fotoğraf adresini data-URL'ye çevirir (jsPDF adresten resim ekleyemez)
+  window.OtelDepo = {
+    async dataUrlYap(url) {
+      var blob = await (await fetch(url)).blob();
+      return await new Promise(function (res, rej) {
+        var fr = new FileReader();
+        fr.onload = function () { res(fr.result); };
+        fr.onerror = rej;
+        fr.readAsDataURL(blob);
+      });
     },
   };
 
@@ -1980,6 +2082,33 @@ async function telegramMesajGonder(mesaj) {
   }
 }
 
+// PDF'e fotoğraf eklenebilmesi için imzalı depo adreslerini data-URL'ye çevirir.
+async function fotograflariGomuluYap(kayit) {
+  const coz = async (foto) => {
+    if (!foto || String(foto).startsWith("data:")) return foto;
+    try {
+      return await window.OtelDepo.dataUrlYap(foto);
+    } catch (e) {
+      return null; // fotoğraf alınamazsa PDF yine de oluşsun
+    }
+  };
+  const k = { ...kayit };
+  if (Array.isArray(k.tasks)) {
+    k.tasks = await Promise.all(k.tasks.map(async (t) => (t && t.photo ? { ...t, photo: await coz(t.photo) } : t)));
+  }
+  if (Array.isArray(k.odalar)) {
+    k.odalar = await Promise.all(
+      k.odalar.map(async (o) => ({
+        ...o,
+        gorevler: await Promise.all(
+          (o.gorevler || []).map(async (g) => (g && g.photo ? { ...g, photo: await coz(g.photo) } : g))
+        ),
+      }))
+    );
+  }
+  return k;
+}
+
 function formatTarihSadece(dateStr) {
   const [y, m, d] = dateStr.split("-");
   return `${d}.${m}.${y}`;
@@ -2852,7 +2981,7 @@ function App() {
     setRaporIsleniyor(true);
     setRaporMesaj("PDF hazırlanıyor…");
     try {
-      const doc = pdfOlustur(kayit);
+      const doc = pdfOlustur(await fotograflariGomuluYap(kayit));
       const dosyaAdi = `kontrol-listesi-${kayit.hotelCode}-${kayit.date}.pdf`;
       const konuMetni = `${kayit.hotelName} - ${kayit.department} Kontrol Listesi - ${formatTarihSadece(kayit.date)}`;
 
