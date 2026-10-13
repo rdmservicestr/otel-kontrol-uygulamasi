@@ -243,6 +243,26 @@
       try { await sb().auth.signOut(); } catch (e) {}
     },
   };
+
+  // ---- Sunucu fonksiyonu "yonetim": kullanıcı/PIN yönetimi ve Telegram ----
+  window.OtelYonetim = {
+    async cagir(eylem, veri) {
+      var r = await sb().functions.invoke("yonetim", { body: Object.assign({ eylem: eylem }, veri || {}) });
+      if (r.error) {
+        var mesaj = "Sunucuya ulaşılamadı. İnternetinizi kontrol edin.";
+        try {
+          var c = r.error.context;
+          if (c && c.status === 404) mesaj = "Yönetim sunucu fonksiyonu henüz kurulmamış.";
+          else if (c && c.json) {
+            var j = await c.json();
+            if (j && j.hata) mesaj = j.hata;
+          }
+        } catch (e) {}
+        throw new Error(mesaj);
+      }
+      return r.data;
+    },
+  };
 })();
 
 function hataGoster(mesaj) {
@@ -1868,8 +1888,8 @@ const BACKEND_URL = "";
 // Telegram bot ile hatırlatma bildirimleri.
 // BotFather'dan aldığınız token'ı aşağıdaki tırnakların arasına yapıştırın.
 // Chat ID zaten dolduruldu (Önbüro vardiya grubunuz).
-const TELEGRAM_BOT_TOKEN = ""; // örn: "123456789:AAExxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-const TELEGRAM_CHAT_ID = "-5518045511";
+// Telegram bot token'ı ve grup kimliği artık UYGULAMADA DEĞİL: Supabase sunucu
+// fonksiyonunun gizli ayarlarında (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID) tutulur.
 
 /* ------------------------------------------------------------------
    KULLANICIYA ÖZEL LOGO (Perge Hotels)
@@ -1942,19 +1962,13 @@ function saatGectiMi(saatStr) {
   return simdi >= hedef;
 }
 
-// Telegram Bot API'ye doğrudan tarayıcıdan istek atarak grup sohbetine
-// hatırlatma mesajı gönderir. Token veya Chat ID boşsa hiçbir şey yapmaz.
+// Telegram mesajını sunucu fonksiyonu üzerinden gönderir (token tarayıcıya hiç inmez).
+// Ayar yapılmamışsa ya da internet yoksa sessizce vazgeçer.
 async function telegramMesajGonder(mesaj) {
-  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
   try {
-    await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: mesaj }),
-    });
+    await window.OtelYonetim.cagir("telegram_gonder", { mesaj });
   } catch (e) {
-    // Sessizce yut: internet yoksa ya da Telegram'a ulaşılamıyorsa
-    // uygulamanın geri kalanını etkilemesin.
+    // Sessizce yut: uygulamanın geri kalanını etkilemesin.
   }
 }
 
@@ -2022,15 +2036,11 @@ function App() {
     await ozelDepartmanKaydet(temiz, []);
   }
 
-  async function yeniKullaniciOlustur({ hotelCode, userCode, password, name, department, bolum, pozisyon }) {
-    throw new Error("Kullanıcı ekleme bu sürümde kapalı: kullanıcılar güvenlik gereği sunucu tarafında oluşturulur. Yöneticinize başvurun.");
+  // Kullanıcı sunucuda oluşturulur; rastgele geçici PIN bir kez döner ({ pin }).
+  async function yeniKullaniciOlustur({ hotelCode, userCode, name, department, bolum, pozisyon }) {
+    if (userCode.length !== 4) throw new Error("Kullanıcı kodu 4 haneli olmalıdır.");
     if (!name.trim()) throw new Error("İsim boş olamaz.");
-    const mevcut = await safeGet(`users:${hotelCode}:${userCode}`, true);
-    if (mevcut) throw new Error("Bu kullanıcı kodu bu otelde zaten kullanılıyor.");
-    const kayit = { hotelCode, userCode, password, name: name.trim(), department };
-    if (bolum) kayit.bolum = bolum;
-    if (pozisyon) kayit.pozisyon = pozisyon;
-    await window.storage.set(`users:${hotelCode}:${userCode}`, JSON.stringify(kayit), true);
+    return await window.OtelYonetim.cagir("kullanici_olustur", { hotelCode, userCode, name, department, bolum, pozisyon });
   }
 
   async function kontrolSatiriEkle(departman, metin) {
@@ -4664,9 +4674,52 @@ function GMDepartmanSekmesi({ onDepartmanOlustur, toastGoster }) {
   );
 }
 
+function PinKutusu({ baslik, pin, onKapat }) {
+  return (
+    <div style={{ ...styles.bilgiKutusu, border: "2px solid #B08D3E", marginTop: 12 }}>
+      <div style={{ fontWeight: 700 }}>{baslik}</div>
+      <div style={{ fontSize: 30, letterSpacing: 6, fontWeight: 800, margin: "8px 0" }}>{pin}</div>
+      <div style={{ fontSize: 12, lineHeight: 1.4 }}>
+        Bu PIN yalnızca şimdi görünür; sayfadan ayrılınca bir daha gösterilmez. Kullanıcıya özel olarak iletin.
+        Kullanıcı ilk girişinde kendi PIN'ini belirleyecek.
+      </div>
+      <button style={{ ...styles.gmKucukIptalButon, marginTop: 8 }} onClick={onKapat}>
+        Tamam, ilettim
+      </button>
+    </div>
+  );
+}
+
 function GMKullaniciSekmesi({ user, onKullaniciOlustur, toastGoster }) {
   const [userCode, setUserCode] = useState("");
-  const [password, setPassword] = useState("");
+  const [olusanPin, setOlusanPin] = useState(null); // { baslik, pin }
+  const [otelKullanicilari, setOtelKullanicilari] = useState([]);
+
+  async function otelKullanicilariniYukle() {
+    try {
+      const liste = await window.storage.list(`users:${user.hotelCode}:`, true);
+      const kayitlar = [];
+      for (const k of (liste && liste.keys) || []) {
+        const r = await safeGet(k, true);
+        if (r) kayitlar.push(JSON.parse(r.value));
+      }
+      kayitlar.sort((a, b) => (a.userCode < b.userCode ? -1 : 1));
+      setOtelKullanicilari(kayitlar);
+    } catch (e) {}
+  }
+  useEffect(() => {
+    otelKullanicilariniYukle();
+  }, []);
+
+  async function pinSifirla(k) {
+    setHata("");
+    try {
+      const r = await window.OtelYonetim.cagir("pin_sifirla", { hotelCode: k.hotelCode, userCode: k.userCode });
+      setOlusanPin({ baslik: `${k.name} (${k.userCode}) için yeni geçici PIN`, pin: r.pin });
+    } catch (e) {
+      setHata(e.message || "PIN sıfırlanamadı.");
+    }
+  }
   const [name, setName] = useState("");
   const [department, setDepartment] = useState("");
   const [bolum, setBolum] = useState("");
@@ -4692,18 +4745,18 @@ function GMKullaniciSekmesi({ user, onKullaniciOlustur, toastGoster }) {
     }
     setOlusturuluyor(true);
     try {
-      await onKullaniciOlustur({
+      const sonuc = await onKullaniciOlustur({
         hotelCode: user.hotelCode, // GM yalnızca KENDİ oteline kullanıcı oluşturabilir
         userCode,
-        password,
         name,
         department,
         bolum,
         pozisyon,
       });
       toastGoster(`✓ Kullanıcı oluşturuldu: ${name}`);
+      setOlusanPin({ baslik: `${name} (${userCode}) için geçici PIN`, pin: sonuc.pin });
+      otelKullanicilariniYukle();
       setUserCode("");
-      setPassword("");
       setName("");
       setDepartment("");
       setBolum("");
@@ -4729,17 +4782,6 @@ function GMKullaniciSekmesi({ user, onKullaniciOlustur, toastGoster }) {
         maxLength={4}
         value={userCode}
         onChange={(e) => setUserCode(e.target.value.replace(/\D/g, "").slice(0, 4))}
-        placeholder="0000"
-      />
-
-      <Etiket>ŞİFRE (4 haneli)</Etiket>
-      <input
-        className="kod-input"
-        style={styles.kodInput}
-        inputMode="numeric"
-        maxLength={4}
-        value={password}
-        onChange={(e) => setPassword(e.target.value.replace(/\D/g, "").slice(0, 4))}
         placeholder="0000"
       />
 
@@ -4798,6 +4840,22 @@ function GMKullaniciSekmesi({ user, onKullaniciOlustur, toastGoster }) {
       >
         {olusturuluyor ? "Oluşturuluyor…" : "Kullanıcı Oluştur"}
       </button>
+
+      {olusanPin && <PinKutusu baslik={olusanPin.baslik} pin={olusanPin.pin} onKapat={() => setOlusanPin(null)} />}
+
+      <div style={{ marginTop: 24, fontWeight: 700 }}>Bu oteldeki kullanıcılar</div>
+      {otelKullanicilari.map((k) => (
+        <div key={k.userCode} style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, fontSize: 13 }}>
+          <div style={{ flex: 1 }}>
+            {k.userCode} · {k.name} · {k.department}
+          </div>
+          {k.userCode !== user.userCode && (
+            <button style={styles.gmKucukIptalButon} onClick={() => pinSifirla(k)}>
+              🔑 PIN Sıfırla
+            </button>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
@@ -8957,6 +9015,39 @@ function AdminEkrani({ onCikis, onPinDegistir }) {
   const [duzenleForm, setDuzenleForm] = useState({ department: "", bolum: "", pozisyon: "", password: "" });
   const [kaydediliyor, setKaydediliyor] = useState(false);
   const [duzenleMesaj, setDuzenleMesaj] = useState("");
+  const [sifirlananPin, setSifirlananPin] = useState(null); // { anahtar, baslik, pin }
+  const [pasifOnay, setPasifOnay] = useState(null);
+
+  async function pinSifirla(k) {
+    setKaydediliyor(true);
+    setDuzenleMesaj("");
+    try {
+      const r = await window.OtelYonetim.cagir("pin_sifirla", { hotelCode: k.hotelCode, userCode: k.userCode });
+      setSifirlananPin({ anahtar: `${k.hotelCode}:${k.userCode}`, baslik: `${k.name} için yeni geçici PIN`, pin: r.pin });
+    } catch (e) {
+      setDuzenleMesaj(e.message || "PIN sıfırlanamadı.");
+    }
+    setKaydediliyor(false);
+  }
+
+  async function hesapPasiflestir(k) {
+    const anahtar = `${k.hotelCode}:${k.userCode}`;
+    if (pasifOnay !== anahtar) {
+      setPasifOnay(anahtar); // ikinci dokunuşta onaylanır
+      return;
+    }
+    setKaydediliyor(true);
+    setDuzenleMesaj("");
+    try {
+      await window.OtelYonetim.cagir("kullanici_guncelle", { hotelCode: k.hotelCode, userCode: k.userCode, active: false });
+      setPasifOnay(null);
+      setDuzenlenenKullanici(null);
+      await verileriYukle();
+    } catch (e) {
+      setDuzenleMesaj(e.message || "Hesap pasifleştirilemedi.");
+    }
+    setKaydediliyor(false);
+  }
 
   useEffect(() => {
     verileriYukle();
@@ -9075,16 +9166,13 @@ function AdminEkrani({ onCikis, onPinDegistir }) {
       if (!duzenleForm.department) throw new Error("Lütfen bir Departman seçin.");
       if (!duzenleForm.bolum) throw new Error("Lütfen bir Bölüm seçin.");
       if (!duzenleForm.pozisyon) throw new Error("Lütfen bir Pozisyon seçin.");
-      const guncel = {
+      await window.OtelYonetim.cagir("kullanici_guncelle", {
         hotelCode: k.hotelCode,
         userCode: k.userCode,
-        name: k.name,
         department: duzenleForm.department,
         bolum: duzenleForm.bolum,
         pozisyon: duzenleForm.pozisyon,
-        password: duzenleForm.password,
-      };
-      await window.storage.set(`users:${k.hotelCode}:${k.userCode}`, JSON.stringify(guncel), true);
+      });
       setDuzenlenenKullanici(null);
       await verileriYukle();
     } catch (e) {
@@ -9246,20 +9334,29 @@ function AdminEkrani({ onCikis, onPinDegistir }) {
                                     ))}
                                   </select>
 
-                                  <Etiket>ŞİFRE (4 haneli)</Etiket>
-                                  <input
-                                    className="kod-input"
-                                    style={styles.kodInput}
-                                    inputMode="numeric"
-                                    maxLength={4}
-                                    value={duzenleForm.password}
-                                    onChange={(e) =>
-                                      setDuzenleForm((f) => ({
-                                        ...f,
-                                        password: e.target.value.replace(/\D/g, "").slice(0, 4),
-                                      }))
-                                    }
-                                  />
+                                  <div style={{ marginTop: 14 }}>
+                                    <button
+                                      style={styles.gmKucukIptalButon}
+                                      onClick={() => pinSifirla(k)}
+                                      disabled={kaydediliyor}
+                                    >
+                                      🔑 PIN'i Sıfırla (yeni geçici PIN üret)
+                                    </button>
+                                    <button
+                                      style={{ ...styles.gmKucukIptalButon, marginLeft: 8, color: "#A33" }}
+                                      onClick={() => hesapPasiflestir(k)}
+                                      disabled={kaydediliyor}
+                                    >
+                                      {pasifOnay === anahtar ? "Emin misiniz? Tekrar dokunun" : "⛔ Hesabı Pasifleştir"}
+                                    </button>
+                                    {sifirlananPin && sifirlananPin.anahtar === anahtar && (
+                                      <PinKutusu
+                                        baslik={sifirlananPin.baslik}
+                                        pin={sifirlananPin.pin}
+                                        onKapat={() => setSifirlananPin(null)}
+                                      />
+                                    )}
+                                  </div>
 
                                   {duzenleMesaj && <div style={styles.hataKutusu}>{duzenleMesaj}</div>}
 
