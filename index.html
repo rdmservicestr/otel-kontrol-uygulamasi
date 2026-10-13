@@ -246,6 +246,14 @@
 
   // ---- Sunucu fonksiyonu "yonetim": kullanıcı/PIN yönetimi ve Telegram ----
   window.OtelYonetim = {
+    // Pasif kullanıcılar: RLS gereği Genel Müdür yalnızca kendi otelini, admin hepsini görür
+    async pasifKullanicilar() {
+      var r = await sb().from("profiles").select("hotel_code,user_code,name,department,bolum,pozisyon").eq("active", false);
+      if (r.error) throw new Error(hataMesaji(r.error));
+      return r.data.map(profilKaydi).sort(function (a, b) {
+        return (a.hotelCode + a.userCode) < (b.hotelCode + b.userCode) ? -1 : 1;
+      });
+    },
     async cagir(eylem, veri) {
       var r = await sb().functions.invoke("yonetim", { body: Object.assign({ eylem: eylem }, veri || {}) });
       if (r.error) {
@@ -4674,6 +4682,65 @@ function GMDepartmanSekmesi({ onDepartmanOlustur, toastGoster }) {
   );
 }
 
+// Pasif (kapatılmış) kullanıcıları listeler ve tekrar aktifleştirmeye izin verir.
+// Genel Müdür yalnızca kendi otelinin, admin tüm otellerin pasif kullanıcılarını görür.
+function PasifKullanicilarKutusu({ onDegisti }) {
+  const [liste, setListe] = useState(null);
+  const [hata, setHata] = useState("");
+  const [isleniyor, setIsleniyor] = useState(null);
+
+  async function yukle() {
+    try {
+      setListe(await window.OtelYonetim.pasifKullanicilar());
+      setHata("");
+    } catch (e) {
+      setHata((e && e.message) || "Pasif kullanıcılar yüklenemedi.");
+      setListe([]);
+    }
+  }
+  useEffect(() => {
+    yukle();
+  }, []);
+
+  async function aktiflestir(k) {
+    const anahtar = `${k.hotelCode}:${k.userCode}`;
+    setIsleniyor(anahtar);
+    setHata("");
+    try {
+      await window.OtelYonetim.cagir("kullanici_guncelle", { hotelCode: k.hotelCode, userCode: k.userCode, active: true });
+      await yukle();
+      if (onDegisti) onDegisti();
+    } catch (e) {
+      setHata((e && e.message) || "Aktifleştirilemedi.");
+    }
+    setIsleniyor(null);
+  }
+
+  return (
+    <div style={{ marginTop: 24 }}>
+      <div style={{ fontWeight: 700 }}>Pasif kullanıcılar</div>
+      {hata && <div style={{ ...styles.hataKutusu, marginTop: 8 }}>{hata}</div>}
+      {liste === null && <div style={{ ...styles.bilgiKutusu, marginTop: 8 }}>Yükleniyor…</div>}
+      {liste && liste.length === 0 && !hata && (
+        <div style={{ ...styles.bilgiKutusu, marginTop: 8 }}>Pasif kullanıcı yok.</div>
+      )}
+      {(liste || []).map((k) => {
+        const anahtar = `${k.hotelCode}:${k.userCode}`;
+        return (
+          <div key={anahtar} style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, fontSize: 13 }}>
+            <div style={{ flex: 1, opacity: 0.8 }}>
+              {k.hotelCode} · {k.userCode} · {k.name} · {k.department}
+            </div>
+            <button style={styles.gmKucukButon} onClick={() => aktiflestir(k)} disabled={isleniyor === anahtar}>
+              {isleniyor === anahtar ? "…" : "✅ Aktifleştir"}
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function PinKutusu({ baslik, pin, onKapat }) {
   return (
     <div style={{ ...styles.bilgiKutusu, border: "2px solid #B08D3E", marginTop: 12 }}>
@@ -4693,6 +4760,25 @@ function PinKutusu({ baslik, pin, onKapat }) {
 function GMKullaniciSekmesi({ user, onKullaniciOlustur, toastGoster }) {
   const [userCode, setUserCode] = useState("");
   const [olusanPin, setOlusanPin] = useState(null); // { baslik, pin }
+  const [pasifOnay, setPasifOnay] = useState(null);
+  const [pasifSayac, setPasifSayac] = useState(0); // pasif listesini yeniden yüklemek için
+
+  async function hesapPasiflestir(k) {
+    if (pasifOnay !== k.userCode) {
+      setPasifOnay(k.userCode); // ikinci dokunuşta onaylanır
+      return;
+    }
+    setHata("");
+    try {
+      await window.OtelYonetim.cagir("kullanici_guncelle", { hotelCode: k.hotelCode, userCode: k.userCode, active: false });
+      setPasifOnay(null);
+      await otelKullanicilariniYukle();
+      setPasifSayac((x) => x + 1);
+      toastGoster(`✓ ${k.name} pasifleştirildi`);
+    } catch (e) {
+      setHata(e.message || "Hesap pasifleştirilemedi.");
+    }
+  }
   const [otelKullanicilari, setOtelKullanicilari] = useState([]);
 
   async function otelKullanicilariniYukle() {
@@ -4850,12 +4936,19 @@ function GMKullaniciSekmesi({ user, onKullaniciOlustur, toastGoster }) {
             {k.userCode} · {k.name} · {k.department}
           </div>
           {k.userCode !== user.userCode && (
-            <button style={styles.gmKucukIptalButon} onClick={() => pinSifirla(k)}>
-              🔑 PIN Sıfırla
-            </button>
+            <>
+              <button style={styles.gmKucukIptalButon} onClick={() => pinSifirla(k)}>
+                🔑 PIN Sıfırla
+              </button>
+              <button style={{ ...styles.gmKucukIptalButon, color: "#A33" }} onClick={() => hesapPasiflestir(k)}>
+                {pasifOnay === k.userCode ? "Emin misiniz?" : "⛔ Pasif"}
+              </button>
+            </>
           )}
         </div>
       ))}
+
+      <PasifKullanicilarKutusu key={pasifSayac} onDegisti={otelKullanicilariniYukle} />
     </div>
   );
 }
@@ -9017,6 +9110,7 @@ function AdminEkrani({ onCikis, onPinDegistir }) {
   const [duzenleMesaj, setDuzenleMesaj] = useState("");
   const [sifirlananPin, setSifirlananPin] = useState(null); // { anahtar, baslik, pin }
   const [pasifOnay, setPasifOnay] = useState(null);
+  const [pasifSayac, setPasifSayac] = useState(0);
 
   async function pinSifirla(k) {
     setKaydediliyor(true);
@@ -9043,6 +9137,7 @@ function AdminEkrani({ onCikis, onPinDegistir }) {
       setPasifOnay(null);
       setDuzenlenenKullanici(null);
       await verileriYukle();
+      setPasifSayac((x) => x + 1);
     } catch (e) {
       setDuzenleMesaj(e.message || "Hesap pasifleştirilemedi.");
     }
@@ -9398,6 +9493,8 @@ function AdminEkrani({ onCikis, onPinDegistir }) {
         Not: PIN'ler güvenlik gereği burada gösterilmez; yalnızca kullanıcının kendisi değiştirebilir
         ya da yönetici sunucu tarafında sıfırlayabilir.
       </div>
+
+      <PasifKullanicilarKutusu key={pasifSayac} onDegisti={verileriYukle} />
 
       <button style={{ ...styles.metinButon, marginTop: 12 }} onClick={onPinDegistir}>
         🔑 PIN Değiştir
