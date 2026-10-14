@@ -45,6 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
+window.UYGULAMA_SURUMU = "1.1";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -2118,6 +2119,135 @@ function formatTarihSadece(dateStr) {
    ANA UYGULAMA
 -------------------------------------------------------------------*/
 
+// ---- Sürüm denetimi ve güncelleme ----
+// Sürüm numarası derleme sırasında gömülür; GitHub'daki version.json ile karşılaştırılır.
+const UYGULAMA_SURUMU = (typeof window !== "undefined" && window.UYGULAMA_SURUMU) || "";
+let bekleyenSurum = null;
+const surumDinleyicileri = new Set();
+
+async function surumDenetle() {
+  // true: yeni sürüm var, false: güncel, null: denetlenemedi (çevrimdışı vb.)
+  if (!UYGULAMA_SURUMU) return null;
+  try {
+    const r = await fetch("version.json?t=" + Date.now(), { cache: "no-store" });
+    if (!r.ok) return null;
+    const j = await r.json();
+    if (!j || !j.surum) return null;
+    if (String(j.surum) !== String(UYGULAMA_SURUMU)) {
+      bekleyenSurum = String(j.surum);
+      surumDinleyicileri.forEach((f) => f());
+      return true;
+    }
+    return false;
+  } catch (e) {
+    return null;
+  }
+}
+
+// Yalnızca uygulamanın kendi depolama alanını temizler (önbellek, service worker, yerel veri) ve sayfayı sıfırdan yükler.
+// Giriş oturumu (sb- ile başlayan anahtarlar) korunur; veriler zaten sunucudadır.
+async function uygulamayiGuncelle(yeni) {
+  try {
+    if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+      const kayitlar = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(kayitlar.map((k) => k.unregister()));
+    }
+  } catch (e) {}
+  try {
+    if (window.caches) {
+      const adlar = await caches.keys();
+      await Promise.all(adlar.map((a) => caches.delete(a)));
+    }
+  } catch (e) {}
+  try {
+    Object.keys(localStorage)
+      .filter((k) => k.indexOf("sb-") !== 0)
+      .forEach((k) => localStorage.removeItem(k));
+  } catch (e) {}
+  try {
+    sessionStorage.clear();
+  } catch (e) {}
+  try {
+    if (indexedDB && indexedDB.databases) {
+      const dbler = await indexedDB.databases();
+      dbler.forEach((d) => d.name && indexedDB.deleteDatabase(d.name));
+    }
+  } catch (e) {}
+  window.location.replace(window.location.pathname + "?s=" + encodeURIComponent(yeni || Date.now()));
+}
+
+function GuncellemeUyarisi() {
+  const [, yenile] = useState(0);
+  const [isleniyor, setIsleniyor] = useState(false);
+  useEffect(() => {
+    try {
+      if (window.location.search.indexOf("s=") !== -1) {
+        window.history.replaceState(null, "", window.location.pathname); // adres çubuğunu temizle
+      }
+    } catch (e) {}
+    const f = () => yenile((n) => n + 1);
+    surumDinleyicileri.add(f);
+    surumDenetle();
+    const zaman = setInterval(surumDenetle, 5 * 60 * 1000);
+    const gorunur = () => {
+      if (document.visibilityState === "visible") surumDenetle();
+    };
+    document.addEventListener("visibilitychange", gorunur);
+    return () => {
+      surumDinleyicileri.delete(f);
+      clearInterval(zaman);
+      document.removeEventListener("visibilitychange", gorunur);
+    };
+  }, []);
+  if (!bekleyenSurum) return null;
+  return (
+    <div
+      style={{
+        position: "fixed", top: 0, left: 0, right: 0, zIndex: 9999, background: "#b45309", color: "#fff",
+        padding: "10px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+        fontSize: 14, boxShadow: "0 2px 8px rgba(0,0,0,.3)",
+      }}
+    >
+      <span>🔔 Yeni sürüm var (v{bekleyenSurum})</span>
+      <button
+        disabled={isleniyor}
+        onClick={() => {
+          setIsleniyor(true);
+          uygulamayiGuncelle(bekleyenSurum);
+        }}
+        style={{ background: "#fff", color: "#b45309", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 14 }}
+      >
+        {isleniyor ? "Güncelleniyor…" : "GÜNCELLE"}
+      </button>
+    </div>
+  );
+}
+
+function SurumAlani() {
+  const [durum, setDurum] = useState("");
+  return (
+    <div style={{ textAlign: "center", fontSize: 12, opacity: 0.7, marginTop: 14 }}>
+      Sürüm {UYGULAMA_SURUMU ? "v" + UYGULAMA_SURUMU : "-"}
+      {UYGULAMA_SURUMU && (
+        <>
+          {" · "}
+          <span
+            style={{ textDecoration: "underline", cursor: "pointer" }}
+            onClick={async () => {
+              setDurum("Denetleniyor…");
+              const r = await surumDenetle();
+              setDurum(r === false ? "Güncelsiniz ✓" : r === null ? "Denetlenemedi" : "");
+            }}
+          >
+            Güncellemeyi denetle
+          </span>
+          {durum ? " · " + durum : ""}
+        </>
+      )}
+    </div>
+  );
+}
+
 function App() {
   const [screen, setScreen] = useState("login"); // login | home | checklist | history
   const [hazirlaniyor, setHazirlaniyor] = useState(true);
@@ -3060,6 +3190,7 @@ function App() {
 
   return (
     <div style={styles.sayfaDisi}>
+      <GuncellemeUyarisi />
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap');
         * { box-sizing: border-box; }
@@ -3597,6 +3728,7 @@ function AnaSayfa({
         <button style={styles.metinButon} onClick={onCikis}>
           Çıkış Yap
         </button>
+        <SurumAlani />
       </div>
     </div>
   );
