@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.7";
+window.UYGULAMA_SURUMU = "1.8";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -8875,12 +8875,126 @@ function alacarteTarihYaz(t) {
   const [y, m, d] = t.split("-");
   return `${d}.${m}.${y}`;
 }
+function saatIstanbul(z) {
+  try {
+    return new Date(z).toLocaleTimeString("en-GB", { timeZone: "Europe/Istanbul", hour: "2-digit", minute: "2-digit" });
+  } catch (e) {
+    return "00:00";
+  }
+}
 function alacarteZamanYaz(z) {
   if (!z) return "";
   const d = new Date(z);
   const p = (n) => String(n).padStart(2, "0");
   return `${p(d.getDate())}.${p(d.getMonth() + 1)} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
+
+// Restoran rezervasyon listesi PDF'i (bir veya tüm restoranlar, seçili gün)
+function alacartePdf(restoranlar, tarih, rez, masalar, hotelName, kullaniciAdi) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
+  const font = pavPdfFontYukle(doc);
+  const W = doc.internal.pageSize.getWidth();
+  const H = doc.internal.pageSize.getHeight();
+  const m = 36;
+  let y = m;
+  const kolonlar = [["Saat", 40], ["Masa", 34], ["Oda", 40], ["Misafir", 130], ["Kişi", 30], ["Durum", 52], ["Not / Yapan", 0]];
+  kolonlar[kolonlar.length - 1][1] = W - 2 * m - kolonlar.slice(0, -1).reduce((t, k) => t + k[1], 0);
+
+  function yeniSayfaGerekirse(ihtiyac) {
+    if (y + ihtiyac > H - m) {
+      doc.addPage();
+      y = m;
+    }
+  }
+  function kes(metin, genislik) {
+    let t = String(metin == null ? "" : metin);
+    while (t.length > 1 && doc.getTextWidth(t) > genislik - 6) t = t.slice(0, -1);
+    return t;
+  }
+  function satir(hucreler, kalin, dolgu) {
+    yeniSayfaGerekirse(16);
+    if (dolgu) {
+      doc.setFillColor(dolgu[0], dolgu[1], dolgu[2]);
+      doc.rect(m, y - 11, W - 2 * m, 15, "F");
+    }
+    doc.setFont(font, kalin ? "bold" : "normal");
+    let x = m;
+    hucreler.forEach((h, i) => {
+      doc.text(kes(h, kolonlar[i][1]), x + 3, y);
+      x += kolonlar[i][1];
+    });
+    y += 15;
+  }
+
+  const hepsi = rez.filter((r) => restoranlar.includes(r.restoran));
+  doc.setFont(font, "bold");
+  doc.setFontSize(16);
+  doc.setTextColor(22, 50, 58);
+  doc.text(restoranlar.length === 1 ? `Alacarte Rezervasyon Listesi - ${restoranlar[0]}` : "Alacarte Rezervasyon Listesi - Tüm Restoranlar", m, y + 4);
+  doc.setDrawColor(176, 141, 62);
+  doc.setLineWidth(1.2);
+  doc.line(m, y + 12, W - m, y + 12);
+  y += 30;
+  doc.setFont(font, "normal");
+  doc.setFontSize(10);
+  doc.setTextColor(70, 70, 70);
+  doc.text(`${hotelName}   |   Tarih: ${formatTarihSadece(tarih)}`, m, y);
+  y += 14;
+  doc.text(`Hazırlayan: ${kullaniciAdi}   |   ${new Date().toLocaleString("tr-TR")}`, m, y);
+  y += 20;
+
+  restoranlar.forEach((ad) => {
+    const liste = hepsi.filter((r) => r.restoran === ad);
+    const aktif = liste.filter((r) => r.durum !== "İptal").sort((a, b) => (a.saat + String(1000 + a.masa_no)).localeCompare(b.saat + String(1000 + b.masa_no)));
+    const iptal = liste.filter((r) => r.durum === "İptal");
+    const toplamMasa = masalar.filter((x) => x.restoran === ad).length;
+    const kisi = aktif.reduce((t, r) => t + (Number(r.kisi) || 0), 0);
+    const geldi = aktif.filter((r) => r.durum === "Geldi").length;
+    const gelmedi = aktif.filter((r) => r.durum === "Gelmedi").length;
+    yeniSayfaGerekirse(70);
+    doc.setFont(font, "bold");
+    doc.setFontSize(12);
+    doc.setTextColor(22, 50, 58);
+    doc.text(`${ad} Restaurant`, m, y);
+    y += 14;
+    doc.setFont(font, "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(70, 70, 70);
+    doc.text(`Rezerve masa: ${aktif.length}/${toplamMasa}   |   Toplam kişi: ${kisi}   |   Geldi: ${geldi}   |   Gelmedi: ${gelmedi}   |   İptal: ${iptal.length}`, m, y);
+    y += 16;
+    doc.setFontSize(9);
+    doc.setTextColor(30, 30, 30);
+    satir(kolonlar.map((k) => k[0]), true, [232, 226, 208]);
+    if (aktif.length === 0) satir(["Rezervasyon yok"], false);
+    aktif.forEach((r, i) => {
+      satir(
+        [r.saat, String(r.masa_no), r.oda, r.misafir, String(r.kisi), r.durum, [r.notu, r.olusturan_adi].filter(Boolean).join(" / ")],
+        r.durum === "Geldi",
+        r.durum === "Geldi" ? [254, 202, 202] : i % 2 ? [247, 244, 235] : null
+      );
+    });
+    if (iptal.length) {
+      y += 6;
+      yeniSayfaGerekirse(30);
+      doc.setFont(font, "bold");
+      doc.setTextColor(127, 29, 29);
+      doc.text("İptal edilenler", m, y);
+      y += 14;
+      doc.setTextColor(30, 30, 30);
+      iptal.forEach((r) => {
+        satir(
+          [r.saat, String(r.masa_no), r.oda, r.misafir, String(r.kisi), "İptal", `Iptal eden: ${r.iptal_eden_adi || "-"}${r.iptal_notu ? " - " + r.iptal_notu : ""}`.replace("Iptal", "İptal")],
+          false,
+          null
+        );
+      });
+    }
+    y += 16;
+  });
+  return doc;
+}
+
 
 function AlacarteEkrani({ user, onGeri, toastGoster }) {
   const [tarih, setTarih] = useState(bugunTarihi());
@@ -8897,6 +9011,15 @@ function AlacarteEkrani({ user, onGeri, toastGoster }) {
   const [iptalNedeni, setIptalNedeni] = useState("");
   const [iptalAcik, setIptalAcik] = useState(false);
   const [sayac, setSayac] = useState(0);
+  const [eposta, setEposta] = useState(() => {
+    try {
+      return window.localStorage.getItem("alacarte_eposta") || "";
+    } catch (e) {
+      return "";
+    }
+  });
+  const [pdfMesaj, setPdfMesaj] = useState("");
+  const [pdfLink, setPdfLink] = useState(null);
   const formRef = useRef(null);
   formRef.current = form;
   const tarihRef = useRef(tarih);
@@ -9073,6 +9196,66 @@ function AlacarteEkrani({ user, onGeri, toastGoster }) {
   const kutu = { background: "#fff", border: "1px solid #E2DCCC", borderRadius: 12, padding: 12, marginTop: 10 };
   const girdi = { width: "100%", padding: "11px 12px", borderRadius: 10, border: "1.5px solid #D6CFBD", fontSize: 16, boxSizing: "border-box", background: "#fff" };
 
+  function pdfOlustur(restoranlar, epostaGonder) {
+    setPdfMesaj("");
+    setPdfLink(null);
+    if (!(window.jspdf && window.jspdf.jsPDF)) {
+      setPdfMesaj("PDF oluşturucu henüz hazırlanıyor, birkaç saniye sonra tekrar deneyin.");
+      return;
+    }
+    const adres = eposta.trim();
+    if (epostaGonder && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(adres)) {
+      setPdfMesaj("Lütfen geçerli bir e-posta adresi yazın.");
+      return;
+    }
+    try {
+      if (epostaGonder) {
+        try {
+          window.localStorage.setItem("alacarte_eposta", adres);
+        } catch (e) {}
+      }
+      const doc = alacartePdf(restoranlar, tarih, rez, masalar, user.hotelName, user.name);
+      const ad = `alacarte-${restoranlar.length === 1 ? restoranlar[0].toLowerCase() : "tum-restoranlar"}-${tarih}.pdf`;
+      try {
+        doc.save(ad);
+      } catch (e) {}
+      try {
+        const url = doc.output("bloburl");
+        setPdfLink({ url: url.toString ? url.toString() : url, ad });
+      } catch (e) {}
+      if (epostaGonder) {
+        const konu = encodeURIComponent(`${user.hotelName} - Alacarte Rezervasyon Listesi - ${alacarteTarihYaz(tarih)}`);
+        const govde = encodeURIComponent(
+          `Merhaba,\n\n${alacarteTarihYaz(tarih)} tarihli ${restoranlar.length === 1 ? restoranlar[0] + " Restaurant" : "tüm Alacarte restoranları"} rezervasyon listesi PDF olarak cihaza indirildi.\nLütfen e-posta uygulamasında az önce indirilen "${ad}" dosyasını bu mesaja ekleyip gönderin.\n\nOtel: ${user.hotelName}\nHazırlayan: ${user.name}`
+        );
+        window.location.href = `mailto:${adres}?subject=${konu}&body=${govde}`;
+        setPdfMesaj("PDF indirildi ve e-posta uygulamanız açıldı. İndirilen dosyayı mesaja ekleyip gönderin.");
+      } else {
+        setPdfMesaj("PDF hazır. İnmediyse aşağıdaki bağlantıya dokunun.");
+      }
+    } catch (e) {
+      setPdfMesaj("PDF oluşturulurken hata oluştu: " + (e && e.message ? e.message : String(e)));
+    }
+  }
+  function pdfKutusu(restoranlar, baslik) {
+    return (
+      <div style={{ ...kutu, marginTop: 14 }}>
+        <div style={styles.etiket}>{baslik}</div>
+        <input style={girdi} type="email" inputMode="email" placeholder="Alıcı e-posta (isteğe bağlı)" value={eposta} onChange={(e) => setEposta(e.target.value)} />
+        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+          <button style={{ ...styles.ikincilButon, flex: 1 }} onClick={() => pdfOlustur(restoranlar, false)}>📄 PDF indir</button>
+          <button style={{ ...styles.anaButon, flex: 1 }} onClick={() => pdfOlustur(restoranlar, true)}>✉️ PDF + E-posta</button>
+        </div>
+        {pdfMesaj && <div style={{ ...styles.ilerlemeYazi, marginTop: 8 }}>{pdfMesaj}</div>}
+        {pdfLink && (
+          <a href={pdfLink.url} target="_blank" rel="noreferrer" style={{ display: "block", marginTop: 6, fontSize: 13, color: "#0F766E", fontWeight: 700 }}>
+            {pdfLink.ad} (aç / indir)
+          </a>
+        )}
+      </div>
+    );
+  }
+
   function masaStili(m) {
     const r = rez.find((x) => x.restoran === restoran && x.masa_no === m.masa_no && x.durum !== "İptal");
     const k = kilitler.find((x) => x.restoran === restoran && x.masa_no === m.masa_no);
@@ -9116,6 +9299,11 @@ function AlacarteEkrani({ user, onGeri, toastGoster }) {
       </div>
 
       {hata && <div style={styles.hataKutusu}>{hata}</div>}
+      {veri && tarih === bugun && saatIstanbul(veri.simdi) >= "15:00" && (
+        <div style={{ ...styles.hataKutusu, background: "#FEF3C7", color: "#92400E" }}>
+          Bugün için rezervasyon saati 15:00'te sona erdi. Yeni rezervasyon için ileri bir tarih seçin; mevcut rezervasyonlar görüntülenebilir.
+        </div>
+      )}
 
       {sekme === "log" && (
         <div style={{ marginTop: 10 }}>
@@ -9153,6 +9341,7 @@ function AlacarteEkrani({ user, onGeri, toastGoster }) {
                 </button>
               );
             })}
+          {veri && pdfKutusu(ALACARTE_RESTORANLAR.map((x) => x.ad), "TÜM RESTORANLAR · LİSTE")}
         </div>
       )}
 
@@ -9184,6 +9373,8 @@ function AlacarteEkrani({ user, onGeri, toastGoster }) {
               );
             })}
           </div>
+
+          {pdfKutusu([restoran], `${restoran.toUpperCase()} · LİSTE (PDF / E-POSTA)`)}
 
           {iptaller.length > 0 && (
             <div style={{ marginTop: 14 }}>
