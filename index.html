@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.8";
+window.UYGULAMA_SURUMU = "1.9";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -3423,6 +3423,7 @@ function App() {
             onUyandirma={() => setScreen("uyandirma")}
             onPavilion={() => setScreen("pavilion")}
             onAlacarte={() => setScreen("alacarte")}
+            onServis={() => setScreen("servis")}
             onGMYonetim={() => setScreen("gmYonetim")}
             bekleyenGorevler={bekleyenGorevler}
             onGorevKabul={gorevKabulEt}
@@ -3485,9 +3486,13 @@ function App() {
           <UyandirmaEkrani user={currentUser} onGeri={() => setScreen("home")} toastGoster={toastGoster} />
         ) : screen === "pavilion" ? (
           <PavilionEkrani user={currentUser} onGeri={() => setScreen("home")} toastGoster={toastGoster} />
+        ) : screen === "servis" && servisKullanabilir(currentUser) ? (
+          <ServisTakipEkrani user={currentUser} onGeri={() => setScreen("home")} toastGoster={toastGoster} />
         ) : screen === "alacarte" && alacarteKullanabilir(currentUser) ? (
           <AlacarteEkrani user={currentUser} onGeri={() => setScreen("home")} toastGoster={toastGoster} />
         ) : null}
+
+        {currentUser && screen !== "login" && servisAliciMi(currentUser) && <ServisAlarmi onGit={() => setScreen("servis")} />}
 
         {uyandirmaGeciken.length > 0 && screen !== "uyandirma" && screen !== "login" && (
           <button style={styles.uynBanner} onClick={() => setScreen("uyandirma")}>
@@ -3705,6 +3710,7 @@ function AnaSayfa({
   onUyandirma,
   onPavilion,
   onAlacarte,
+  onServis,
   bekleyenGorevler,
   onGorevKabul,
 }) {
@@ -3829,6 +3835,12 @@ function AnaSayfa({
         <button style={styles.pavilionButon} onClick={onPavilion}>
           🏖️ Pavilion Rezervasyon
         </button>
+
+        {servisKullanabilir(user) && (
+          <button style={{ ...styles.pavilionButon, borderColor: "#6D28D9", color: "#6D28D9" }} onClick={onServis}>
+            🎮 Servis Takip (Bebek Kamerası · PS)
+          </button>
+        )}
 
         {alacarteKullanabilir(user) && (
           <button style={{ ...styles.pavilionButon, borderColor: "#9A3412", color: "#9A3412" }} onClick={onAlacarte}>
@@ -9498,6 +9510,800 @@ function AlacarteEkrani({ user, onGeri, toastGoster }) {
     </div>
   );
 }
+
+/* ------------------------------------------------------------------
+   SERVİS TAKİP (Bebek Kamerası / PS Player) — yalnızca 5557.
+   Kurallar sunucuda (supabase/servis/06*_servis.sql) uygulanır; bu ekran yalnızca gösterir ve çağırır.
+-------------------------------------------------------------------*/
+const SERVIS_OTELLER = ["5557"];
+const SERVIS_DEPARTMANLAR = ["Misafir Deneyimi & Kalite", "Önbüro", "IT / Bilgi Teknolojileri", "Genel Müdürlük"];
+const SERVIS_ALICILAR = ["MISAFIR ILISKILERI MUDURU", "BILGI TEKNOLOJILERI MUDURU", "GENEL MUDUR YARDIMCISI"];
+const SERVIS_URUNLER = [
+  { kod: "BK", ad: "Bebek Kamerası", ikon: "👶", renk: "#0F766E" },
+  { kod: "PS", ad: "PS Player", ikon: "🎮", renk: "#6D28D9" },
+];
+const SERVIS_SAATLER = (() => {
+  const l = [];
+  for (let m = 8 * 60; m <= 18 * 60; m += 30) l.push(`${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`);
+  return l;
+})();
+function servisKullanabilir(user) {
+  return !!user && SERVIS_OTELLER.includes(user.hotelCode) && SERVIS_DEPARTMANLAR.includes(user.department);
+}
+function servisAliciMi(user) {
+  return servisKullanabilir(user) && SERVIS_ALICILAR.includes(pozAnahtar(user.bolum));
+}
+function servisUrun(kod) {
+  return SERVIS_URUNLER.find((u) => u.kod === kod) || SERVIS_URUNLER[0];
+}
+function servisParca(ms) {
+  const f = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Istanbul", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+  const o = {};
+  f.formatToParts(new Date(ms)).forEach((p) => {
+    o[p.type] = p.value;
+  });
+  return { tarih: `${o.year}-${o.month}-${o.day}`, saat: `${o.hour === "24" ? "00" : o.hour}:${o.minute}` };
+}
+function servisKisa(iso) {
+  if (!iso) return "";
+  const p = servisParca(Date.parse(iso));
+  return `${p.tarih.slice(8, 10)}.${p.tarih.slice(5, 7)} ${p.saat}`;
+}
+function servisIso(tarih, saat) {
+  return `${tarih}T${saat}:00+03:00`;
+}
+function servisNo(urun, no) {
+  return `${urun}-${String(no).padStart(2, "0")}`;
+}
+function servisDurum(r, simdi) {
+  if (r.durum === "Rezerve") {
+    const gec = Date.parse(r.kurulum_zamani) < simdi - 30 * 60000;
+    return gec ? { ad: "Teslim gecikti", renk: "#B45309" } : { ad: "Rezerve", renk: "#2563EB" };
+  }
+  if (r.durum === "Teslim") {
+    return Date.parse(r.iade_zamani) <= simdi ? { ad: "İADE GECİKMİŞ", renk: "#B91C1C" } : { ad: "Misafirde", renk: "#0369A1" };
+  }
+  if (r.durum === "Iade") return { ad: "BT onayı bekliyor", renk: "#B45309" };
+  if (r.durum === "Tamam") return { ad: "Tamamlandı", renk: "#15803D" };
+  return { ad: "İptal", renk: "#6B7280" };
+}
+function servisEnvanter(veri, urun) {
+  const birimler = veri.birimler.filter((b) => b.urun === urun);
+  const disarda = new Map();
+  veri.rez.forEach((r) => {
+    if (r.urun === urun && (r.durum === "Teslim" || r.durum === "Iade")) disarda.set(r.birim_no, r);
+  });
+  const s = { toplam: birimler.length, dolu: 0, onay: 0, oos: 0, bos: 0, disarda, birimler };
+  birimler.forEach((b) => {
+    if (b.durum === "OOServis") s.oos++;
+    else {
+      const r = disarda.get(b.no);
+      if (!r) s.bos++;
+      else if (r.durum === "Teslim") s.dolu++;
+      else s.onay++;
+    }
+  });
+  return s;
+}
+function servisBugunSayilari(veri, urun, simdi) {
+  const bugun = servisParca(simdi).tarih;
+  const rez = veri.rez.filter((r) => r.urun === urun);
+  const tarihi = (iso) => servisParca(Date.parse(iso)).tarih;
+  return {
+    teslim: rez.filter((r) => r.durum === "Rezerve" && tarihi(r.kurulum_zamani) <= bugun).length,
+    geri: rez.filter((r) => r.durum === "Teslim" && tarihi(r.iade_zamani) === bugun && Date.parse(r.iade_zamani) > simdi).length,
+    gecikmis: rez.filter((r) => r.durum === "Teslim" && Date.parse(r.iade_zamani) <= simdi).length,
+    ileri: rez.filter((r) => r.durum === "Rezerve" && tarihi(r.kurulum_zamani) > bugun).length,
+  };
+}
+
+// ---- Alarm sesi (uygulama açıkken) ----
+let servisSesBaglami = null;
+function servisSesAc() {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    if (!servisSesBaglami) servisSesBaglami = new AC();
+    if (servisSesBaglami.state === "suspended") servisSesBaglami.resume();
+  } catch (e) {}
+}
+function servisAlarmSesi() {
+  try {
+    servisSesAc();
+    const ctx = servisSesBaglami;
+    if (ctx) {
+      const t = ctx.currentTime;
+      [0, 0.35, 0.7].forEach((d, i) => {
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = "square";
+        o.frequency.value = i % 2 ? 988 : 784;
+        g.gain.setValueAtTime(0.0001, t + d);
+        g.gain.exponentialRampToValueAtTime(0.35, t + d + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.3);
+        o.connect(g);
+        g.connect(ctx.destination);
+        o.start(t + d);
+        o.stop(t + d + 0.32);
+      });
+    }
+    if (navigator.vibrate) navigator.vibrate([400, 150, 400, 150, 400]);
+  } catch (e) {}
+}
+function servisSusturOku() {
+  try {
+    return JSON.parse(window.localStorage.getItem("servis_sustur") || "{}") || {};
+  } catch (e) {
+    return {};
+  }
+}
+function servisSusturYaz(o) {
+  try {
+    window.localStorage.setItem("servis_sustur", JSON.stringify(o));
+  } catch (e) {}
+}
+
+// Alıcılar (Misafir İlişkileri Müdürü, BT Müdürü, Genel Müdür Yardımcısı) için iade alarmı. Uygulama açıkken her ekranda çalışır.
+function ServisAlarmi({ onGit }) {
+  const [liste, setListe] = useState([]);
+  const [fark, setFark] = useState(0);
+  const [, yenile] = useState(0);
+  const oncekiRef = useRef("");
+  useEffect(() => {
+    let durdu = false;
+    const ac = () => servisSesAc();
+    document.addEventListener("pointerdown", ac);
+    async function cek() {
+      try {
+        const v = await window.OtelRpc.cagir("servis_alarm_getir");
+        if (durdu) return;
+        setFark(Date.parse(v.simdi) - Date.now());
+        setListe(v.liste || []);
+      } catch (e) {}
+    }
+    cek();
+    const t = setInterval(cek, 20000);
+    const g = () => {
+      if (document.visibilityState === "visible") cek();
+    };
+    document.addEventListener("visibilitychange", g);
+    const sn = setInterval(() => yenile((n) => n + 1), 5000);
+    return () => {
+      durdu = true;
+      clearInterval(t);
+      clearInterval(sn);
+      document.removeEventListener("visibilitychange", g);
+      document.removeEventListener("pointerdown", ac);
+    };
+  }, []);
+  const simdi = Date.now() + fark;
+  const sustur = servisSusturOku();
+  const caliyor = liste.filter((x) => !(sustur[x.id] && sustur[x.id] > simdi));
+  const imza = caliyor.map((x) => x.id).join(",");
+  useEffect(() => {
+    if (!caliyor.length) {
+      oncekiRef.current = "";
+      return undefined;
+    }
+    servisAlarmSesi();
+    const t = setInterval(servisAlarmSesi, 4000);
+    if (imza !== oncekiRef.current) {
+      oncekiRef.current = imza;
+      try {
+        const metin = `İade zamanı geldi: ${caliyor.map((x) => `${servisNo(x.urun, x.birim_no)} Oda ${x.oda}`).join(", ")}`;
+        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+          if (navigator.serviceWorker && navigator.serviceWorker.ready) {
+            navigator.serviceWorker.ready.then((r) => r.showNotification("Servis Takip - İade Alarmı", { body: metin, tag: "servis-alarm", requireInteraction: true })).catch(() => {});
+          } else new Notification("Servis Takip - İade Alarmı", { body: metin });
+        }
+      } catch (e) {}
+    }
+    return () => clearInterval(t);
+  }, [imza]);
+  if (!caliyor.length) return null;
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 10000, background: "rgba(127,29,29,0.96)", color: "#fff", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 20, boxSizing: "border-box", textAlign: "center" }} data-testid="servis-alarm">
+      <div style={{ fontSize: 56 }}>⏰</div>
+      <div className="baslik-font" style={{ fontSize: 24, fontWeight: 800, marginTop: 8 }}>İADE ZAMANI GELDİ</div>
+      <div style={{ marginTop: 14, width: "100%", maxWidth: 420, maxHeight: "40vh", overflowY: "auto" }}>
+        {caliyor.map((x) => {
+          const dk = Math.max(0, Math.floor((simdi - Date.parse(x.iade_zamani)) / 60000));
+          return (
+            <div key={x.id} style={{ background: "rgba(255,255,255,0.14)", borderRadius: 12, padding: "10px 12px", marginBottom: 8, fontSize: 16, fontWeight: 700 }}>
+              {servisUrun(x.urun).ikon} {servisUrun(x.urun).ad} {servisNo(x.urun, x.birim_no)} · Oda {x.oda}
+              <div style={{ fontSize: 13, fontWeight: 500, opacity: 0.9 }}>
+                İade saati {servisKisa(x.iade_zamani)} · {dk > 0 ? `${dk} dk gecikmiş` : "şimdi"}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <button
+        style={{ marginTop: 14, width: "100%", maxWidth: 420, padding: "14px 16px", borderRadius: 14, border: "none", background: "#fff", color: "#7F1D1D", fontSize: 16, fontWeight: 800 }}
+        onClick={() => {
+          onGit();
+          const o = servisSusturOku();
+          caliyor.forEach((x) => (o[x.id] = Date.now() + fark + 30 * 60000));
+          servisSusturYaz(o);
+          yenile((n) => n + 1);
+        }}
+      >
+        Servis Takip'e git
+      </button>
+      <button
+        style={{ marginTop: 10, width: "100%", maxWidth: 420, padding: "12px 16px", borderRadius: 14, border: "2px solid #fff", background: "transparent", color: "#fff", fontSize: 15, fontWeight: 700 }}
+        onClick={() => {
+          const o = servisSusturOku();
+          caliyor.forEach((x) => (o[x.id] = Date.now() + fark + 30 * 60000));
+          servisSusturYaz(o);
+          yenile((n) => n + 1);
+        }}
+      >
+        Sustur (30 dk sonra tekrar çalar)
+      </button>
+    </div>
+  );
+}
+
+// ---- PDF ----
+function servisPdf(urunKod, veri, simdi, hotelName, kullaniciAdi) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
+  const font = pavPdfFontYukle(doc);
+  const W = doc.internal.pageSize.getWidth();
+  const H = doc.internal.pageSize.getHeight();
+  const m = 36;
+  let y = m;
+  const urun = servisUrun(urunKod);
+  const env = servisEnvanter(veri, urunKod);
+  const sayi = servisBugunSayilari(veri, urunKod, simdi);
+  const bugun = servisParca(simdi).tarih;
+  function yeniSayfa(ihtiyac) {
+    if (y + ihtiyac > H - m) {
+      doc.addPage();
+      y = m;
+    }
+  }
+  function tablo(kolonlar, satirlar) {
+    const toplam = W - 2 * m;
+    const sabit = kolonlar.slice(0, -1).reduce((t, k) => t + k[1], 0);
+    const gen = kolonlar.map((k, i) => (i === kolonlar.length - 1 ? toplam - sabit : k[1]));
+    const kes = (t, g) => {
+      let x = String(t == null ? "" : t);
+      while (x.length > 1 && doc.getTextWidth(x) > g - 6) x = x.slice(0, -1);
+      return x;
+    };
+    const satir = (h, kalin, dolgu) => {
+      yeniSayfa(16);
+      if (dolgu) {
+        doc.setFillColor(dolgu[0], dolgu[1], dolgu[2]);
+        doc.rect(m, y - 11, toplam, 15, "F");
+      }
+      doc.setFont(font, kalin ? "bold" : "normal");
+      let x = m;
+      h.forEach((v, i) => {
+        doc.text(kes(v, gen[i]), x + 3, y);
+        x += gen[i];
+      });
+      y += 15;
+    };
+    doc.setFontSize(9);
+    doc.setTextColor(30, 30, 30);
+    satir(kolonlar.map((k) => k[0]), true, [232, 226, 208]);
+    if (!satirlar.length) satir(["Kayıt yok"], false);
+    satirlar.forEach((s, i) => satir(s, false, i % 2 ? [247, 244, 235] : null));
+  }
+  doc.setFont(font, "bold");
+  doc.setFontSize(16);
+  doc.setTextColor(22, 50, 58);
+  doc.text(`Servis Takip - ${urun.ad}`, m, y + 4);
+  doc.setDrawColor(176, 141, 62);
+  doc.setLineWidth(1.2);
+  doc.line(m, y + 12, W - m, y + 12);
+  y += 30;
+  doc.setFont(font, "normal");
+  doc.setFontSize(10);
+  doc.setTextColor(70, 70, 70);
+  doc.text(`${hotelName}   |   Tarih: ${formatTarihSadece(bugun)}   |   Hazırlayan: ${kullaniciAdi}   |   ${new Date().toLocaleString("tr-TR")}`, m, y);
+  y += 18;
+  doc.setFont(font, "bold");
+  doc.setFontSize(11);
+  doc.text(`Envanter: ${env.toplam} adet   |   Dolu: ${env.dolu}   |   Boş: ${env.bos}   |   BT onayı bekleyen: ${env.onay}   |   OOServis: ${env.oos}`, m, y);
+  y += 14;
+  doc.setFont(font, "normal");
+  doc.setFontSize(10);
+  doc.text(`Bugün teslim edilecek: ${sayi.teslim}   |   Bugün geri alınacak: ${sayi.geri}   |   Gecikmiş: ${sayi.gecikmis}   |   İleri tarihli rezervasyon: ${sayi.ileri}`, m, y);
+  y += 22;
+
+  doc.setFont(font, "bold");
+  doc.setFontSize(12);
+  doc.setTextColor(22, 50, 58);
+  doc.text("Cihaz durumu", m, y);
+  y += 14;
+  const cihazSatirlari = env.birimler.map((b) => {
+    const r = env.disarda.get(b.no);
+    if (b.durum === "OOServis") return [servisNo(urunKod, b.no), "OOServis", "", "", b.notu || ""];
+    if (!r) return [servisNo(urunKod, b.no), "Boş", "", "", ""];
+    const d = servisDurum(r, simdi);
+    return [servisNo(urunKod, b.no), d.ad, `Oda ${r.oda}`, r.misafir, `İade ${servisKisa(r.iade_zamani)}`];
+  });
+  tablo([["Cihaz", 50], ["Durum", 100], ["Oda", 55], ["Misafir", 150], ["İade / Not", 0]], cihazSatirlari);
+  y += 16;
+  yeniSayfa(60);
+  doc.setFont(font, "bold");
+  doc.setFontSize(12);
+  doc.setTextColor(22, 50, 58);
+  doc.text("Rezervasyonlar", m, y);
+  y += 14;
+  const rezSatirlari = veri.rez
+    .filter((r) => r.urun === urunKod && r.durum !== "İptal" && r.durum !== "Tamam")
+    .sort((a, b) => Date.parse(a.kurulum_zamani) - Date.parse(b.kurulum_zamani))
+    .map((r) => [`Oda ${r.oda}`, r.misafir, servisNo(urunKod, r.birim_no), servisKisa(r.kurulum_zamani), servisKisa(r.iade_zamani), servisDurum(r, simdi).ad, r.notu || ""]);
+  tablo([["Oda", 50], ["Misafir", 120], ["Cihaz", 48], ["Kurulum", 72], ["İade", 72], ["Durum", 90], ["Not", 0]], rezSatirlari);
+  return doc;
+}
+
+// ---- Ekran ----
+function ServisTakipEkrani({ user, onGeri, toastGoster }) {
+  const [veri, setVeri] = useState(null);
+  const [fark, setFark] = useState(0);
+  const [, yenile] = useState(0);
+  const [hata, setHata] = useState("");
+  const [sekme, setSekme] = useState("pano");
+  const [filtre, setFiltre] = useState("aktif");
+  const [urunFiltre, setUrunFiltre] = useState("hepsi");
+  const [mesgul, setMesgul] = useState(false);
+  const [loglar, setLoglar] = useState([]);
+  const [acik, setAcik] = useState(null); // {id, tur}
+  const [neden, setNeden] = useState("");
+  const [birimAcik, setBirimAcik] = useState(null);
+  const [oosNot, setOosNot] = useState("");
+  const [eposta, setEposta] = useState(() => {
+    try {
+      return window.localStorage.getItem("servis_eposta") || "";
+    } catch (e) {
+      return "";
+    }
+  });
+  const [pdfMesaj, setPdfMesaj] = useState("");
+  const [pdfLink, setPdfLink] = useState(null);
+
+  async function yukle() {
+    try {
+      const v = await window.OtelRpc.cagir("servis_getir");
+      setVeri(v);
+      setFark(Date.parse(v.simdi) - Date.now());
+    } catch (e) {
+      setHata(e.message);
+    }
+  }
+  useEffect(() => {
+    yukle();
+    const t = setInterval(yukle, 10000);
+    const sn = setInterval(() => yenile((n) => n + 1), 30000);
+    return () => {
+      clearInterval(t);
+      clearInterval(sn);
+    };
+  }, []);
+  useEffect(() => {
+    if (sekme !== "log") return;
+    window.OtelRpc.cagir("servis_log_getir", { p_limit: 150 }).then(setLoglar).catch((e) => setHata(e.message));
+  }, [sekme]);
+
+  const simdi = Date.now() + fark;
+  const yetki = (veri && veri.yetki) || {};
+  const kutu = { background: "#fff", border: "1px solid #E2DCCC", borderRadius: 12, padding: 12, marginTop: 10 };
+  const girdi = { width: "100%", padding: "11px 12px", borderRadius: 10, border: "1.5px solid #D6CFBD", fontSize: 16, boxSizing: "border-box", background: "#fff" };
+
+  async function islem(ad, args, basari) {
+    setMesgul(true);
+    setHata("");
+    try {
+      const r = await window.OtelRpc.cagir(ad, args);
+      if (basari) toastGoster(typeof basari === "function" ? basari(r) : basari);
+      setAcik(null);
+      setNeden("");
+      await yukle();
+      return r;
+    } catch (e) {
+      setHata(e.message);
+      return null;
+    } finally {
+      setMesgul(false);
+    }
+  }
+
+  function pdfOlustur(urunKod, epostaGonder) {
+    setPdfMesaj("");
+    setPdfLink(null);
+    if (!(window.jspdf && window.jspdf.jsPDF)) return setPdfMesaj("PDF oluşturucu henüz hazırlanıyor, birkaç saniye sonra tekrar deneyin.");
+    const adres = eposta.trim();
+    if (epostaGonder && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(adres)) return setPdfMesaj("Lütfen geçerli bir e-posta adresi yazın.");
+    try {
+      const doc = servisPdf(urunKod, veri, simdi, user.hotelName, user.name);
+      const ad = `servis-${urunKod === "PS" ? "ps-player" : "bebek-kamerasi"}-${servisParca(simdi).tarih}.pdf`;
+      try {
+        doc.save(ad);
+      } catch (e) {}
+      try {
+        const url = doc.output("bloburl");
+        setPdfLink({ url: url.toString ? url.toString() : url, ad });
+      } catch (e) {}
+      if (epostaGonder) {
+        try {
+          window.localStorage.setItem("servis_eposta", adres);
+        } catch (e) {}
+        const konu = encodeURIComponent(`${user.hotelName} - ${servisUrun(urunKod).ad} Servis Takip Listesi - ${formatTarihSadece(servisParca(simdi).tarih)}`);
+        const govde = encodeURIComponent(`Merhaba,\n\n${servisUrun(urunKod).ad} servis takip listesi PDF olarak cihaza indirildi.\nLütfen e-posta uygulamasında az önce indirilen "${ad}" dosyasını bu mesaja ekleyip gönderin.\n\nOtel: ${user.hotelName}\nHazırlayan: ${user.name}`);
+        window.location.href = `mailto:${adres}?subject=${konu}&body=${govde}`;
+        setPdfMesaj("PDF indirildi ve e-posta uygulamanız açıldı. İndirilen dosyayı mesaja ekleyip gönderin.");
+      } else setPdfMesaj("PDF hazır. İnmediyse aşağıdaki bağlantıya dokunun.");
+    } catch (e) {
+      setPdfMesaj("PDF oluşturulurken hata oluştu: " + (e && e.message ? e.message : String(e)));
+    }
+  }
+
+  function rezSatiri(r) {
+    const u = servisUrun(r.urun);
+    const d = servisDurum(r, simdi);
+    const bugun = servisParca(simdi).tarih;
+    const kurulumGunu = servisParca(Date.parse(r.kurulum_zamani)).tarih;
+    const ac = acik && acik.id === r.id ? acik.tur : null;
+    return (
+      <div key={r.id} data-testid={`rez-${r.oda}-${r.urun}`} style={{ ...kutu, borderLeft: `5px solid ${d.renk}` }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
+          <div style={{ fontWeight: 800, fontSize: 15 }}>
+            {u.ikon} {servisNo(r.urun, r.birim_no)} · Oda {r.oda}
+          </div>
+          <div style={{ background: d.renk, color: "#fff", borderRadius: 8, fontSize: 11, fontWeight: 800, padding: "3px 8px", whiteSpace: "nowrap" }}>{d.ad}</div>
+        </div>
+        <div style={{ fontSize: 14, marginTop: 2 }}>{r.misafir}</div>
+        <div style={{ fontSize: 12, color: "#4B5563", marginTop: 2 }}>
+          Kurulum {servisKisa(r.kurulum_zamani)} → İade {servisKisa(r.iade_zamani)}
+          {r.urun === "PS" ? " (24 saat)" : ""}
+        </div>
+        {r.notu && <div style={{ fontSize: 12, color: "#4B5563" }}>Not: {r.notu}</div>}
+        <div style={{ fontSize: 11, color: "#6B7280", marginTop: 4 }}>
+          Kaydeden: {r.olusturan_adi} · {servisKisa(r.olusturma_zamani)}
+          {r.limit_asildi ? " · 2. rezervasyon (Müdür onayı)" : ""}
+          {r.teslim_zamani ? ` · Teslim: ${r.teslim_eden} ${servisKisa(r.teslim_zamani)}` : ""}
+          {r.iade_alindi_zamani ? ` · İade alan: ${r.iade_alan} ${servisKisa(r.iade_alindi_zamani)}` : ""}
+          {r.onay_zamani ? ` · BT onayı: ${r.onaylayan} ${servisKisa(r.onay_zamani)}` : ""}
+          {r.iptal_zamani ? ` · İptal: ${r.iptal_eden}${r.iptal_notu ? " (" + r.iptal_notu + ")" : ""}` : ""}
+        </div>
+        <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+          {r.durum === "Rezerve" && yetki.islem && (
+            <>
+              <button style={{ ...styles.anaButon, flex: 1, minWidth: 120, opacity: bugun < kurulumGunu ? 0.5 : 1 }} disabled={mesgul || bugun < kurulumGunu} onClick={() => islem("servis_teslim", { p_id: r.id }, (x) => `✓ Teslim edildi (${servisNo(r.urun, x.birim_no)})`)}>
+                {bugun < kurulumGunu ? "Kurulum gününde teslim" : "Teslim Et"}
+              </button>
+              <button style={{ ...styles.ikincilButon, flex: 1, minWidth: 90, color: "#B91C1C", borderColor: "#B91C1C" }} onClick={() => setAcik({ id: r.id, tur: "iptal" })}>
+                İptal
+              </button>
+            </>
+          )}
+          {r.durum === "Teslim" && (yetki.islem || yetki.bt) && (
+            <button style={{ ...styles.anaButon, flex: 1 }} disabled={mesgul} onClick={() => islem("servis_iade", { p_id: r.id }, "✓ İade alındı, BT onayı bekleniyor")}>
+              İade Al
+            </button>
+          )}
+          {r.durum === "Iade" &&
+            (yetki.bt ? (
+              <button style={{ ...styles.anaButon, flex: 1, background: "#15803D" }} disabled={mesgul} onClick={() => islem("servis_onayla", { p_id: r.id }, "✓ Ürün teslim alındı, cihaz hazır")}>
+                ✓ Ürün Alındı (BT Onayı)
+              </button>
+            ) : (
+              <div style={{ fontSize: 12, color: "#B45309", fontWeight: 700 }}>BT Müdürü onayı bekleniyor</div>
+            ))}
+        </div>
+        {ac === "iptal" && (
+          <div style={{ marginTop: 8 }}>
+            <input style={girdi} placeholder="İptal nedeni (isteğe bağlı)" maxLength={120} value={neden} onChange={(e) => setNeden(e.target.value)} />
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <button style={{ ...styles.ikincilButon, flex: 1 }} onClick={() => setAcik(null)}>Vazgeç</button>
+              <button style={{ ...styles.anaButon, flex: 1, background: "#B91C1C" }} disabled={mesgul} onClick={() => islem("servis_iptal", { p_id: r.id, p_not: neden }, "✓ İptal edildi")}>İptali Onayla</button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const bugunTarih = servisParca(simdi).tarih;
+  const aktifRez = veri ? veri.rez.filter((r) => ["Rezerve", "Teslim", "Iade"].includes(r.durum)) : [];
+  function listeSatirlari() {
+    let l = veri ? veri.rez.slice() : [];
+    if (urunFiltre !== "hepsi") l = l.filter((r) => r.urun === urunFiltre);
+    if (filtre === "aktif") l = l.filter((r) => ["Rezerve", "Teslim", "Iade"].includes(r.durum));
+    else if (filtre === "rezerve") l = l.filter((r) => r.durum === "Rezerve");
+    else if (filtre === "misafirde") l = l.filter((r) => r.durum === "Teslim");
+    else if (filtre === "onay") l = l.filter((r) => r.durum === "Iade");
+    else if (filtre === "bitti") l = l.filter((r) => r.durum === "Tamam" || r.durum === "İptal");
+    return l.sort((a, b) => Date.parse(a.kurulum_zamani) - Date.parse(b.kurulum_zamani));
+  }
+
+  const sekmeler = [["pano", "Pano"], ["yeni", "+ Yeni"], ["liste", "Liste"], ["envanter", "Envanter"], ["log", "Geçmiş"]];
+  return (
+    <div style={styles.icerik}>
+      <div style={styles.listeUstBaslik}>
+        <button style={styles.geriButon} onClick={onGeri} aria-label="Geri">←</button>
+        <div>
+          <div className="baslik-font" style={styles.listeBaslikYazi}>Servis Takip</div>
+          <div style={styles.ilerlemeYazi}>{user.hotelName} · Bebek Kamerası · PS Player</div>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 6, marginTop: 12, overflowX: "auto" }}>
+        {sekmeler.map(([k, ad]) => (
+          <button key={k} onClick={() => setSekme(k)} style={{ flex: "1 0 auto", padding: "9px 10px", borderRadius: 10, border: "1.5px solid #6D28D9", background: sekme === k ? "#6D28D9" : "#fff", color: sekme === k ? "#fff" : "#6D28D9", fontWeight: 700, fontSize: 13, whiteSpace: "nowrap" }}>
+            {ad}
+          </button>
+        ))}
+      </div>
+      {hata && <div style={styles.hataKutusu}>{hata}</div>}
+      {!veri && !hata && <div style={{ ...styles.ilerlemeYazi, marginTop: 12 }}>Yükleniyor…</div>}
+
+      {veri && sekme === "pano" && (
+        <div>
+          {SERVIS_URUNLER.map((u) => {
+            const e = servisEnvanter(veri, u.kod);
+            const s = servisBugunSayilari(veri, u.kod, simdi);
+            const kutuSayi = (sayi, etiket, renk, onTikla) => (
+              <div onClick={onTikla} style={{ flex: 1, textAlign: "center", background: `${renk}14`, border: `1.5px solid ${renk}`, borderRadius: 12, padding: "8px 2px", cursor: onTikla ? "pointer" : "default" }}>
+                <div style={{ fontSize: 26, fontWeight: 800, color: renk }}>{sayi}</div>
+                <div style={{ fontSize: 11, color: "#374151", fontWeight: 700 }}>{etiket}</div>
+              </div>
+            );
+            return (
+              <div key={u.kod} style={{ ...kutu, borderTop: `4px solid ${u.renk}` }} data-testid={`pano-${u.kod}`}>
+                <div style={{ fontWeight: 800, fontSize: 16 }}>{u.ikon} {u.ad} <span style={{ fontWeight: 500, fontSize: 12, color: "#6B7280" }}>({e.toplam} adet)</span></div>
+                <div style={styles.etiket}>ENVANTER</div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {kutuSayi(e.dolu, "DOLU", "#B91C1C")}
+                  {kutuSayi(e.bos, "BOŞ", "#15803D")}
+                  {kutuSayi(e.onay, "ONAY BEKLEYEN", "#B45309")}
+                  {kutuSayi(e.oos, "OOSERVİS", "#6B7280")}
+                </div>
+                <div style={styles.etiket}>BUGÜN</div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {kutuSayi(s.teslim, "TESLİM EDİLECEK", "#2563EB", () => { setUrunFiltre(u.kod); setFiltre("rezerve"); setSekme("liste"); })}
+                  {kutuSayi(s.geri, "GERİ ALINACAK", "#0369A1", () => { setUrunFiltre(u.kod); setFiltre("misafirde"); setSekme("liste"); })}
+                  {kutuSayi(s.gecikmis, "GECİKMİŞ", s.gecikmis ? "#B91C1C" : "#6B7280", () => { setUrunFiltre(u.kod); setFiltre("misafirde"); setSekme("liste"); })}
+                </div>
+                <div style={{ ...styles.ilerlemeYazi, marginTop: 6 }}>İleri tarihli rezervasyon: {s.ileri}</div>
+              </div>
+            );
+          })}
+          <div style={{ ...kutu, marginTop: 14 }}>
+            <div style={styles.etiket}>LİSTE (PDF / E-POSTA)</div>
+            <input style={girdi} type="email" inputMode="email" placeholder="Alıcı e-posta (isteğe bağlı)" value={eposta} onChange={(e) => setEposta(e.target.value)} />
+            {SERVIS_URUNLER.map((u) => (
+              <div key={u.kod} style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center" }}>
+                <div style={{ flex: 1, fontWeight: 700, fontSize: 13 }}>{u.ikon} {u.ad}</div>
+                <button style={{ ...styles.ikincilButon, flex: 1 }} onClick={() => pdfOlustur(u.kod, false)}>📄 PDF</button>
+                <button style={{ ...styles.anaButon, flex: 1 }} onClick={() => pdfOlustur(u.kod, true)}>✉️ PDF + Mail</button>
+              </div>
+            ))}
+            {pdfMesaj && <div style={{ ...styles.ilerlemeYazi, marginTop: 8 }}>{pdfMesaj}</div>}
+            {pdfLink && (
+              <a href={pdfLink.url} target="_blank" rel="noreferrer" style={{ display: "block", marginTop: 6, fontSize: 13, color: "#6D28D9", fontWeight: 700 }}>
+                {pdfLink.ad} (aç / indir)
+              </a>
+            )}
+          </div>
+        </div>
+      )}
+
+      {veri && sekme === "yeni" && (
+        yetki.islem ? (
+          <ServisYeniForm veri={veri} simdi={simdi} girdi={girdi} kutu={kutu} onBitti={async (mesaj) => { toastGoster(mesaj); await yukle(); setFiltre("aktif"); setSekme("liste"); }} />
+        ) : (
+          <div style={styles.bilgiKutusu}>Rezervasyonu yalnızca Önbüro ve Misafir Deneyimi departmanı yapabilir.</div>
+        )
+      )}
+
+      {veri && sekme === "liste" && (
+        <div>
+          <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
+            {[["hepsi", "Hepsi"], ["BK", "👶 Kamera"], ["PS", "🎮 PS"]].map(([k, ad]) => (
+              <button key={k} onClick={() => setUrunFiltre(k)} style={{ padding: "6px 12px", borderRadius: 16, border: "1.5px solid #6D28D9", background: urunFiltre === k ? "#6D28D9" : "#fff", color: urunFiltre === k ? "#fff" : "#6D28D9", fontWeight: 700, fontSize: 12 }}>{ad}</button>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+            {[["aktif", "Aktif"], ["rezerve", "Teslim edilecek"], ["misafirde", "Misafirde"], ["onay", "Onay bekleyen"], ["bitti", "Biten (3 gün)"]].map(([k, ad]) => (
+              <button key={k} onClick={() => setFiltre(k)} style={{ padding: "6px 12px", borderRadius: 16, border: "1.5px solid #0F766E", background: filtre === k ? "#0F766E" : "#fff", color: filtre === k ? "#fff" : "#0F766E", fontWeight: 700, fontSize: 12 }}>{ad}</button>
+            ))}
+          </div>
+          {listeSatirlari().length === 0 && <div style={{ ...styles.ilerlemeYazi, marginTop: 12 }}>Kayıt yok.</div>}
+          {listeSatirlari().map(rezSatiri)}
+        </div>
+      )}
+
+      {veri && sekme === "envanter" && (
+        <div>
+          {SERVIS_URUNLER.map((u) => {
+            const e = servisEnvanter(veri, u.kod);
+            return (
+              <div key={u.kod} style={{ ...kutu, borderTop: `4px solid ${u.renk}` }}>
+                <div style={{ fontWeight: 800, fontSize: 16 }}>{u.ikon} {u.ad}</div>
+                <div style={{ fontSize: 12, color: "#4B5563", marginTop: 2 }}>
+                  Dolu {e.dolu} · Boş {e.bos} · Onay bekleyen {e.onay} · OOServis {e.oos} · Toplam {e.toplam}
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6, marginTop: 8 }}>
+                  {e.birimler.map((b) => {
+                    const r = e.disarda.get(b.no);
+                    let renk = "#15803D", alt = "Boş";
+                    if (b.durum === "OOServis") { renk = "#6B7280"; alt = "OOServis"; }
+                    else if (r && r.durum === "Teslim") { renk = Date.parse(r.iade_zamani) <= simdi ? "#7F1D1D" : "#B91C1C"; alt = `Oda ${r.oda}`; }
+                    else if (r) { renk = "#B45309"; alt = "Onay bekl."; }
+                    return (
+                      <div key={b.no} data-testid={`birim-${u.kod}-${b.no}`} onClick={() => { setBirimAcik({ urun: u.kod, no: b.no }); setOosNot(""); }} style={{ background: renk, color: "#fff", borderRadius: 10, padding: "8px 2px", textAlign: "center", fontSize: 11, cursor: "pointer", border: birimAcik && birimAcik.urun === u.kod && birimAcik.no === b.no ? "3px solid #111827" : "3px solid transparent" }}>
+                        <div style={{ fontWeight: 800, fontSize: 13 }}>{servisNo(u.kod, b.no)}</div>
+                        <div>{alt}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {birimAcik && birimAcik.urun === u.kod && (() => {
+                  const b = e.birimler.find((x) => x.no === birimAcik.no);
+                  const r = e.disarda.get(birimAcik.no);
+                  return (
+                    <div style={{ marginTop: 10, background: "#F7F4EB", borderRadius: 10, padding: 10 }}>
+                      <div style={{ fontWeight: 800 }}>{servisNo(u.kod, b.no)} — {b.durum === "OOServis" ? "OOServis" : r ? servisDurum(r, simdi).ad : "Hazır"}</div>
+                      {r && <div style={{ fontSize: 12 }}>Oda {r.oda} · {r.misafir} · İade {servisKisa(r.iade_zamani)}</div>}
+                      {b.notu && <div style={{ fontSize: 12 }}>Not: {b.notu}</div>}
+                      {yetki.bt ? (
+                        b.durum === "OOServis" ? (
+                          <button style={{ ...styles.anaButon, marginTop: 8 }} disabled={mesgul} onClick={() => islem("servis_birim_durum", { p_urun: u.kod, p_no: b.no, p_durum: "Hazir", p_not: null }, "✓ Cihaz hazır").then(() => setBirimAcik(null))}>Hazır olarak işaretle</button>
+                        ) : (
+                          <div style={{ marginTop: 8 }}>
+                            <input style={girdi} placeholder="OOServis nedeni (isteğe bağlı)" maxLength={120} value={oosNot} onChange={(ev) => setOosNot(ev.target.value)} />
+                            <button style={{ ...styles.anaButon, marginTop: 8, background: "#6B7280" }} disabled={mesgul} onClick={() => islem("servis_birim_durum", { p_urun: u.kod, p_no: b.no, p_durum: "OOServis", p_not: oosNot }, "✓ Cihaz OOServis").then(() => setBirimAcik(null))}>OOServis olarak işaretle</button>
+                          </div>
+                        )
+                      ) : (
+                        <div style={{ fontSize: 11, color: "#6B7280", marginTop: 6 }}>Hazır / OOServis işaretini yalnızca BT Müdürü yapabilir.</div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {sekme === "log" && (
+        <div style={{ marginTop: 10 }}>
+          {loglar.length === 0 && <div style={styles.ilerlemeYazi}>Henüz kayıt yok.</div>}
+          {loglar.map((l, i) => (
+            <div key={i} style={{ ...kutu, marginTop: 6, padding: 10, borderLeft: "4px solid #6D28D9" }}>
+              <div style={{ fontSize: 13, fontWeight: 700 }}>
+                {l.islem} {l.urun ? `· ${servisNo(l.urun, l.birim_no)}` : ""} {l.oda ? `· Oda ${l.oda}` : ""}
+              </div>
+              {(l.misafir || l.detay) && <div style={{ fontSize: 12, color: "#4B5563" }}>{[l.misafir, l.detay].filter(Boolean).join(" · ")}</div>}
+              <div style={{ fontSize: 11, color: "#6B7280", marginTop: 2 }}>{l.kullanici_adi} ({l.kullanici_poz || "-"}) · {servisKisa(l.zaman)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ServisYeniForm({ veri, simdi, girdi, kutu, onBitti }) {
+  const bugun = servisParca(simdi).tarih;
+  const azami = veri.azami_tarih;
+  const esik = servisParca(simdi - 15 * 60000).saat;
+  const bugunSaatleri = SERVIS_SAATLER.filter((s) => s >= esik);
+  const bugunAcik = bugunSaatleri.length > 0;
+  const [f, setF] = useState({
+    urun: "BK",
+    oda: "",
+    ad: "",
+    kTarih: bugunAcik || bugun >= azami ? bugun : servisParca(simdi + 86400000).tarih,
+    kSaat: bugunAcik ? bugunSaatleri[0] : SERVIS_SAATLER[0],
+    iTarih: "",
+    iSaat: "10:00",
+    not: "",
+  });
+  const [hata, setHata] = useState("");
+  const [onayMetni, setOnayMetni] = useState("");
+  const [mesgul, setMesgul] = useState(false);
+  const [musait, setMusait] = useState(null);
+  const ps = f.urun === "PS";
+  const kIso = f.kTarih && f.kSaat ? servisIso(f.kTarih, f.kSaat) : null;
+  const psIade = kIso ? new Date(Date.parse(kIso) + 86400000).toISOString() : null;
+  const iIso = ps ? psIade : f.iTarih ? servisIso(f.iTarih, f.iSaat) : null;
+  const saatler = f.kTarih === bugun ? bugunSaatleri : SERVIS_SAATLER;
+  useEffect(() => {
+    setMusait(null);
+    if (!kIso || !iIso || Date.parse(iIso) <= Date.parse(kIso)) return undefined;
+    let iptal = false;
+    const t = setTimeout(() => {
+      window.OtelRpc.cagir("servis_musait", { p_urun: f.urun, p_kurulum: kIso, p_iade: new Date(Date.parse(iIso)).toISOString() })
+        .then((n) => !iptal && setMusait(n))
+        .catch(() => {});
+    }, 300);
+    return () => {
+      iptal = true;
+      clearTimeout(t);
+    };
+  }, [f.urun, kIso, iIso]);
+
+  async function kaydet(onay) {
+    setHata("");
+    if (!/^[0-9]{3,4}$/.test(f.oda.trim())) return setHata("Oda numarası 3 veya 4 haneli olmalı.");
+    if (f.ad.trim().length < 2) return setHata("İsim soyisim yazın.");
+    if (!kIso) return setHata("Kurulum tarihi ve saatini seçin.");
+    if (!ps && !f.iTarih) return setHata("Bebek kamerası için iade tarihini seçin.");
+    setMesgul(true);
+    try {
+      const r = await window.OtelRpc.cagir("servis_rezerve", {
+        p_urun: f.urun, p_oda: f.oda.trim(), p_misafir: f.ad.trim(), p_kurulum: kIso,
+        p_iade: ps ? null : new Date(Date.parse(iIso)).toISOString(), p_not: f.not.trim() || null, p_onay: !!onay,
+      });
+      await onBitti(`✓ ${servisUrun(f.urun).ad} rezerve edildi (${servisNo(f.urun, r.birim_no)}) · İade ${servisKisa(r.iade_zamani)}`);
+    } catch (e) {
+      if (e.kod === "ODA_LIMIT_ONAY") setOnayMetni(e.message);
+      else if (e.kod === "ODA_LIMIT") setHata(`Bu oda için ${servisUrun(f.urun).ad} zaten aktif rezerve: ${e.message}. İkinci rezervasyonu yalnızca Müdür yapabilir.`);
+      else setHata(e.message);
+    } finally {
+      setMesgul(false);
+    }
+  }
+  const btn = (aktif, renk) => ({ flex: 1, padding: "12px 6px", borderRadius: 12, border: `2px solid ${renk}`, background: aktif ? renk : "#fff", color: aktif ? "#fff" : renk, fontWeight: 800, fontSize: 14 });
+  return (
+    <div style={{ marginTop: 6 }}>
+      <Etiket>ÜRÜN</Etiket>
+      <div style={{ display: "flex", gap: 8 }}>
+        {SERVIS_URUNLER.map((u) => (
+          <button key={u.kod} style={btn(f.urun === u.kod, u.renk)} onClick={() => { setF({ ...f, urun: u.kod }); setOnayMetni(""); }}>{u.ikon} {u.ad}</button>
+        ))}
+      </div>
+      <Etiket>ODA NUMARASI (3-4 hane)</Etiket>
+      <input style={girdi} inputMode="numeric" maxLength={4} placeholder="örn. 1204" value={f.oda} onChange={(e) => { setF({ ...f, oda: e.target.value.replace(/\D/g, "").slice(0, 4) }); setOnayMetni(""); }} />
+      <Etiket>ADI SOYADI</Etiket>
+      <input style={girdi} maxLength={80} value={f.ad} onChange={(e) => setF({ ...f, ad: e.target.value })} />
+      <Etiket>KURULUM (MİSAFİRE TESLİM) · TARİH VE SAAT (08:00–18:00)</Etiket>
+      <div style={{ display: "flex", gap: 8 }}>
+        <input type="date" style={{ ...girdi, flex: 1 }} min={bugun} max={azami} value={f.kTarih} onChange={(e) => { const d = e.target.value; const gecerli = d === bugun ? bugunSaatleri : SERVIS_SAATLER; setF({ ...f, kTarih: d, kSaat: gecerli.includes(f.kSaat) ? f.kSaat : gecerli[0] || f.kSaat }); }} />
+        <select style={{ ...girdi, width: 110 }} value={f.kSaat} onChange={(e) => setF({ ...f, kSaat: e.target.value })}>
+          {saatler.map((s) => (<option key={s} value={s}>{s}</option>))}
+        </select>
+      </div>
+      <Etiket>İADE (MİSAFİRDEN ALIŞ)</Etiket>
+      {ps ? (
+        <div style={{ ...girdi, background: "#F3F0FF", borderColor: "#6D28D9", fontWeight: 700 }} data-testid="ps-iade">
+          {psIade ? `${servisKisa(psIade)} (otomatik, 24 saat sonra)` : "-"}
+        </div>
+      ) : (
+        <div style={{ display: "flex", gap: 8 }}>
+          <input type="date" style={{ ...girdi, flex: 1 }} min={f.kTarih || bugun} value={f.iTarih} onChange={(e) => setF({ ...f, iTarih: e.target.value })} />
+          <select style={{ ...girdi, width: 110 }} value={f.iSaat} onChange={(e) => setF({ ...f, iSaat: e.target.value })}>
+            {SERVIS_SAATLER.map((s) => (<option key={s} value={s}>{s}</option>))}
+          </select>
+        </div>
+      )}
+      <Etiket>NOT (isteğe bağlı)</Etiket>
+      <textarea style={{ ...girdi, minHeight: 56 }} maxLength={300} value={f.not} onChange={(e) => setF({ ...f, not: e.target.value })} />
+      {musait !== null && (
+        <div style={{ marginTop: 10, fontSize: 13, fontWeight: 700, color: musait ? "#15803D" : "#B91C1C" }} data-testid="musait">
+          {musait ? `Bu aralıkta boş ${servisUrun(f.urun).ad}: ${musait} adet` : `Bu aralıkta boş ${servisUrun(f.urun).ad} yok`}
+        </div>
+      )}
+      {hata && <div style={styles.hataKutusu}>{hata}</div>}
+      {onayMetni && (
+        <div style={{ ...styles.hataKutusu, background: "#FEF3C7", color: "#92400E" }}>
+          Bu oda için aktif bir {servisUrun(f.urun).ad} rezervasyonu var: <b>{onayMetni}</b>. Müdür olarak ikinci rezervasyonu yapmak istiyor musunuz?
+          <button style={{ ...styles.anaButon, marginTop: 8 }} disabled={mesgul} onClick={() => kaydet(true)}>Evet, ikinci rezervasyonu kaydet</button>
+        </div>
+      )}
+      <button style={{ ...styles.anaButon, marginTop: 14 }} disabled={mesgul} onClick={() => kaydet(false)}>{mesgul ? "Kaydediliyor…" : "Rezervasyonu Kaydet"}</button>
+    </div>
+  );
+}
+
 
 function PavilionEkrani({ user, onGeri, toastGoster }) {
   const [gorunum, setGorunum] = useState("chart"); // chart | yeni | detay
