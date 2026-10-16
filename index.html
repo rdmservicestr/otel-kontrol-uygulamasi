@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.9";
+window.UYGULAMA_SURUMU = "1.10";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -9553,12 +9553,13 @@ function servisIso(tarih, saat) {
   return `${tarih}T${saat}:00+03:00`;
 }
 function servisNo(urun, no) {
+  if (no === null || no === undefined) return "Cihaz atanmadı";
   return `${urun}-${String(no).padStart(2, "0")}`;
 }
 function servisDurum(r, simdi) {
   if (r.durum === "Rezerve") {
     const gec = Date.parse(r.kurulum_zamani) < simdi - 30 * 60000;
-    return gec ? { ad: "Teslim gecikti", renk: "#B45309" } : { ad: "Rezerve", renk: "#2563EB" };
+    return gec ? { ad: "Teslim gecikti", renk: "#B45309" } : { ad: "Atama bekliyor", renk: "#2563EB" };
   }
   if (r.durum === "Teslim") {
     return Date.parse(r.iade_zamani) <= simdi ? { ad: "İADE GECİKMİŞ", renk: "#B91C1C" } : { ad: "Misafirde", renk: "#0369A1" };
@@ -9857,6 +9858,7 @@ function ServisTakipEkrani({ user, onGeri, toastGoster }) {
   const [acik, setAcik] = useState(null); // {id, tur}
   const [neden, setNeden] = useState("");
   const [birimAcik, setBirimAcik] = useState(null);
+  const [atamaNo, setAtamaNo] = useState({});
   const [oosNot, setOosNot] = useState("");
   const [eposta, setEposta] = useState(() => {
     try {
@@ -9886,6 +9888,12 @@ function ServisTakipEkrani({ user, onGeri, toastGoster }) {
       clearInterval(sn);
     };
   }, []);
+  const geriVar = !!(veri && veri.rez.some((r) => r.geri_bitis && r.durum === "Rezerve" && Date.parse(r.geri_bitis) > Date.now() + fark));
+  useEffect(() => {
+    if (!geriVar) return;
+    const t = setInterval(() => yenile((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, [geriVar]);
   useEffect(() => {
     if (sekme !== "log") return;
     window.OtelRpc.cagir("servis_log_getir", { p_limit: 150 }).then(setLoglar).catch((e) => setHata(e.message));
@@ -9969,34 +9977,59 @@ function ServisTakipEkrani({ user, onGeri, toastGoster }) {
           {r.limit_asildi ? " · 2. rezervasyon (Müdür onayı)" : ""}
           {r.teslim_zamani ? ` · Teslim: ${r.teslim_eden} ${servisKisa(r.teslim_zamani)}` : ""}
           {r.iade_alindi_zamani ? ` · İade alan: ${r.iade_alan} ${servisKisa(r.iade_alindi_zamani)}` : ""}
-          {r.onay_zamani ? ` · BT onayı: ${r.onaylayan} ${servisKisa(r.onay_zamani)}` : ""}
           {r.iptal_zamani ? ` · İptal: ${r.iptal_eden}${r.iptal_notu ? " (" + r.iptal_notu + ")" : ""}` : ""}
         </div>
         <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-          {r.durum === "Rezerve" && yetki.islem && (
+          {r.durum === "Rezerve" && r.geri_bitis && Date.parse(r.geri_bitis) > simdi && (
+            <button data-testid={`geri-${r.oda}-${r.urun}`} style={{ ...styles.ikincilButon, flex: 1, minWidth: 140, color: "#B45309", borderColor: "#B45309" }} disabled={mesgul} onClick={() => islem("servis_geri_al", { p_id: r.id }, "✓ Rezervasyon geri alındı")}>
+              ↩ Geri al ({Math.floor((Date.parse(r.geri_bitis) - simdi) / 60000)}:{String(Math.max(0, Math.floor(((Date.parse(r.geri_bitis) - simdi) % 60000) / 1000))).padStart(2, "0")})
+            </button>
+          )}
+          {r.durum === "Rezerve" && yetki.bt && (
             <>
-              <button style={{ ...styles.anaButon, flex: 1, minWidth: 120, opacity: bugun < kurulumGunu ? 0.5 : 1 }} disabled={mesgul || bugun < kurulumGunu} onClick={() => islem("servis_teslim", { p_id: r.id }, (x) => `✓ Teslim edildi (${servisNo(r.urun, x.birim_no)})`)}>
-                {bugun < kurulumGunu ? "Kurulum gününde teslim" : "Teslim Et"}
+              <button data-testid={`ata-${r.oda}-${r.urun}`} style={{ ...styles.anaButon, flex: 1, minWidth: 140, opacity: bugun < kurulumGunu ? 0.5 : 1 }} disabled={mesgul || bugun < kurulumGunu} onClick={() => setAcik({ id: r.id, tur: "ata" })}>
+                {bugun < kurulumGunu ? "Kurulum gününde atanır" : "Cihaz Ata ve Teslim Et"}
               </button>
               <button style={{ ...styles.ikincilButon, flex: 1, minWidth: 90, color: "#B91C1C", borderColor: "#B91C1C" }} onClick={() => setAcik({ id: r.id, tur: "iptal" })}>
                 İptal
               </button>
             </>
           )}
-          {r.durum === "Teslim" && (yetki.islem || yetki.bt) && (
-            <button style={{ ...styles.anaButon, flex: 1 }} disabled={mesgul} onClick={() => islem("servis_iade", { p_id: r.id }, "✓ İade alındı, BT onayı bekleniyor")}>
-              İade Al
-            </button>
+          {r.durum === "Rezerve" && !yetki.bt && !(r.geri_bitis && Date.parse(r.geri_bitis) > simdi) && (
+            <div style={{ fontSize: 12, color: "#2563EB", fontWeight: 700 }}>Cihazı BT Müdürü atayıp teslim edecek</div>
           )}
-          {r.durum === "Iade" &&
+          {r.durum === "Teslim" &&
             (yetki.bt ? (
-              <button style={{ ...styles.anaButon, flex: 1, background: "#15803D" }} disabled={mesgul} onClick={() => islem("servis_onayla", { p_id: r.id }, "✓ Ürün teslim alındı, cihaz hazır")}>
-                ✓ Ürün Alındı (BT Onayı)
+              <button data-testid={`iade-${r.oda}-${r.urun}`} style={{ ...styles.anaButon, flex: 1, background: "#15803D" }} disabled={mesgul} onClick={() => islem("servis_iade", { p_id: r.id }, "✓ İade alındı, cihaz hazır")}>
+                ✓ İade Al
               </button>
             ) : (
-              <div style={{ fontSize: 12, color: "#B45309", fontWeight: 700 }}>BT Müdürü onayı bekleniyor</div>
+              <div style={{ fontSize: 12, color: "#0369A1", fontWeight: 700 }}>İadeyi BT Müdürü alır</div>
             ))}
         </div>
+        {ac === "ata" && (() => {
+          const e = servisEnvanter(veri, r.urun);
+          const bos = e.birimler.filter((b) => b.durum === "Hazir" && !e.disarda.has(b.no));
+          const secili = atamaNo[r.id] !== undefined ? atamaNo[r.id] : bos.length ? bos[0].no : "";
+          return (
+            <div style={{ marginTop: 8 }}>
+              {bos.length === 0 ? (
+                <div style={styles.hataKutusu}>Atanabilecek boş ve hazır cihaz yok (cihazlar misafirde ya da OOServis).</div>
+              ) : (
+                <>
+                  <div style={styles.etiket}>CİHAZ SEÇ ({bos.length} boş)</div>
+                  <select data-testid="ata-secim" style={girdi} value={secili} onChange={(ev) => setAtamaNo({ ...atamaNo, [r.id]: Number(ev.target.value) })}>
+                    {bos.map((b) => (<option key={b.no} value={b.no}>{servisNo(r.urun, b.no)}</option>))}
+                  </select>
+                </>
+              )}
+              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                <button style={{ ...styles.ikincilButon, flex: 1 }} onClick={() => setAcik(null)}>Vazgeç</button>
+                <button data-testid="ata-onay" style={{ ...styles.anaButon, flex: 1 }} disabled={mesgul || bos.length === 0} onClick={() => islem("servis_ata_teslim", { p_id: r.id, p_birim: Number(secili) }, (x) => `✓ ${servisNo(r.urun, x.birim_no)} atandı ve teslim edildi`)}>Teslim Et</button>
+              </div>
+            </div>
+          );
+        })()}
         {ac === "iptal" && (
           <div style={{ marginTop: 8 }}>
             <input style={girdi} placeholder="İptal nedeni (isteğe bağlı)" maxLength={120} value={neden} onChange={(e) => setNeden(e.target.value)} />
@@ -10018,7 +10051,6 @@ function ServisTakipEkrani({ user, onGeri, toastGoster }) {
     if (filtre === "aktif") l = l.filter((r) => ["Rezerve", "Teslim", "Iade"].includes(r.durum));
     else if (filtre === "rezerve") l = l.filter((r) => r.durum === "Rezerve");
     else if (filtre === "misafirde") l = l.filter((r) => r.durum === "Teslim");
-    else if (filtre === "onay") l = l.filter((r) => r.durum === "Iade");
     else if (filtre === "bitti") l = l.filter((r) => r.durum === "Tamam" || r.durum === "İptal");
     return l.sort((a, b) => Date.parse(a.kurulum_zamani) - Date.parse(b.kurulum_zamani));
   }
@@ -10061,7 +10093,6 @@ function ServisTakipEkrani({ user, onGeri, toastGoster }) {
                 <div style={{ display: "flex", gap: 6 }}>
                   {kutuSayi(e.dolu, "DOLU", "#B91C1C")}
                   {kutuSayi(e.bos, "BOŞ", "#15803D")}
-                  {kutuSayi(e.onay, "ONAY BEKLEYEN", "#B45309")}
                   {kutuSayi(e.oos, "OOSERVİS", "#6B7280")}
                 </div>
                 <div style={styles.etiket}>BUGÜN</div>
@@ -10110,7 +10141,7 @@ function ServisTakipEkrani({ user, onGeri, toastGoster }) {
             ))}
           </div>
           <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-            {[["aktif", "Aktif"], ["rezerve", "Teslim edilecek"], ["misafirde", "Misafirde"], ["onay", "Onay bekleyen"], ["bitti", "Biten (3 gün)"]].map(([k, ad]) => (
+            {[["aktif", "Aktif"], ["rezerve", "Atama bekleyen"], ["misafirde", "Misafirde"], ["bitti", "Biten (3 gün)"]].map(([k, ad]) => (
               <button key={k} onClick={() => setFiltre(k)} style={{ padding: "6px 12px", borderRadius: 16, border: "1.5px solid #0F766E", background: filtre === k ? "#0F766E" : "#fff", color: filtre === k ? "#fff" : "#0F766E", fontWeight: 700, fontSize: 12 }}>{ad}</button>
             ))}
           </div>
@@ -10127,7 +10158,7 @@ function ServisTakipEkrani({ user, onGeri, toastGoster }) {
               <div key={u.kod} style={{ ...kutu, borderTop: `4px solid ${u.renk}` }}>
                 <div style={{ fontWeight: 800, fontSize: 16 }}>{u.ikon} {u.ad}</div>
                 <div style={{ fontSize: 12, color: "#4B5563", marginTop: 2 }}>
-                  Dolu {e.dolu} · Boş {e.bos} · Onay bekleyen {e.onay} · OOServis {e.oos} · Toplam {e.toplam}
+                  Dolu {e.dolu} · Boş {e.bos} · OOServis {e.oos} · Toplam {e.toplam}
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6, marginTop: 8 }}>
                   {e.birimler.map((b) => {
@@ -10243,7 +10274,7 @@ function ServisYeniForm({ veri, simdi, girdi, kutu, onBitti }) {
         p_urun: f.urun, p_oda: f.oda.trim(), p_misafir: f.ad.trim(), p_kurulum: kIso,
         p_iade: ps ? null : new Date(Date.parse(iIso)).toISOString(), p_not: f.not.trim() || null, p_onay: !!onay,
       });
-      await onBitti(`✓ ${servisUrun(f.urun).ad} rezerve edildi (${servisNo(f.urun, r.birim_no)}) · İade ${servisKisa(r.iade_zamani)}`);
+      await onBitti(`✓ ${servisUrun(f.urun).ad} rezerve edildi · İade ${servisKisa(r.iade_zamani)} · 3 dk içinde geri alabilirsiniz`);
     } catch (e) {
       if (e.kod === "ODA_LIMIT_ONAY") setOnayMetni(e.message);
       else if (e.kod === "ODA_LIMIT") setHata(`Bu oda için ${servisUrun(f.urun).ad} zaten aktif rezerve: ${e.message}. İkinci rezervasyonu yalnızca Müdür yapabilir.`);
