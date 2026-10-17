@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.13";
+window.UYGULAMA_SURUMU = "1.14";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -1270,7 +1270,7 @@ const STANDART_DEPARTMAN_YAPISI = [
   },
   {
     harf: "B",
-    departman: "Ön Büro / Front Office",
+    departman: "Önbüro",
     bolumler: [
       "Resepsiyon",
       "Guest Relations",
@@ -1863,6 +1863,7 @@ const POZISYON_TAKMA_ADLARI = {
   "BAR MUDURU": "BAR YONETICISI",
   "MINI KLUB ANIMATORU": "MINI CLUB ANIMATORU",
   BOYACI: "TEKNIK SERVIS / BOYACI",
+  RESEPSIYON: "RESEPSIYONIST",
 };
 
 function pozAnahtar(ad) {
