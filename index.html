@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.17";
+window.UYGULAMA_SURUMU = "1.18";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -3517,6 +3517,7 @@ function App() {
             onAlacarte={() => setScreen("alacarte")}
             onServis={() => setScreen("servis")}
             onRevir={() => setScreen("revir")}
+            onHK={() => setScreen("hk")}
             onGMYonetim={() => setScreen("gmYonetim")}
             bekleyenGorevler={bekleyenGorevler}
             onGorevKabul={gorevKabulEt}
@@ -3605,6 +3606,8 @@ function App() {
           <ServisTakipEkrani user={currentUser} onGeri={() => setScreen("home")} toastGoster={toastGoster} />
         ) : screen === "revir" && revirKullanabilir(currentUser) ? (
           <RevirEkrani user={currentUser} onGeri={() => setScreen("home")} toastGoster={toastGoster} />
+        ) : screen === "hk" && hkKullanabilir(currentUser) ? (
+          <HKEkrani user={currentUser} onGeri={() => setScreen("home")} toastGoster={toastGoster} />
         ) : screen === "alacarte" && alacarteKullanabilir(currentUser) ? (
           <AlacarteEkrani user={currentUser} onGeri={() => setScreen("home")} toastGoster={toastGoster} />
         ) : null}
@@ -3820,6 +3823,7 @@ function AnaSayfa({
   onAlacarte,
   onServis,
   onRevir,
+  onHK,
   bekleyenGorevler,
   onGorevKabul,
 }) {
@@ -3933,13 +3937,9 @@ function AnaSayfa({
           </button>
         )}
 
-        {(user.department === "Kat Hizmetleri" || user.department === "Genel Müdürlük") && (
-          <button
-            data-testid="hk-is-takibi"
-            disabled
-            style={{ ...styles.pavilionButon, borderColor: "#9CA3AF", color: "#6B7280", background: "#F3F4F6", cursor: "not-allowed", opacity: 0.85 }}
-          >
-            🧹 HK İş Takibi <span style={{ fontSize: 12, fontWeight: 600 }}>· yapım aşamasında</span>
+        {hkKullanabilir(user) && (
+          <button data-testid="hk-is-takibi" style={{ ...styles.pavilionButon, borderColor: "#0F766E", color: "#0F766E" }} onClick={onHK}>
+            🧹 HK İş Takibi (hizmet talebi · oda akışı)
           </button>
         )}
 
@@ -10569,6 +10569,493 @@ const REVIR_KATEGORILER = [
   { k: "AGRI", ad: "Ağrı (bel, diz, karın…)", ikon: "💢" },
   { k: "DIGER", ad: "Diğer", ikon: "➕" },
 ];
+const HK_OTELLER = ["5557"];
+const HK_DEPARTMANLAR = ["Kat Hizmetleri", "Önbüro", "Misafir Deneyimi & Kalite", "Genel Müdürlük"];
+const HK_TURLER = [["Havlu", "Havlu"], ["Minibar", "Minibar"], ["Temizlik", "Ekstra temizlik"], ["Yatak", "Yatak düzeni"], ["EkYatak", "Ek yatak / beşik"], ["Amenity", "Amenity"], ["Susleme", "Süsleme"], ["Camasir", "Çamaşır"], ["Kayip", "Kayıp eşya"], ["Sikayet", "Şikayet"], ["Diger", "Diğer"]];
+const HK_ONCELIK = [["Normal", "Normal"], ["Acil", "Acil"], ["Sikayet", "Şikayet"]];
+const HK_ODA_ONCELIK = [["Normal", "Normal"], ["Erken", "Erken giriş"], ["VIP", "VIP"], ["RC", "R/C"]];
+const HK_DURUM = { Acik: ["Bekliyor", "#B45309"], Kabul: ["Atandı", "#0369A1"], Basladi: ["Yapılıyor", "#6D28D9"], Tamam: ["Onay bekliyor", "#0F766E"], Kapandi: ["Kapandı", "#15803D"], Iptal: ["İptal", "#6B7280"] };
+const HK_ODA_DURUM = { Bekle: ["BEKLE – girme", "#6B7280"], Kirli: ["Kirli", "#B91C1C"], Temizleniyor: ["Temizleniyor", "#6D28D9"], Kontrol: ["Kontrol bekliyor", "#B45309"], Hazir: ["Hazır", "#15803D"] };
+function hkKullanabilir(user) {
+  return !!user && HK_OTELLER.includes(user.hotelCode) && HK_DEPARTMANLAR.includes(user.department);
+}
+function hkTur(k) {
+  const x = HK_TURLER.find((a) => a[0] === k);
+  return x ? x[1] : k || "";
+}
+function hkRaporTarihKaydir(tarih, periyot, yon) {
+  const [y, m, g] = tarih.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m - 1, g));
+  if (periyot === "hafta") d.setUTCDate(d.getUTCDate() + 7 * yon);
+  else if (periyot === "ay") d.setUTCMonth(d.getUTCMonth() + yon, 1);
+  else d.setUTCFullYear(d.getUTCFullYear() + yon, 0, 1);
+  return d.toISOString().slice(0, 10);
+}
+function hkYuzde(a, b) {
+  return b ? Math.round((100 * a) / b) + "%" : "–";
+}
+function hkRaporSatirlari(r) {
+  const o = r.ozet || {};
+  const od = r.oda || {};
+  const s = [
+    ["Dönem", `${r.bas} – ${r.bit}`],
+    ["Toplam talep", o.toplam],
+    ["Onaylanıp kapanan", o.kapanan],
+    ["İptal", o.iptal],
+    ["Hâlâ açık", o.acik],
+    ["Şikâyet", o.sikayet],
+    ["'Olmadı' ile yeniden açılan", o.olmadi],
+    ["Ortalama kabul (dk)", o.ort_kabul_dk ?? "–"],
+    ["Ortalama tamamlama (dk)", o.ort_tamam_dk ?? "–"],
+    ["Kabul hedefine uyum", hkYuzde(o.kabul_sla, o.kabul_say)],
+    ["Tamamlama hedefine uyum", hkYuzde(o.tamam_sla, o.tamam_say)],
+    ["Oda çıkışı", od.cikis],
+    ["Hazır olan oda", od.hazir],
+    ["R/C", od.rc],
+    ["Kontrolde eksik çıkan oda", od.eksik],
+    ["Ortalama çıkış → hazır (dk)", od.ort_cikis_hazir_dk ?? "–"],
+    ["Ortalama temizlik süresi (dk)", od.ort_temizlik_dk ?? "–"],
+  ];
+  (r.turler || []).forEach((t) => s.push([`Tür: ${hkTur(t.tur)}`, `${t.adet} talep · ort. ${t.ort_tamam_dk ?? "–"} dk · hedef uyumu ${hkYuzde(t.sla, t.tamam)}`]));
+  (r.departmanlar || []).forEach((d) => s.push([`Talep açan: ${d.dept}`, d.adet]));
+  (r.tekrar_odalar || []).forEach((t) => s.push([`Tekrar eden oda ${t.oda}`, `${t.adet} talep`]));
+  return s;
+}
+function hkRaporCsv(r, periyot) {
+  const esc = (v) => '"' + String(v ?? "").replace(/"/g, '""') + '"';
+  const satirlar = [["Gösterge", "Değer"], ...hkRaporSatirlari(r)];
+  satirlar.push([], ["Günlük talep sayısı"], ["Gün", "Adet"], ...(r.gunler || []).map((g) => [g.gun, g.adet]));
+  satirlar.push([], ["Saatlik dağılım"], ["Saat", "Adet"], ...(r.saatler || []).map((g) => [g.saat + ":00", g.adet]));
+  const csv = "﻿" + satirlar.map((s) => s.map(esc).join(";")).join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `hk-rapor-${periyot}-${r.bas}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    URL.revokeObjectURL(a.href);
+    a.remove();
+  }, 500);
+}
+function hkRaporPdf(r, periyot, hotelName, kullaniciAdi) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
+  const font = pavPdfFontYukle(doc);
+  const W = doc.internal.pageSize.getWidth();
+  const H = doc.internal.pageSize.getHeight();
+  const m = 36;
+  let y = m;
+  doc.setFont(font, "bold");
+  doc.setFontSize(16);
+  doc.setTextColor(22, 50, 58);
+  doc.text(`HK İş Takibi – ${{ hafta: "Haftalık", ay: "Aylık", yil: "Yıllık" }[periyot]} Rapor`, m, y + 4);
+  doc.setDrawColor(176, 141, 62);
+  doc.line(m, y + 12, W - m, y + 12);
+  y += 32;
+  doc.setFont(font, "normal");
+  doc.setFontSize(9);
+  doc.setTextColor(90, 90, 90);
+  doc.text(`${hotelName}  |  Hazırlayan: ${kullaniciAdi}  |  ${new Date().toLocaleString("tr-TR")}${r.arsiv ? "  |  Kapanmış dönem (arşiv)" : "  |  Güncel dönem (henüz bitmedi)"}`, m, y);
+  y += 20;
+  doc.setFontSize(10.5);
+  hkRaporSatirlari(r).forEach((s, i) => {
+    if (y > H - m) {
+      doc.addPage();
+      y = m;
+    }
+    if (i % 2 === 0) {
+      doc.setFillColor(246, 243, 235);
+      doc.rect(m - 4, y - 11, W - 2 * m + 8, 16, "F");
+    }
+    doc.setTextColor(40, 40, 40);
+    doc.text(String(s[0]), m, y);
+    doc.text(String(s[1]), W - m, y, { align: "right" });
+    y += 16;
+  });
+  doc.save(`hk-rapor-${periyot}-${r.bas}.pdf`);
+}
+
+function HKEkrani({ user, onGeri, toastGoster }) {
+  const [sekme, setSekme] = useState("pano");
+  const [pano, setPano] = useState(null);
+  const [talepler, setTalepler] = useState([]);
+  const [odalar, setOdalar] = useState([]);
+  const [filtre, setFiltre] = useState("acik");
+  const [hata, setHata] = useState("");
+  const [soru, setSoru] = useState(null);
+  const [soruMetin, setSoruMetin] = useState("");
+  const [acikId, setAcikId] = useState(null);
+  const [detay, setDetay] = useState(null);
+  const [form, setForm] = useState({ oda: "", tur: "Havlu", oncelik: "Normal", notu: "" });
+  const [formAcik, setFormAcik] = useState(false);
+  const [cikis, setCikis] = useState({ odalar: "", oncelik: "Normal" });
+  const [rc, setRc] = useState({ eski: "", yeni: "" });
+  const [periyot, setPeriyot] = useState("hafta");
+  const [rTarih, setRTarih] = useState(() => servisParca(Date.now()).tarih);
+  const [rapor, setRapor] = useState(null);
+  const [, yenile] = useState(0);
+  const rol = (pano && pano.rol) || {};
+  const simdi = Date.now();
+  const kutu = { background: "#fff", border: "1px solid #E2DCCC", borderRadius: 12, padding: 12, marginTop: 10 };
+  const girdi = { width: "100%", padding: "11px 12px", borderRadius: 10, border: "1.5px solid #D6CFBD", fontSize: 16, boxSizing: "border-box", background: "#fff", marginTop: 6 };
+  const RENK = "#0F766E";
+  const btn = (renk, dolu) => ({ padding: "9px 12px", borderRadius: 10, border: `1.5px solid ${renk}`, background: dolu ? renk : "#fff", color: dolu ? "#fff" : renk, fontWeight: 700, fontSize: 13 });
+
+  async function yukle(sessiz) {
+    try {
+      const p = await window.OtelRpc.cagir("hk_pano");
+      setPano(p);
+      const [t, o] = await Promise.all([window.OtelRpc.cagir("hk_talep_listele", { p_filtre: filtre, p_limit: 200 }), window.OtelRpc.cagir("hk_oda_listele")]);
+      setTalepler(t);
+      setOdalar(o);
+      if (!sessiz) setHata("");
+    } catch (e) {
+      if (!sessiz) setHata(e.message);
+    }
+  }
+  useEffect(() => {
+    yukle(false);
+    const t = setInterval(() => yukle(true), 15000);
+    const sn = setInterval(() => yenile((n) => n + 1), 30000);
+    return () => {
+      clearInterval(t);
+      clearInterval(sn);
+    };
+  }, [filtre]);
+  async function raporYukle() {
+    try {
+      setHata("");
+      setRapor(await window.OtelRpc.cagir("hk_rapor", { p_periyot: periyot, p_tarih: rTarih }));
+    } catch (e) {
+      setRapor(null);
+      setHata(e.message);
+    }
+  }
+  useEffect(() => {
+    if (sekme === "rapor" && rol.rapor) raporYukle();
+  }, [sekme, periyot, rTarih, rol.rapor]);
+
+  async function islem(ad, args, mesaj) {
+    try {
+      const r = await window.OtelRpc.cagir(ad, args);
+      if (mesaj) toastGoster(mesaj);
+      await yukle(true);
+      return r;
+    } catch (e) {
+      toastGoster(e.message);
+      return null;
+    }
+  }
+  function sor(baslik, zorunlu, devam) {
+    setSoruMetin("");
+    setSoru({ baslik, zorunlu, devam });
+  }
+  async function talepAc() {
+    const r = await islem("hk_talep_ac", { p_oda: form.oda, p_tur: form.tur, p_not: form.notu || null, p_oncelik: form.oncelik }, null);
+    if (r) {
+      toastGoster(`Talep #${r.no} açıldı` + (r.benzer && r.benzer.length ? ` (bu odada açık benzer talep: #${r.benzer.join(", #")})` : ""));
+      setForm({ oda: "", tur: "Havlu", oncelik: "Normal", notu: "" });
+      setFormAcik(false);
+    }
+  }
+  async function detayAc(id) {
+    if (acikId === id) return setAcikId(null);
+    setAcikId(id);
+    setDetay(null);
+    try {
+      setDetay(await window.OtelRpc.cagir("hk_talep_detay", { p_id: id }));
+    } catch (e) {
+      toastGoster(e.message);
+    }
+  }
+
+  const kutuSayi = (sayi, etiket, renk, onTikla, tid) => (
+    <div data-testid={tid} onClick={onTikla} style={{ flex: "1 1 30%", textAlign: "center", background: `${renk}14`, border: `1.5px solid ${renk}`, borderRadius: 12, padding: "8px 2px", cursor: onTikla ? "pointer" : "default" }}>
+      <div style={{ fontSize: 26, fontWeight: 800, color: renk }}>{sayi}</div>
+      <div style={{ fontSize: 11, color: "#374151", fontWeight: 700 }}>{etiket}</div>
+    </div>
+  );
+  function git(f) {
+    setFiltre(f);
+    setSekme("talep");
+  }
+  function talepKart(t) {
+    const d = HK_DURUM[t.durum] || [t.durum, "#6B7280"];
+    const acikIs = ["Acik", "Kabul", "Basladi"].includes(t.durum);
+    const onayYetkili = t.durum === "Tamam" && (t.benim || (rol.acan && t.ayni_dept));
+    return (
+      <div key={t.id} data-testid={`talep-${t.no}`} style={{ ...kutu, borderLeft: `5px solid ${t.gecikti ? "#B91C1C" : d[1]}` }}>
+        <div onClick={() => detayAc(t.id)} style={{ cursor: "pointer" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+            <div style={{ fontWeight: 800, fontSize: 15 }}>
+              {t.oncelik !== "Normal" ? (t.oncelik === "Acil" ? "🔥 " : "⚠️ ") : ""}Oda {t.oda} · {hkTur(t.tur)}
+            </div>
+            <div style={{ background: d[1], color: "#fff", borderRadius: 8, fontSize: 11, fontWeight: 800, padding: "3px 8px", whiteSpace: "nowrap", alignSelf: "flex-start" }}>{d[0]}</div>
+          </div>
+          <div style={{ fontSize: 12, color: "#4B5563", marginTop: 2 }}>
+            #{t.no} · {t.acan_dept} / {t.acan_adi} · {revirGecen(t.olusturma_zamani, simdi)}
+            {t.atanan_adi ? ` · 👤 ${t.atanan_adi}` : ""}
+            {t.yeniden_acma ? ` · ↻ ${t.yeniden_acma}. kez yeniden açıldı` : ""}
+          </div>
+          {t.notu && <div style={{ fontSize: 13, marginTop: 2 }}>📝 {t.notu}</div>}
+          {t.gecikti && <div style={{ fontSize: 12, color: "#B91C1C", fontWeight: 800 }}>⏱ Hedef süre aşıldı ({t.durum === "Acik" ? `kabul ${t.hedef_kabul_dk}` : `tamamlama ${t.hedef_tamam_dk}`} dk)</div>}
+          {t.durum === "Tamam" && t.tamam_notu && <div style={{ fontSize: 12, color: RENK }}>HK notu: {t.tamam_notu}</div>}
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+          {t.durum === "Acik" && rol.kat && <button data-testid={`ustlen-${t.no}`} style={btn(RENK, true)} onClick={() => islem("hk_talep_kabul", { p_id: t.id, p_kod: null }, "Talebi üstlendiniz")}>Üstlen</button>}
+          {t.durum === "Acik" && rol.dispatch && <button data-testid={`ata-${t.no}`} style={btn(RENK)} onClick={() => sor("Görevli kullanıcı kodu (ör. 1201)", true, (v) => islem("hk_talep_kabul", { p_id: t.id, p_kod: v.trim() }, "Görevli atandı"))}>Ata</button>}
+          {t.durum === "Kabul" && t.atanan_benim && <button data-testid={`basla-${t.no}`} style={btn("#6D28D9", true)} onClick={() => islem("hk_talep_basla", { p_id: t.id }, "Başlandı")}>Başla</button>}
+          {t.durum === "Kabul" && !t.atanan_benim && rol.dispatch && <button style={btn(RENK)} onClick={() => sor("Yeni görevli kodu", true, (v) => islem("hk_talep_kabul", { p_id: t.id, p_kod: v.trim() }, "Yeniden atandı"))}>Yeniden ata</button>}
+          {t.durum === "Basladi" && (t.atanan_benim || rol.dispatch) && <button data-testid={`tamam-${t.no}`} style={btn("#15803D", true)} onClick={() => sor("Tamamlama notu (isteğe bağlı)", false, (v) => islem("hk_talep_tamam", { p_id: t.id, p_not: v || null }, "Tamamlandı – onay bekliyor"))}>Tamamladım</button>}
+          {onayYetkili && <button data-testid={`onay-${t.no}`} style={btn("#15803D", true)} onClick={() => islem("hk_talep_onay", { p_id: t.id, p_sonuc: "Tamam", p_not: null }, "Talep kapandı")}>✓ Tamam</button>}
+          {onayYetkili && <button data-testid={`olmadi-${t.no}`} style={btn("#B91C1C")} onClick={() => sor("Neden olmadı? (zorunlu)", true, (v) => islem("hk_talep_onay", { p_id: t.id, p_sonuc: "Olmadi", p_not: v }, "Talep yeniden açıldı"))}>✗ Olmadı</button>}
+          {acikIs && (t.benim || rol.dispatch || rol.yonetim) && <button style={btn("#6B7280")} onClick={() => sor("İptal nedeni (isteğe bağlı)", false, (v) => islem("hk_talep_iptal", { p_id: t.id, p_not: v || null }, "İptal edildi"))}>İptal</button>}
+        </div>
+        {acikId === t.id && (
+          <div style={{ marginTop: 8, borderTop: "1px dashed #D6CFBD", paddingTop: 6, fontSize: 12 }}>
+            {!detay ? "Yükleniyor…" : (detay.olaylar || []).map((o, i) => (
+              <div key={i} style={{ marginTop: 2 }}>
+                <b>{servisKisa(o.zaman)}</b> · {o.tur}{o.metin ? ` – ${o.metin}` : ""} <span style={{ color: "#6B7280" }}>({o.kim})</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+  function odaKart(o) {
+    const d = HK_ODA_DURUM[o.durum] || [o.durum, "#6B7280"];
+    return (
+      <div key={o.id} data-testid={`oda-${o.oda}`} style={{ ...kutu, borderLeft: `5px solid ${d[1]}`, opacity: o.durum === "Hazir" ? 0.75 : 1 }}>
+        <div style={{ display: "flex", justifyContent: "space-between" }}>
+          <div style={{ fontWeight: 800, fontSize: 16 }}>
+            Oda {o.oda} {o.oncelik === "RC" ? "🔁 R/C" : o.oncelik === "VIP" ? "⭐ VIP" : o.oncelik === "Erken" ? "⏰ Erken giriş" : ""}
+          </div>
+          <div style={{ background: d[1], color: "#fff", borderRadius: 8, fontSize: 11, fontWeight: 800, padding: "3px 8px", alignSelf: "flex-start" }}>{d[0]}</div>
+        </div>
+        <div style={{ fontSize: 12, color: "#4B5563" }}>
+          {o.cikis_zamani ? `çıkış ${revirGecen(o.cikis_zamani, simdi)}` : ""}
+          {o.atanan_adi ? ` · 👤 ${o.atanan_adi}` : ""}
+          {o.eksik_sayisi ? ` · ⚠ ${o.eksik_sayisi} kez eksik` : ""}
+        </div>
+        {o.notu && <div style={{ fontSize: 12 }}>📝 {o.notu}</div>}
+        {o.kontrol_notu && o.durum === "Kirli" && <div style={{ fontSize: 12, color: "#B91C1C" }}>Eksik: {o.kontrol_notu}</div>}
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+          {o.durum === "Kirli" && rol.kat && <button data-testid={`obasla-${o.oda}`} style={btn("#6D28D9", true)} onClick={() => islem("hk_oda_basla", { p_id: o.id }, "Temizlik başladı")}>Temizliğe başla</button>}
+          {o.durum === "Temizleniyor" && (o.benim || rol.dispatch) && <button data-testid={`obitir-${o.oda}`} style={btn("#B45309", true)} onClick={() => islem("hk_oda_bitir", { p_id: o.id }, "Kontrole gönderildi")}>Bitirdim</button>}
+          {o.durum === "Kontrol" && rol.kontrol && <button data-testid={`ok-${o.oda}`} style={btn("#15803D", true)} onClick={() => islem("hk_oda_kontrol", { p_id: o.id, p_sonuc: "OK", p_not: null }, "Oda hazır")}>✓ Hazır</button>}
+          {o.durum === "Kontrol" && rol.kontrol && <button data-testid={`eksik-${o.oda}`} style={btn("#B91C1C")} onClick={() => sor("Eksik nedir? (zorunlu)", true, (v) => islem("hk_oda_kontrol", { p_id: o.id, p_sonuc: "Eksik", p_not: v }, "Odaya geri gönderildi"))}>✗ Eksik</button>}
+          {["Bekle", "Kirli"].includes(o.durum) && (rol.acan || rol.dispatch) && <button style={btn("#6B7280")} onClick={() => islem("hk_oda_iptal", { p_id: o.id, p_not: null }, "Kayıt iptal edildi")}>Hatalı giriş</button>}
+        </div>
+      </div>
+    );
+  }
+
+  const sekmeler = [["pano", "Pano"], ["talep", "Talepler"], ["oda", "Odalar"], ...(rol.rapor ? [["rapor", "Raporlar"]] : [])];
+  const filtreler = [["acik", "Açık"], ["bekleyen", "Bekleyen"], ["bana", "Bende"], ["onay", "Onay bekleyen"], ["geciken", "Geciken"], ["kapali", "Kapalı (7 gün)"]];
+  const talepAcabilir = rol.acan || rol.dispatch || rol.yonetim;
+  const r = rapor;
+  const ozet = (r && r.ozet) || {};
+
+  return (
+    <div style={styles.icerik} data-testid="hk-ekrani">
+      <div style={styles.listeUstBaslik}>
+        <button style={styles.geriButon} onClick={onGeri} aria-label="Geri">←</button>
+        <div>
+          <div className="baslik-font" style={styles.listeBaslikYazi}>HK İş Takibi</div>
+          <div style={styles.ilerlemeYazi}>{user.hotelName} · hizmet talepleri ve oda akışı</div>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 6, marginTop: 12, overflowX: "auto" }}>
+        {sekmeler.map(([k, ad]) => (
+          <button key={k} data-testid={`hk-sekme-${k}`} onClick={() => setSekme(k)} style={{ flex: "1 0 auto", padding: "9px 10px", borderRadius: 10, border: `1.5px solid ${RENK}`, background: sekme === k ? RENK : "#fff", color: sekme === k ? "#fff" : RENK, fontWeight: 700, fontSize: 13, whiteSpace: "nowrap" }}>
+            {ad}
+          </button>
+        ))}
+      </div>
+      {hata && <div style={styles.hataKutusu}>{hata}</div>}
+      {!pano && !hata && <div style={{ ...styles.ilerlemeYazi, marginTop: 12 }}>Yükleniyor…</div>}
+
+      {soru && (
+        <div data-testid="hk-soru" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+          <div style={{ background: "#fff", borderRadius: 14, padding: 16, width: "100%", maxWidth: 420 }}>
+            <div style={{ fontWeight: 800 }}>{soru.baslik}</div>
+            <textarea data-testid="hk-soru-metin" autoFocus value={soruMetin} onChange={(e) => setSoruMetin(e.target.value)} rows={3} maxLength={200} style={girdi} />
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <button style={{ ...btn("#6B7280"), flex: 1 }} onClick={() => setSoru(null)}>Vazgeç</button>
+              <button
+                data-testid="hk-soru-tamam"
+                style={{ ...btn(RENK, true), flex: 1, opacity: soru.zorunlu && !soruMetin.trim() ? 0.5 : 1 }}
+                disabled={soru.zorunlu && !soruMetin.trim()}
+                onClick={() => {
+                  const f = soru.devam;
+                  const v = soruMetin.trim();
+                  setSoru(null);
+                  f(v);
+                }}
+              >
+                Tamam
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pano && sekme === "pano" && (
+        <div>
+          <div style={{ ...kutu, borderTop: `4px solid ${RENK}` }}>
+            <div style={styles.etiket}>HİZMET TALEPLERİ · ŞU AN</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {kutuSayi(pano.talep.acik, "AÇIK", "#0369A1", () => git("acik"), "hp-acik")}
+              {kutuSayi(pano.talep.bekleyen, "KABUL BEKLEYEN", pano.talep.bekleyen ? "#B45309" : "#6B7280", () => git("bekleyen"), "hp-bekleyen")}
+              {kutuSayi(pano.talep.geciken, "SÜRESİ GEÇEN", pano.talep.geciken ? "#B91C1C" : "#6B7280", () => git("geciken"), "hp-geciken")}
+              {kutuSayi(pano.talep.onay, "ONAY BEKLEYEN", pano.talep.onay ? "#0F766E" : "#6B7280", () => git("onay"), "hp-onay")}
+              {kutuSayi(pano.ben.benim_gorev, "BENDEKİ İŞ", "#6D28D9", () => git("bana"), "hp-bende")}
+              {kutuSayi(pano.ben.benim_onay, "ONAYIMI BEKLEYEN", pano.ben.benim_onay ? "#0F766E" : "#6B7280", () => git("onay"), "hp-onayim")}
+            </div>
+            <div style={styles.etiket}>ODALAR</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {kutuSayi(pano.oda.kirli, "KİRLİ", "#B91C1C", () => setSekme("oda"), "hp-kirli")}
+              {kutuSayi(pano.oda.temizleniyor, "TEMİZLENİYOR", "#6D28D9", () => setSekme("oda"))}
+              {kutuSayi(pano.oda.kontrol, "KONTROL BEKLEYEN", pano.oda.kontrol ? "#B45309" : "#6B7280", () => setSekme("oda"), "hp-kontrol")}
+              {kutuSayi(pano.oda.hazir_bugun, "BUGÜN HAZIR", "#15803D", () => setSekme("oda"))}
+              {kutuSayi(pano.oda.bekle, "BEKLE (R/C)", "#6B7280", () => setSekme("oda"))}
+            </div>
+            <div style={styles.etiket}>BUGÜN</div>
+            <div style={{ fontSize: 13 }}>
+              {pano.talep.bugun} talep açıldı · {pano.talep.bugun_kapanan} kapandı · ortalama tamamlama {pano.talep.ort_tamam_dk ?? "–"} dk
+            </div>
+          </div>
+          {talepAcabilir && <button data-testid="hk-yeni-talep" style={{ ...styles.pavilionButon, borderColor: RENK, color: RENK }} onClick={() => { setSekme("talep"); setFormAcik(true); }}>+ Yeni hizmet talebi</button>}
+        </div>
+      )}
+
+      {pano && sekme === "talep" && (
+        <div>
+          {talepAcabilir && (
+            <div style={kutu}>
+              <button data-testid="hk-form-ac" style={btn(RENK, formAcik)} onClick={() => setFormAcik(!formAcik)}>{formAcik ? "Formu kapat" : "+ Yeni hizmet talebi"}</button>
+              {formAcik && (
+                <div data-testid="hk-form">
+                  <input data-testid="hk-f-oda" inputMode="numeric" placeholder="Oda no (ör. 1101)" value={form.oda} onChange={(e) => setForm({ ...form, oda: e.target.value.replace(/\D/g, "").slice(0, 4) })} style={girdi} />
+                  <select data-testid="hk-f-tur" value={form.tur} onChange={(e) => setForm({ ...form, tur: e.target.value })} style={girdi}>
+                    {HK_TURLER.map(([k, a]) => <option key={k} value={k}>{a}</option>)}
+                  </select>
+                  <select data-testid="hk-f-oncelik" value={form.oncelik} onChange={(e) => setForm({ ...form, oncelik: e.target.value })} style={girdi}>
+                    {HK_ONCELIK.map(([k, a]) => <option key={k} value={k}>{a}</option>)}
+                  </select>
+                  <input data-testid="hk-f-not" placeholder="Not (ör. 2 adet havlu)" maxLength={200} value={form.notu} onChange={(e) => setForm({ ...form, notu: e.target.value })} style={girdi} />
+                  <button data-testid="hk-f-gonder" style={{ ...btn(RENK, true), width: "100%", marginTop: 8, opacity: form.oda.length < 3 ? 0.5 : 1 }} disabled={form.oda.length < 3} onClick={talepAc}>Talebi gönder</button>
+                </div>
+              )}
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 6, marginTop: 10, overflowX: "auto" }}>
+            {filtreler.map(([k, a]) => (
+              <button key={k} data-testid={`hk-filtre-${k}`} onClick={() => setFiltre(k)} style={{ ...btn(RENK, filtre === k), whiteSpace: "nowrap", flex: "0 0 auto" }}>{a}</button>
+            ))}
+          </div>
+          {talepler.length === 0 ? <div style={{ ...styles.ilerlemeYazi, marginTop: 12 }}>Bu filtrede talep yok.</div> : talepler.map(talepKart)}
+        </div>
+      )}
+
+      {pano && sekme === "oda" && (
+        <div>
+          {(rol.acan || rol.dispatch) && (
+            <div style={kutu}>
+              <div style={styles.etiket}>ÇIKAN ODALAR (birden fazla: boşluk veya virgülle)</div>
+              <input data-testid="hk-c-odalar" placeholder="1101 1102 1205" value={cikis.odalar} onChange={(e) => setCikis({ ...cikis, odalar: e.target.value })} style={girdi} />
+              <select data-testid="hk-c-oncelik" value={cikis.oncelik} onChange={(e) => setCikis({ ...cikis, oncelik: e.target.value })} style={girdi}>
+                {HK_ODA_ONCELIK.filter((x) => x[0] !== "RC").map(([k, a]) => <option key={k} value={k}>{a}</option>)}
+              </select>
+              <button
+                data-testid="hk-c-gonder"
+                style={{ ...btn(RENK, true), width: "100%", marginTop: 8 }}
+                onClick={async () => {
+                  const liste = cikis.odalar.split(/[\s,;]+/).filter(Boolean);
+                  const s = await islem("hk_oda_cikis", { p_odalar: liste, p_oncelik: cikis.oncelik, p_not: null }, null);
+                  if (s) {
+                    toastGoster(`${s.eklenen.length} oda kirli listesine alındı` + (s.atlanan.length ? `; zaten açık: ${s.atlanan.join(", ")}` : ""));
+                    setCikis({ ...cikis, odalar: "" });
+                  }
+                }}
+              >
+                Çıktı olarak bildir
+              </button>
+              <div style={{ ...styles.etiket, marginTop: 12 }}>ODA DEĞİŞİKLİĞİ (R/C)</div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <input data-testid="hk-rc-eski" inputMode="numeric" placeholder="Eski oda" value={rc.eski} onChange={(e) => setRc({ ...rc, eski: e.target.value.replace(/\D/g, "").slice(0, 4) })} style={girdi} />
+                <input data-testid="hk-rc-yeni" inputMode="numeric" placeholder="Yeni oda" value={rc.yeni} onChange={(e) => setRc({ ...rc, yeni: e.target.value.replace(/\D/g, "").slice(0, 4) })} style={girdi} />
+              </div>
+              <button
+                data-testid="hk-rc-gonder"
+                style={{ ...btn("#B45309", true), width: "100%", marginTop: 8 }}
+                onClick={async () => {
+                  if (await islem("hk_oda_rc", { p_eski: rc.eski, p_yeni: rc.yeni, p_not: null }, "R/C kaydedildi: yeni oda öncelikli, eski oda BEKLE")) setRc({ eski: "", yeni: "" });
+                }}
+              >
+                R/C bildir
+              </button>
+            </div>
+          )}
+          {odalar.length === 0 ? <div style={{ ...styles.ilerlemeYazi, marginTop: 12 }}>Açık oda kaydı yok.</div> : odalar.map(odaKart)}
+        </div>
+      )}
+
+      {pano && sekme === "rapor" && rol.rapor && (
+        <div data-testid="hk-rapor">
+          <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+            {[["hafta", "Haftalık"], ["ay", "Aylık"], ["yil", "Yıllık"]].map(([k, a]) => (
+              <button key={k} data-testid={`hk-per-${k}`} style={{ ...btn(RENK, periyot === k), flex: 1 }} onClick={() => { setPeriyot(k); setRTarih(servisParca(Date.now()).tarih); }}>{a}</button>
+            ))}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 10 }}>
+            <button data-testid="hk-onceki" style={btn(RENK)} onClick={() => setRTarih(hkRaporTarihKaydir(rTarih, periyot, -1))}>← Önceki</button>
+            <div style={{ fontWeight: 800, fontSize: 13, textAlign: "center" }}>{r ? `${r.bas} – ${r.bit}` : "…"}<div style={{ fontSize: 11, color: r && r.arsiv ? "#15803D" : "#B45309" }}>{r ? (r.arsiv ? "Kapanmış dönem · arşivlendi" : "Güncel dönem · henüz bitmedi") : ""}</div></div>
+            <button data-testid="hk-sonraki" style={btn(RENK)} disabled={rTarih >= servisParca(Date.now()).tarih || (r && !r.arsiv)} onClick={() => setRTarih(hkRaporTarihKaydir(rTarih, periyot, 1))}>Sonraki →</button>
+          </div>
+          {r && (
+            <div>
+              <div style={kutu}>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {kutuSayi(ozet.toplam, "TALEP", "#0369A1", null, "hr-toplam")}
+                  {kutuSayi(ozet.ort_tamam_dk ?? "–", "ORT. TAMAM (DK)", RENK)}
+                  {kutuSayi(hkYuzde(ozet.tamam_sla, ozet.tamam_say), "HEDEFE UYUM", "#15803D")}
+                  {kutuSayi(ozet.olmadi, "OLMADI", ozet.olmadi ? "#B91C1C" : "#6B7280")}
+                  {kutuSayi(r.oda.cikis, "ODA ÇIKIŞI", "#6D28D9")}
+                  {kutuSayi(r.oda.ort_cikis_hazir_dk ?? "–", "ÇIKIŞ→HAZIR (DK)", "#B45309")}
+                </div>
+              </div>
+              <div style={kutu}>
+                <div style={styles.etiket}>TÜRE GÖRE</div>
+                {(r.turler || []).map((t) => (
+                  <div key={t.tur} style={{ marginTop: 6, fontSize: 13 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}><span>{hkTur(t.tur)}</span><b>{t.adet}</b></div>
+                    <div style={{ height: 6, background: "#E5E7EB", borderRadius: 4 }}><div style={{ height: 6, width: `${Math.round((100 * t.adet) / Math.max(1, ozet.toplam))}%`, background: RENK, borderRadius: 4 }} /></div>
+                  </div>
+                ))}
+                {!(r.turler || []).length && <div style={{ fontSize: 13 }}>Bu dönemde talep yok.</div>}
+                <div style={styles.etiket}>TALEBİ AÇAN DEPARTMAN</div>
+                {(r.departmanlar || []).map((d) => <div key={d.dept} style={{ fontSize: 13 }}>{d.dept}: <b>{d.adet}</b></div>)}
+                {!!(r.tekrar_odalar || []).length && <div style={styles.etiket}>TEKRAR EDEN ODALAR</div>}
+                {(r.tekrar_odalar || []).map((d) => <div key={d.oda} style={{ fontSize: 13 }}>Oda {d.oda}: <b>{d.adet}</b> talep</div>)}
+              </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                <button data-testid="hk-pdf" style={{ ...btn(RENK, true), flex: 1 }} onClick={() => {
+                  if (!(window.jspdf && window.jspdf.jsPDF)) return toastGoster("PDF oluşturucu hazırlanıyor, birkaç saniye sonra deneyin.");
+                  try { hkRaporPdf(r, periyot, user.hotelName, user.name); } catch (e) { toastGoster("PDF oluşturulamadı: " + e.message); }
+                }}>PDF indir</button>
+                <button data-testid="hk-csv" style={{ ...btn(RENK), flex: 1 }} onClick={() => hkRaporCsv(r, periyot)}>Excel (CSV) indir</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const REVIR_YERLER = [["Oda", "Oda"], ["Aquapark", "Aquapark"], ["Havuz", "Havuz"], ["Restoran", "Restoran"], ["Plaj", "Plaj"], ["Lobi", "Lobi"], ["Diger", "Diğer"]];
 const REVIR_YAS = [["Belirsiz", "Belirsiz"], ["Bebek", "Bebek (0-2)"], ["Cocuk", "Çocuk"], ["Yetiskin", "Yetişkin"], ["Yasli", "Yaşlı"], ["Personel", "Personel"]];
 const REVIR_UYRUK = [["", "—"], ["TR", "Türkiye"], ["RU", "Rusya"], ["DE", "Almanya"], ["EN", "İngilizce"], ["Diğer", "Diğer"]];
