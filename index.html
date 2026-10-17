@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.16";
+window.UYGULAMA_SURUMU = "1.17";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -11881,6 +11881,8 @@ function AdminEkrani({ onCikis, onPinDegistir }) {
   const [kullanicilar, setKullanicilar] = useState([]);
   const [hata, setHata] = useState("");
   const [acikKullanici, setAcikKullanici] = useState(null); // "hotelCode:userCode"
+  const [acikOtel, setAcikOtel] = useState(null); // otel kodu (akordiyon: aynı anda tek otel açık)
+  const [acikDepartman, setAcikDepartman] = useState(null); // "otelKodu|departman" (aynı anda tek departman açık)
   const [ilerlemeVerisi, setIlerlemeVerisi] = useState({}); // { [anahtar]: {...} }
   const [duzenlenenKullanici, setDuzenlenenKullanici] = useState(null); // anahtar
   const [duzenleForm, setDuzenleForm] = useState({ department: "", bolum: "", pozisyon: "", password: "" });
@@ -12009,6 +12011,19 @@ function AdminEkrani({ onCikis, onPinDegistir }) {
     }
   }
 
+  function otelTikla(kod) {
+    setAcikOtel((onceki) => (onceki === kod ? null : kod));
+    setAcikDepartman(null);
+    setAcikKullanici(null);
+    setDuzenlenenKullanici(null);
+  }
+
+  function departmanTikla(anahtar) {
+    setAcikDepartman((onceki) => (onceki === anahtar ? null : anahtar));
+    setAcikKullanici(null);
+    setDuzenlenenKullanici(null);
+  }
+
   function satiraTikla(kullanici) {
     const anahtar = `${kullanici.hotelCode}:${kullanici.userCode}`;
     if (acikKullanici === anahtar) {
@@ -12080,24 +12095,59 @@ function AdminEkrani({ onCikis, onPinDegistir }) {
               .filter((k) => k.hotelCode === otel.code && k.department !== "Admin")
               .sort((a, b) => (a.userCode < b.userCode ? -1 : 1));
             if (otel.code === "0001") return null; // yönetim "oteli"ni listede göstermeye gerek yok
+            const departmanGruplari = {};
+            otelKullanicilari.forEach((k) => {
+              (departmanGruplari[k.department || "Belirsiz"] = departmanGruplari[k.department || "Belirsiz"] || []).push(k);
+            });
             return (
               <div key={otel.code} style={styles.adminOtelKarti}>
-                <div style={styles.adminOtelBaslik}>
+                <button
+                  data-testid={`otel-${otel.code}`}
+                  style={{ ...styles.adminOtelBaslik, width: "100%", border: "none", cursor: "pointer", textAlign: "left", fontFamily: "inherit" }}
+                  onClick={() => otelTikla(otel.code)}
+                >
                   <span>{otel.name}</span>
-                  <span style={styles.adminOtelKodRozeti}>Kod {otel.code}</span>
-                </div>
+                  <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={styles.adminOtelKodRozeti}>{otelKullanicilari.length} kullanıcı · Kod {otel.code}</span>
+                    <span>{acikOtel === otel.code ? "▲" : "▼"}</span>
+                  </span>
+                </button>
 
-                {otelKullanicilari.length === 0 ? (
+                {acikOtel === otel.code && (otelKullanicilari.length === 0 ? (
                   <div style={styles.adminBosMetin}>Bu otel için henüz kullanıcı tanımlanmadı.</div>
                 ) : (
+                  <div>
+                    {Object.keys(departmanGruplari)
+                      .sort((a, b) => a.localeCompare(b, "tr"))
+                      .map((dep) => {
+                        const depAnahtar = `${otel.code}|${dep}`;
+                        const depAcik = acikDepartman === depAnahtar;
+                        const depKullanicilari = departmanGruplari[dep];
+                        return (
+                          <div key={dep}>
+                            <button
+                              data-testid={`dept-${otel.code}-${dep}`}
+                              style={{
+                                display: "flex", width: "100%", justifyContent: "space-between", alignItems: "center", textAlign: "left",
+                                padding: "12px 14px", border: "none", borderTop: "1px solid #E2DCCC", cursor: "pointer", fontFamily: "inherit",
+                                background: depAcik ? "#EEF3F4" : "#F8F5EE", color: "#16323A", fontSize: 14, fontWeight: 700,
+                              }}
+                              onClick={() => departmanTikla(depAnahtar)}
+                            >
+                              <span>{dep}</span>
+                              <span style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 600, color: "#6B7280" }}>
+                                {depKullanicilari.length} kullanıcı <span>{depAcik ? "▲" : "▼"}</span>
+                              </span>
+                            </button>
+                            {depAcik && (
                   <div style={styles.adminTablo}>
                     <div style={{ ...styles.adminSatir, ...styles.adminSatirBaslik }}>
                       <div style={styles.adminHucreKod}>Kod</div>
                       <div style={styles.adminHucreIsim}>İsim</div>
-                      <div style={styles.adminHucreDepartman}>Departman</div>
+                      <div style={styles.adminHucreDepartman}>Pozisyon</div>
                       <div style={styles.adminHucreSifre}>Şifre</div>
                     </div>
-                    {otelKullanicilari.map((k) => {
+                    {depKullanicilari.map((k) => {
                       const anahtar = `${k.hotelCode}:${k.userCode}`;
                       const acik = acikKullanici === anahtar;
                       const ilerleme = ilerlemeVerisi[anahtar];
@@ -12109,13 +12159,21 @@ function AdminEkrani({ onCikis, onPinDegistir }) {
                           >
                             <div style={styles.adminHucreKod}>{k.userCode}</div>
                             <div style={styles.adminHucreIsim}>{k.name}</div>
-                            <div style={styles.adminHucreDepartman}>{k.department}</div>
+                            <div style={styles.adminHucreDepartman}>{k.pozisyon || "-"}</div>
                             <div style={styles.adminHucreSifre}>••••••</div>
                             <div style={styles.adminOkIsareti}>{acik ? "▲" : "▼"}</div>
                           </button>
 
                           {acik && (
                             <div style={styles.adminIlerlemePaneli}>
+                              <div data-testid={`kisi-${k.userCode}`} style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 12px", fontSize: 13, marginBottom: 12, color: "#16323A" }}>
+                                <span style={{ color: "#6B7280" }}>Ad Soyad</span><strong>{k.name}</strong>
+                                <span style={{ color: "#6B7280" }}>Otel · Kod</span><span>{otel.name} · {k.hotelCode}-{k.userCode}</span>
+                                <span style={{ color: "#6B7280" }}>Departman</span><span>{k.department}</span>
+                                <span style={{ color: "#6B7280" }}>Bölüm</span><span>{k.bolum ? bolumBasligiBul(k.department, k.bolum) : "-"}</span>
+                                <span style={{ color: "#6B7280" }}>Pozisyon</span><span>{k.pozisyon || "-"}</span>
+                                <span style={{ color: "#6B7280" }}>Hesap</span><span>{k.active === false ? "⛔ Pasif" : "✓ Aktif"}</span>
+                              </div>
                               {!ilerleme || ilerleme.yukleniyor ? (
                                 <div style={styles.adminIlerlemeYukleniyor}>Yükleniyor…</div>
                               ) : ilerleme.hata ? (
@@ -12260,7 +12318,12 @@ function AdminEkrani({ onCikis, onPinDegistir }) {
                       );
                     })}
                   </div>
-                )}
+                            )}
+                          </div>
+                        );
+                      })}
+                  </div>
+                ))}
               </div>
             );
           })}
