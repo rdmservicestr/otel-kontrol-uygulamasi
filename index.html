@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.10";
+window.UYGULAMA_SURUMU = "1.11";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -3424,6 +3424,7 @@ function App() {
             onPavilion={() => setScreen("pavilion")}
             onAlacarte={() => setScreen("alacarte")}
             onServis={() => setScreen("servis")}
+            onRevir={() => setScreen("revir")}
             onGMYonetim={() => setScreen("gmYonetim")}
             bekleyenGorevler={bekleyenGorevler}
             onGorevKabul={gorevKabulEt}
@@ -3488,6 +3489,8 @@ function App() {
           <PavilionEkrani user={currentUser} onGeri={() => setScreen("home")} toastGoster={toastGoster} />
         ) : screen === "servis" && servisKullanabilir(currentUser) ? (
           <ServisTakipEkrani user={currentUser} onGeri={() => setScreen("home")} toastGoster={toastGoster} />
+        ) : screen === "revir" && revirKullanabilir(currentUser) ? (
+          <RevirEkrani user={currentUser} onGeri={() => setScreen("home")} toastGoster={toastGoster} />
         ) : screen === "alacarte" && alacarteKullanabilir(currentUser) ? (
           <AlacarteEkrani user={currentUser} onGeri={() => setScreen("home")} toastGoster={toastGoster} />
         ) : null}
@@ -3711,6 +3714,7 @@ function AnaSayfa({
   onPavilion,
   onAlacarte,
   onServis,
+  onRevir,
   bekleyenGorevler,
   onGorevKabul,
 }) {
@@ -3839,6 +3843,12 @@ function AnaSayfa({
         {servisKullanabilir(user) && (
           <button style={{ ...styles.pavilionButon, borderColor: "#6D28D9", color: "#6D28D9" }} onClick={onServis}>
             🎮 Servis Takip (Bebek Kamerası · PS)
+          </button>
+        )}
+
+        {revirKullanabilir(user) && (
+          <button data-testid="revir-btn" style={{ ...styles.pavilionButon, borderColor: "#B91C1C", color: "#B91C1C" }} onClick={onRevir}>
+            🩺 Revir Takip (sağlık vakası bildir / takip)
           </button>
         )}
 
@@ -10335,6 +10345,606 @@ function ServisYeniForm({ veri, simdi, girdi, kutu, onBitti }) {
   );
 }
 
+
+// ======================= REVİR TAKİP =======================
+const REVIR_OTELLER = ["5557"];
+const REVIR_KATEGORILER = [
+  { k: "GIS", ad: "Kusma / İshal / Mide", ikon: "🤢" },
+  { k: "ATES_ENF", ad: "Ateş / Enfeksiyon / Boğaz-Kulak", ikon: "🌡️" },
+  { k: "TRAVMA", ad: "Düşme / Yara / Kesi", ikon: "🩹" },
+  { k: "GOZ", ad: "Göz (klor vb.)", ikon: "👁️" },
+  { k: "ALERJI_BOCEK", ad: "Alerji / Böcek / Döküntü", ikon: "🐝" },
+  { k: "GUNES_SICAK", ad: "Güneş / Sıcak çarpması", ikon: "☀️" },
+  { k: "BAYILMA_TANSIYON", ad: "Bayılma / Tansiyon", ikon: "💓" },
+  { k: "AGRI", ad: "Ağrı (bel, diz, karın…)", ikon: "💢" },
+  { k: "DIGER", ad: "Diğer", ikon: "➕" },
+];
+const REVIR_YERLER = [["Oda", "Oda"], ["Aquapark", "Aquapark"], ["Havuz", "Havuz"], ["Restoran", "Restoran"], ["Plaj", "Plaj"], ["Lobi", "Lobi"], ["Diger", "Diğer"]];
+const REVIR_YAS = [["Belirsiz", "Belirsiz"], ["Bebek", "Bebek (0-2)"], ["Cocuk", "Çocuk"], ["Yetiskin", "Yetişkin"], ["Yasli", "Yaşlı"], ["Personel", "Personel"]];
+const REVIR_UYRUK = [["", "—"], ["TR", "Türkiye"], ["RU", "Rusya"], ["DE", "Almanya"], ["EN", "İngilizce"], ["Diğer", "Diğer"]];
+const REVIR_KARARLAR = [["Otelde", "Otelde müdahale"], ["Gozlem", "Revirde gözlem"], ["Eczane", "Eczaneye yönlendirildi"], ["Hastane", "Hastane sevki"], ["Ret", "Tedaviyi reddetti"]];
+const REVIR_SEVK = [["Ambulans", "Ambulans"], ["KendiAraci", "Kendi aracı"], ["Taksi", "Taksi"], ["OtelAraci", "Otel aracı"]];
+const REVIR_SONUC = [["Iyilesti", "İyileşti"], ["OteldenAyrildi", "Otelden ayrıldı"], ["HastayaYatirildi", "Hastaneye yatırıldı"], ["TedaviReddedildi", "Tedavi reddedildi (ret formu)"], ["TakipDisi", "Takip dışı"]];
+const REVIR_TAKIP = [["Iyi", "İyi"], ["Ayni", "Aynı"], ["Kotu", "Kötüleşti"], ["Ulasilamadi", "Ulaşılamadı"]];
+function revirKullanabilir(user) {
+  return !!user && REVIR_OTELLER.includes(user.hotelCode);
+}
+function revirEtiket(liste, k) {
+  const x = liste.find((a) => a[0] === k);
+  return x ? x[1] : k || "";
+}
+function revirKat(k) {
+  return REVIR_KATEGORILER.find((x) => x.k === k) || { k, ad: k, ikon: "•" };
+}
+function revirNo(n) {
+  return "R-" + String(n).padStart(4, "0");
+}
+function revirGecen(iso, simdi) {
+  if (!iso) return "";
+  const dk = Math.max(0, Math.round((simdi - Date.parse(iso)) / 60000));
+  if (dk < 60) return `${dk} dk önce`;
+  if (dk < 48 * 60) return `${Math.floor(dk / 60)} sa önce`;
+  return `${Math.floor(dk / 1440)} gün önce`;
+}
+function revirDurum(v, simdi) {
+  if (v.durum === "Kapandi") return { ad: "Kapandı", renk: "#6B7280" };
+  if (v.karar === "Hastane" && !v.donus_zamani) return { ad: "Hastanede / yolda", renk: "#B91C1C" };
+  if (v.durum === "Bildirildi") return { ad: "Değerlendirme bekliyor", renk: "#B45309" };
+  if (v.sonraki_takip && Date.parse(v.sonraki_takip) <= simdi) return { ad: "Takip gecikti", renk: "#B91C1C" };
+  return { ad: "Takipte", renk: "#0369A1" };
+}
+function revirPdf(liste, pano, tarih, hotelName, kullaniciAdi) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "landscape" });
+  const font = pavPdfFontYukle(doc);
+  const W = doc.internal.pageSize.getWidth();
+  const H = doc.internal.pageSize.getHeight();
+  const m = 30;
+  let y = m;
+  function yeniSayfa(ih) {
+    if (y + ih > H - m) {
+      doc.addPage();
+      y = m;
+    }
+  }
+  doc.setFont(font, "bold");
+  doc.setFontSize(16);
+  doc.setTextColor(22, 50, 58);
+  doc.text("Revir Günlük Özeti", m, y + 4);
+  doc.setDrawColor(176, 141, 62);
+  doc.setLineWidth(1.2);
+  doc.line(m, y + 12, W - m, y + 12);
+  y += 30;
+  doc.setFont(font, "normal");
+  doc.setFontSize(10);
+  doc.setTextColor(70, 70, 70);
+  doc.text(`${hotelName}   |   Tarih: ${formatTarihSadece(tarih)}   |   Hazırlayan: ${kullaniciAdi}   |   ${new Date().toLocaleString("tr-TR")}`, m, y);
+  y += 16;
+  const say = (f) => liste.filter(f).length;
+  doc.setFont(font, "bold");
+  doc.setFontSize(11);
+  doc.text(`Toplam vaka: ${liste.length}   |   Kusma/ishal: ${say((v) => v.kategori.includes("GIS"))}   |   Hastane sevki: ${say((v) => v.karar === "Hastane")}   |   Ambulans: ${say((v) => v.sevk_sekli === "Ambulans")}   |   Tedavi reddi: ${say((v) => v.karar === "Ret")}`, m, y);
+  y += 14;
+  doc.setFont(font, "normal");
+  doc.setFontSize(8);
+  doc.text("Bu özet kişisel (ad-soyad, tanı, tedavi) veri içermez; yalnızca oda ve vaka bilgisi bulunur.", m, y);
+  y += 16;
+  const kolon = [["Vaka", 52], ["Saat", 70], ["Oda", 40], ["Tür", 190], ["Kişi / Yaş", 90], ["Yer", 62], ["Karar / Sevk", 150], ["Durum", 100], ["Takip", 0]];
+  const toplam = W - 2 * m;
+  const sabit = kolon.slice(0, -1).reduce((t, k) => t + k[1], 0);
+  const gen = kolon.map((k, i) => (i === kolon.length - 1 ? toplam - sabit : k[1]));
+  const kes = (t, g) => {
+    let x = String(t == null ? "" : t);
+    while (x.length > 1 && doc.getTextWidth(x) > g - 6) x = x.slice(0, -1);
+    return x;
+  };
+  const satir = (h, kalin, dolgu) => {
+    yeniSayfa(16);
+    if (dolgu) {
+      doc.setFillColor(dolgu[0], dolgu[1], dolgu[2]);
+      doc.rect(m, y - 11, toplam, 15, "F");
+    }
+    doc.setFont(font, kalin ? "bold" : "normal");
+    let x = m;
+    h.forEach((v, i) => {
+      doc.text(kes(v, gen[i]), x + 3, y);
+      x += gen[i];
+    });
+    y += 15;
+  };
+  doc.setFontSize(9);
+  doc.setTextColor(30, 30, 30);
+  satir(kolon.map((k) => k[0]), true, [232, 226, 208]);
+  if (!liste.length) satir(["Kayıt yok"], false);
+  const sim = Date.now();
+  liste.slice().sort((a, b) => Date.parse(a.olay_zamani) - Date.parse(b.olay_zamani)).forEach((v, i) => {
+    const d = revirDurum(v, sim);
+    satir([revirNo(v.vaka_no), servisKisa(v.olay_zamani), v.oda, v.kategori.map((k) => revirKat(k).ad.split(" /")[0]).join(", "), `${v.kisi_sayisi} · ${revirEtiket(REVIR_YAS, v.yas_grubu)}`, revirEtiket(REVIR_YERLER, v.olay_yeri), [v.karar ? revirEtiket(REVIR_KARARLAR, v.karar) : "-", v.sevk_sekli ? revirEtiket(REVIR_SEVK, v.sevk_sekli) : ""].filter(Boolean).join(" · "), v.durum === "Kapandi" ? "Kapandı" : d.ad, v.son_takip_durumu ? revirEtiket(REVIR_TAKIP, v.son_takip_durumu) : ""], false, i % 2 ? [247, 244, 235] : null);
+  });
+  return doc;
+}
+
+function RevirEkrani({ user, onGeri, toastGoster }) {
+  const [yetki, setYetki] = useState(null);
+  const [sekme, setSekme] = useState("pano");
+  const [pano, setPano] = useState(null);
+  const [liste, setListe] = useState([]);
+  const [filtre, setFiltre] = useState("acik");
+  const [detayId, setDetayId] = useState(null);
+  const [hata, setHata] = useState("");
+  const [fark, setFark] = useState(0);
+  const [, yenile] = useState(0);
+  const [eposta, setEposta] = useState(() => {
+    try {
+      return window.localStorage.getItem("revir_eposta") || "";
+    } catch (e) {
+      return "";
+    }
+  });
+  const [pdfMesaj, setPdfMesaj] = useState("");
+  const kutu = { background: "#fff", border: "1px solid #E2DCCC", borderRadius: 12, padding: 12, marginTop: 10 };
+  const girdi = { width: "100%", padding: "11px 12px", borderRadius: 10, border: "1.5px solid #D6CFBD", fontSize: 16, boxSizing: "border-box", background: "#fff" };
+  const simdi = Date.now() + fark;
+  const gor = !!(yetki && yetki.goruntule);
+
+  async function yukleYetki() {
+    try {
+      const y = await window.OtelRpc.cagir("revir_yetki");
+      setYetki(y);
+      if (!y.goruntule) setSekme("yeni");
+      return y;
+    } catch (e) {
+      setHata(e.message);
+      return null;
+    }
+  }
+  async function yukle(sessiz) {
+    if (!gor) return;
+    try {
+      const [p, l] = await Promise.all([window.OtelRpc.cagir("revir_pano"), window.OtelRpc.cagir("revir_listele", { p_filtre: filtre, p_limit: 200 })]);
+      setPano(p);
+      setListe(l);
+      setFark(Date.parse(p.simdi) - Date.now());
+      if (!sessiz) setHata("");
+    } catch (e) {
+      if (!sessiz) setHata(e.message);
+    }
+  }
+  useEffect(() => {
+    yukleYetki();
+  }, []);
+  useEffect(() => {
+    yukle(false);
+    if (!gor) return;
+    const t = setInterval(() => yukle(true), 15000);
+    const sn = setInterval(() => yenile((n) => n + 1), 30000);
+    return () => {
+      clearInterval(t);
+      clearInterval(sn);
+    };
+  }, [gor, filtre]);
+
+  function pdfGunluk(epostaGonder) {
+    setPdfMesaj("");
+    if (!(window.jspdf && window.jspdf.jsPDF)) return setPdfMesaj("PDF oluşturucu hazırlanıyor, birkaç saniye sonra tekrar deneyin.");
+    const adres = eposta.trim();
+    if (epostaGonder && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(adres)) return setPdfMesaj("Lütfen geçerli bir e-posta adresi yazın.");
+    window.OtelRpc.cagir("revir_listele", { p_filtre: "gun", p_limit: 500 })
+      .then((l) => {
+        const tarih = servisParca(simdi).tarih;
+        const doc = revirPdf(l, pano, tarih, user.hotelName, user.name);
+        const ad = `revir-ozet-${tarih}.pdf`;
+        try {
+          doc.save(ad);
+        } catch (e) {}
+        if (epostaGonder) {
+          try {
+            window.localStorage.setItem("revir_eposta", adres);
+          } catch (e) {}
+          const konu = encodeURIComponent(`${user.hotelName} - Revir Günlük Özeti - ${formatTarihSadece(tarih)}`);
+          const govde = encodeURIComponent(`Merhaba,\n\nRevir günlük özeti PDF olarak cihaza indirildi.\nLütfen e-posta uygulamasında "${ad}" dosyasını ekleyip gönderin.\n\nOtel: ${user.hotelName}\nHazırlayan: ${user.name}`);
+          window.location.href = `mailto:${adres}?subject=${konu}&body=${govde}`;
+          setPdfMesaj("PDF indirildi ve e-posta uygulamanız açıldı. Dosyayı ekleyip gönderin.");
+        } else setPdfMesaj("PDF indirildi.");
+      })
+      .catch((e) => setPdfMesaj("PDF oluşturulamadı: " + e.message));
+  }
+
+  const sekmeler = gor ? [["pano", "Pano"], ["yeni", "+ Bildir"], ["liste", "Vakalar"]] : [["yeni", "+ Bildir"]];
+  const filtreler = [["acik", "Açık"], ["bekleyen", "Bekleyen"], ["hastanede", "Hastanede"], ["takip", "Takip gecikmiş"], ["gun", "Bugün"], ["kapali", "Kapalı (7 gün)"]];
+  const kutuSayi = (sayi, etiket, renk, onTikla, tid) => (
+    <div data-testid={tid} onClick={onTikla} style={{ flex: "1 1 30%", textAlign: "center", background: `${renk}14`, border: `1.5px solid ${renk}`, borderRadius: 12, padding: "8px 2px", cursor: onTikla ? "pointer" : "default" }}>
+      <div style={{ fontSize: 26, fontWeight: 800, color: renk }}>{sayi}</div>
+      <div style={{ fontSize: 11, color: "#374151", fontWeight: 700 }}>{etiket}</div>
+    </div>
+  );
+  function git(f) {
+    setFiltre(f);
+    setSekme("liste");
+  }
+  function kart(v) {
+    const d = revirDurum(v, simdi);
+    return (
+      <div key={v.id} data-testid={`vaka-${v.oda}`} onClick={() => setDetayId(v.id)} style={{ ...kutu, borderLeft: `5px solid ${d.renk}`, cursor: "pointer" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
+          <div style={{ fontWeight: 800, fontSize: 15 }}>
+            {v.yuksek_risk ? "🚨 " : ""}{revirNo(v.vaka_no)} · Oda {v.oda}
+          </div>
+          <div style={{ background: d.renk, color: "#fff", borderRadius: 8, fontSize: 11, fontWeight: 800, padding: "3px 8px", whiteSpace: "nowrap" }}>{d.ad}</div>
+        </div>
+        <div style={{ fontSize: 14, marginTop: 2 }}>{v.kategori.map((k) => revirKat(k).ikon + " " + revirKat(k).ad).join("  ·  ")}</div>
+        <div style={{ fontSize: 12, color: "#4B5563", marginTop: 2 }}>
+          {v.kisi_sayisi} kişi · {revirEtiket(REVIR_YAS, v.yas_grubu)} · {revirEtiket(REVIR_YERLER, v.olay_yeri)} · {revirGecen(v.olay_zamani, simdi)}
+        </div>
+        {v.sikayet && <div style={{ fontSize: 12, color: "#4B5563" }}>{v.sikayet}</div>}
+        {(v.karar || v.sevk_sekli) && (
+          <div style={{ fontSize: 12, color: "#111827", marginTop: 2, fontWeight: 700 }}>
+            {revirEtiket(REVIR_KARARLAR, v.karar)}{v.sevk_sekli ? " · " + revirEtiket(REVIR_SEVK, v.sevk_sekli) : ""}{v.hastane_adi ? " · " + v.hastane_adi : ""}{v.donus_zamani ? " · döndü " + servisKisa(v.donus_zamani) : ""}
+          </div>
+        )}
+        {v.karar === "Ret" && !v.ret_formu && v.durum !== "Kapandi" && <div style={{ fontSize: 12, color: "#B91C1C", fontWeight: 800 }}>⚠ İmzalı ret formu bekleniyor</div>}
+        {v.durum !== "Kapandi" && v.sonraki_takip && <div style={{ fontSize: 11, color: Date.parse(v.sonraki_takip) <= simdi ? "#B91C1C" : "#6B7280" }}>Sonraki takip: {servisKisa(v.sonraki_takip)}</div>}
+      </div>
+    );
+  }
+
+  if (detayId)
+    return (
+      <RevirDetay id={detayId} yetki={yetki || {}} simdi={simdi} kutu={kutu} girdi={girdi} toastGoster={toastGoster} onGeri={() => { setDetayId(null); yukle(true); }} />
+    );
+
+  return (
+    <div style={styles.icerik}>
+      <div style={styles.listeUstBaslik}>
+        <button style={styles.geriButon} onClick={onGeri} aria-label="Geri">←</button>
+        <div>
+          <div className="baslik-font" style={styles.listeBaslikYazi}>Revir Takip</div>
+          <div style={styles.ilerlemeYazi}>{user.hotelName} · sağlık vakası bildirimi ve takibi</div>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 6, marginTop: 12, overflowX: "auto" }}>
+        {sekmeler.map(([k, ad]) => (
+          <button key={k} onClick={() => setSekme(k)} style={{ flex: "1 0 auto", padding: "9px 10px", borderRadius: 10, border: "1.5px solid #B91C1C", background: sekme === k ? "#B91C1C" : "#fff", color: sekme === k ? "#fff" : "#B91C1C", fontWeight: 700, fontSize: 13, whiteSpace: "nowrap" }}>
+            {ad}
+          </button>
+        ))}
+      </div>
+      {hata && <div style={styles.hataKutusu}>{hata}</div>}
+      {!yetki && !hata && <div style={{ ...styles.ilerlemeYazi, marginTop: 12 }}>Yükleniyor…</div>}
+
+      {yetki && sekme === "pano" && gor && pano && (
+        <div>
+          {pano.kumelenme && (
+            <div data-testid="kumelenme" style={{ marginTop: 10, background: "#FEE2E2", border: "2px solid #B91C1C", borderRadius: 12, padding: 12 }}>
+              <div style={{ fontWeight: 800, color: "#7F1D1D" }}>⚠️ KUSMA / İSHAL KÜMELENMESİ</div>
+              <div style={{ fontSize: 13, color: "#7F1D1D", marginTop: 4 }}>
+                Son 24 saatte {pano.gis_24s_oda} farklı odada vaka var (eşik {pano.esik}). Odalar: {pano.gis_odalar.join(", ")}. Gıda güvenliği, Kalite ve Genel Müdür Yardımcısı bilgilendirilmeli; misafirlerin ortak yedikleri yemek/alan sorgulanmalı.
+              </div>
+            </div>
+          )}
+          <div style={{ ...kutu, borderTop: "4px solid #B91C1C" }}>
+            <div style={styles.etiket}>ŞU AN</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {kutuSayi(pano.acik, "AÇIK VAKA", "#0369A1", () => git("acik"), "p-acik")}
+              {kutuSayi(pano.bekleyen, "DEĞERLENDİRME BEKLEYEN", pano.bekleyen ? "#B45309" : "#6B7280", () => git("bekleyen"), "p-bekleyen")}
+              {kutuSayi(pano.hastanede, "HASTANEDE", pano.hastanede ? "#B91C1C" : "#6B7280", () => git("hastanede"), "p-hastanede")}
+              {kutuSayi(pano.takip_gecikmis, "TAKİP GECİKMİŞ", pano.takip_gecikmis ? "#B91C1C" : "#6B7280", () => git("takip"), "p-takip")}
+              {kutuSayi(pano.yuksek_risk, "YÜKSEK RİSK", pano.yuksek_risk ? "#B91C1C" : "#6B7280", () => git("acik"), "p-risk")}
+            </div>
+            <div style={styles.etiket}>BUGÜN</div>
+            <div style={{ display: "flex", gap: 6 }}>
+              {kutuSayi(pano.bugun_toplam, "TOPLAM", "#15803D", () => git("gun"), "p-bugun")}
+              {kutuSayi(pano.bugun_hastane, "HASTANE SEVKİ", "#B45309")}
+              {kutuSayi(pano.bugun_ambulans, "AMBULANS", "#B91C1C")}
+            </div>
+            <div style={styles.etiket}>SON 24 SAAT (TÜRE GÖRE)</div>
+            <div style={{ fontSize: 13 }}>
+              {Object.keys(pano.kategori_24s).length === 0 ? "Vaka yok" : Object.entries(pano.kategori_24s).sort((a, b) => b[1] - a[1]).map(([k, n]) => (
+                <span key={k} style={{ display: "inline-block", marginRight: 10 }}>{revirKat(k).ikon} {revirKat(k).ad.split(" /")[0]}: <b>{n}</b></span>
+              ))}
+            </div>
+            <div style={styles.etiket}>SON 7 GÜN (TOPLAM / KUSMA-İSHAL)</div>
+            <div style={{ display: "flex", gap: 4, alignItems: "flex-end", height: 70 }}>
+              {pano.son7.map((g) => {
+                const mx = Math.max(1, ...pano.son7.map((x) => x.toplam));
+                return (
+                  <div key={g.gun} style={{ flex: 1, textAlign: "center", fontSize: 10 }}>
+                    <div style={{ height: Math.max(2, (g.toplam / mx) * 46), background: "#0369A1", borderRadius: 3, position: "relative" }}>
+                      <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: `${g.toplam ? (g.gis / g.toplam) * 100 : 0}%`, background: "#B91C1C", borderRadius: 3 }} />
+                    </div>
+                    {g.toplam}/{g.gis}
+                    <div style={{ color: "#6B7280" }}>{g.gun.slice(8, 10)}.{g.gun.slice(5, 7)}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <div style={{ ...kutu, marginTop: 14 }}>
+            <div style={styles.etiket}>GÜNLÜK ÖZET (PDF / E-POSTA, kişisel veri içermez)</div>
+            <input style={girdi} type="email" inputMode="email" placeholder="Alıcı e-posta (isteğe bağlı)" value={eposta} onChange={(e) => setEposta(e.target.value)} />
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <button style={{ ...styles.ikincilButon, flex: 1 }} onClick={() => pdfGunluk(false)}>📄 PDF</button>
+              <button style={{ ...styles.anaButon, flex: 1 }} onClick={() => pdfGunluk(true)}>✉️ PDF + Mail</button>
+            </div>
+            {pdfMesaj && <div style={{ ...styles.ilerlemeYazi, marginTop: 8 }}>{pdfMesaj}</div>}
+          </div>
+        </div>
+      )}
+
+      {yetki && sekme === "yeni" && (
+        <RevirBildirForm kutu={kutu} girdi={girdi} gor={gor} onBitti={async (mesaj) => { toastGoster(mesaj); if (gor) { await yukle(true); setFiltre("acik"); setSekme("liste"); } }} />
+      )}
+
+      {yetki && sekme === "liste" && gor && (
+        <div>
+          <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
+            {filtreler.map(([k, ad]) => (
+              <button key={k} data-testid={`f-${k}`} onClick={() => setFiltre(k)} style={{ padding: "6px 12px", borderRadius: 16, border: "1.5px solid #0F766E", background: filtre === k ? "#0F766E" : "#fff", color: filtre === k ? "#fff" : "#0F766E", fontWeight: 700, fontSize: 12 }}>{ad}</button>
+            ))}
+          </div>
+          {liste.length === 0 && <div style={{ ...styles.ilerlemeYazi, marginTop: 12 }}>Kayıt yok.</div>}
+          {liste.map(kart)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RevirBildirForm({ kutu, girdi, gor, onBitti }) {
+  const bos = { oda: "", kat: [], kisi: 1, yas: "Belirsiz", cins: "", uyruk: "", yer: "Oda", sikayet: "", supheli: "", ad: "", yuksek: false };
+  const [f, setF] = useState(bos);
+  const [hata, setHata] = useState("");
+  const [mesgul, setMesgul] = useState(false);
+  const ayar = (k, v) => setF((o) => ({ ...o, [k]: v }));
+  const chip = (aktif, renk) => ({ padding: "8px 12px", borderRadius: 18, border: `1.5px solid ${renk}`, background: aktif ? renk : "#fff", color: aktif ? "#fff" : renk, fontWeight: 700, fontSize: 13 });
+  async function kaydet() {
+    setHata("");
+    if (!/^[0-9]{3,4}$/.test(f.oda.trim())) return setHata("Oda numarası 3 veya 4 haneli olmalı.");
+    if (f.kat.length === 0) return setHata("En az bir şikâyet türü seçin.");
+    setMesgul(true);
+    try {
+      const r = await window.OtelRpc.cagir("revir_bildir", {
+        p_oda: f.oda.trim(), p_kategori: f.kat, p_kisi: Number(f.kisi) || 1, p_yas: f.yas, p_cinsiyet: f.cins || null, p_uyruk: f.uyruk || null,
+        p_adi: f.ad.trim() || null, p_yer: f.yer, p_sikayet: f.sikayet.trim() || null, p_supheli: f.supheli.trim() || null, p_yuksek: f.yuksek,
+      });
+      const benzer = (r.benzer || []).length ? ` · Bu odada ${r.benzer.length} önceki/açık kayıt var (${r.benzer.map(revirNo).join(", ")})` : "";
+      setF(bos);
+      await onBitti(`✓ ${revirNo(r.vaka_no)} bildirildi${benzer}`);
+    } catch (e) {
+      setHata(e.message);
+    } finally {
+      setMesgul(false);
+    }
+  }
+  return (
+    <div style={kutu}>
+      {hata && <div style={styles.hataKutusu}>{hata}</div>}
+      <div style={styles.etiket}>ODA NUMARASI</div>
+      <input style={girdi} inputMode="numeric" maxLength={4} placeholder="Örn. 1204" value={f.oda} onChange={(e) => ayar("oda", e.target.value.replace(/\D/g, ""))} />
+      <div style={styles.etiket}>ŞİKÂYET TÜRÜ (birden fazla seçilebilir)</div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {REVIR_KATEGORILER.map((k) => (
+          <button key={k.k} data-testid={`kat-${k.k}`} type="button" style={chip(f.kat.includes(k.k), "#B91C1C")} onClick={() => ayar("kat", f.kat.includes(k.k) ? f.kat.filter((x) => x !== k.k) : [...f.kat, k.k])}>
+            {k.ikon} {k.ad}
+          </button>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ flex: 1 }}>
+          <div style={styles.etiket}>KİŞİ SAYISI</div>
+          <input style={girdi} inputMode="numeric" value={f.kisi} onChange={(e) => ayar("kisi", e.target.value.replace(/\D/g, "").slice(0, 2))} />
+        </div>
+        <div style={{ flex: 2 }}>
+          <div style={styles.etiket}>YAŞ GRUBU</div>
+          <select style={girdi} value={f.yas} onChange={(e) => ayar("yas", e.target.value)}>
+            {REVIR_YAS.map(([k, ad]) => (<option key={k} value={k}>{ad}</option>))}
+          </select>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ flex: 1 }}>
+          <div style={styles.etiket}>CİNSİYET</div>
+          <select style={girdi} value={f.cins} onChange={(e) => ayar("cins", e.target.value)}>
+            <option value="">—</option><option value="K">Kadın</option><option value="E">Erkek</option>
+          </select>
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={styles.etiket}>UYRUK</div>
+          <select style={girdi} value={f.uyruk} onChange={(e) => ayar("uyruk", e.target.value)}>
+            {REVIR_UYRUK.map(([k, ad]) => (<option key={k} value={k}>{ad}</option>))}
+          </select>
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={styles.etiket}>OLAY YERİ</div>
+          <select style={girdi} value={f.yer} onChange={(e) => ayar("yer", e.target.value)}>
+            {REVIR_YERLER.map(([k, ad]) => (<option key={k} value={k}>{ad}</option>))}
+          </select>
+        </div>
+      </div>
+      <div style={styles.etiket}>KISA NOT</div>
+      <textarea style={{ ...girdi, minHeight: 64 }} maxLength={500} placeholder="Ne oldu, misafir ne istiyor?" value={f.sikayet} onChange={(e) => ayar("sikayet", e.target.value)} />
+      <div style={styles.etiket}>MİSAFİRİN ŞÜPHELENDİĞİ KAYNAK (isteğe bağlı)</div>
+      <input style={girdi} maxLength={200} placeholder="Örn. dün akşam restoranda yediği yemek, havuz suyu" value={f.supheli} onChange={(e) => ayar("supheli", e.target.value)} />
+      {gor && (
+        <>
+          <div style={styles.etiket}>MİSAFİR ADI (zorunlu değil)</div>
+          <input style={girdi} maxLength={80} value={f.ad} onChange={(e) => ayar("ad", e.target.value)} />
+        </>
+      )}
+      <label style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 12, fontWeight: 700, color: "#B91C1C" }}>
+        <input type="checkbox" checked={f.yuksek} onChange={(e) => ayar("yuksek", e.target.checked)} /> 🚨 Acil durum olabilir (bilinç kaybı, nefes darlığı, yoğun kanama…)
+      </label>
+      <button data-testid="revir-kaydet" style={{ ...styles.anaButon, marginTop: 14, background: "#B91C1C" }} disabled={mesgul} onClick={kaydet}>
+        {mesgul ? "Kaydediliyor…" : "Bildirimi Kaydet"}
+      </button>
+      <div style={{ fontSize: 11, color: "#6B7280", marginTop: 8 }}>Sağlık verisi özel nitelikli kişisel veridir. Yalnızca gerekli bilgiyi yazın; fotoğraf ve kimlik bilgisi paylaşmayın.</div>
+    </div>
+  );
+}
+
+function RevirDetay({ id, yetki, simdi, kutu, girdi, toastGoster, onGeri }) {
+  const [v, setV] = useState(null);
+  const [hata, setHata] = useState("");
+  const [mesgul, setMesgul] = useState(false);
+  const [panel, setPanel] = useState(null);
+  const [f, setF] = useState({});
+  const ayar = (k, x) => setF((o) => ({ ...o, [k]: x }));
+  async function yukle() {
+    try {
+      setV(await window.OtelRpc.cagir("revir_detay", { p_id: id }));
+    } catch (e) {
+      setHata(e.message);
+    }
+  }
+  useEffect(() => {
+    yukle();
+  }, [id]);
+  async function islem(ad, args, basari) {
+    setMesgul(true);
+    setHata("");
+    try {
+      await window.OtelRpc.cagir(ad, args);
+      toastGoster(basari);
+      setPanel(null);
+      setF({});
+      await yukle();
+    } catch (e) {
+      setHata(e.message);
+    } finally {
+      setMesgul(false);
+    }
+  }
+  const kl = !!yetki.klinik;
+  const tk = !!(yetki.klinik || yetki.takip);
+  const chip = (aktif, renk) => ({ padding: "8px 12px", borderRadius: 18, border: `1.5px solid ${renk}`, background: aktif ? renk : "#fff", color: aktif ? "#fff" : renk, fontWeight: 700, fontSize: 13 });
+  const satir = (e, d) => d ? (<div style={{ fontSize: 13, marginTop: 3 }}><span style={{ color: "#6B7280" }}>{e}: </span><b>{d}</b></div>) : null;
+  const d = v ? revirDurum(v, simdi) : null;
+  return (
+    <div style={styles.icerik}>
+      <div style={styles.listeUstBaslik}>
+        <button style={styles.geriButon} onClick={onGeri} aria-label="Geri">←</button>
+        <div>
+          <div className="baslik-font" style={styles.listeBaslikYazi}>{v ? `${revirNo(v.vaka_no)} · Oda ${v.oda}` : "Vaka"}</div>
+          {d && <div style={{ ...styles.ilerlemeYazi, color: d.renk, fontWeight: 800 }}>{d.ad}</div>}
+        </div>
+      </div>
+      {hata && <div style={styles.hataKutusu}>{hata}</div>}
+      {v && (
+        <div>
+          <div style={kutu} data-testid="revir-detay">
+            {satir("Tür", v.kategori.map((k) => revirKat(k).ikon + " " + revirKat(k).ad).join(" · "))}
+            {satir("Kişi / yaş", `${v.kisi_sayisi} kişi · ${revirEtiket(REVIR_YAS, v.yas_grubu)}${v.cinsiyet ? " · " + (v.cinsiyet === "K" ? "Kadın" : "Erkek") : ""}${v.uyruk ? " · " + v.uyruk : ""}`)}
+            {satir("Misafir", v.misafir_adi)}
+            {satir("Olay yeri", revirEtiket(REVIR_YERLER, v.olay_yeri))}
+            {satir("Olay zamanı", servisKisa(v.olay_zamani))}
+            {satir("Not", v.sikayet)}
+            {satir("Misafirin şüphelendiği kaynak", v.supheli_kaynak)}
+            {v.yuksek_risk && <div style={{ color: "#B91C1C", fontWeight: 800, marginTop: 4 }}>🚨 Yüksek risk</div>}
+            {satir("Karar", v.karar ? revirEtiket(REVIR_KARARLAR, v.karar) + (v.sevk_sekli ? " · " + revirEtiket(REVIR_SEVK, v.sevk_sekli) : "") : "")}
+            {satir("Hastane", v.hastane_adi)}
+            {satir("Hastaneden dönüş", v.donus_zamani ? servisKisa(v.donus_zamani) : "")}
+            {v.karar === "Ret" && <div style={{ marginTop: 4, fontWeight: 800, color: v.ret_formu ? "#15803D" : "#B91C1C" }}>{v.ret_formu ? "✓ İmzalı ret formu alındı" : "⚠ İmzalı ret formu bekleniyor"}</div>}
+            {satir("Tanı", v.tani)}
+            {satir("Tedavi", v.tedavi)}
+            {satir("Vitaller", v.vital)}
+            {satir("Ücret", v.ucret === "Ucretsiz" ? "Ücretsiz" : v.ucret === "Ucretli" ? "Ücretli" : "")}
+            {satir("Son takip", v.son_takip_durumu ? revirEtiket(REVIR_TAKIP, v.son_takip_durumu) : "")}
+            {satir("Sonraki takip", v.durum !== "Kapandi" && v.sonraki_takip ? servisKisa(v.sonraki_takip) : "")}
+            {satir("Kapanış", v.kapanis_sonucu ? revirEtiket(REVIR_SONUC, v.kapanis_sonucu) + (v.kapanis_notu ? " · " + v.kapanis_notu : "") : "")}
+          </div>
+
+          {v.durum !== "Kapandi" && (
+            <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+              {kl && <button data-testid="b-degerlendir" style={{ ...styles.anaButon, flex: 1, minWidth: 130 }} onClick={() => { setPanel("degerlendir"); setF({ karar: v.karar || "", sevk: v.sevk_sekli || "", hastane: v.hastane_adi || "", tani: v.tani || "", tedavi: v.tedavi || "", vital: v.vital || "", ucret: v.ucret || "", ret: !!v.ret_formu, saat: "" }); }}>🩺 Değerlendir</button>}
+              {tk && v.karar === "Hastane" && !v.donus_zamani && <button data-testid="b-donus" style={{ ...styles.anaButon, flex: 1, minWidth: 130, background: "#0369A1" }} disabled={mesgul} onClick={() => islem("revir_donus", { p_id: v.id }, "✓ Hastaneden dönüş kaydedildi")}>🏨 Hastaneden döndü</button>}
+              {tk && <button data-testid="b-takip" style={{ ...styles.ikincilButon, flex: 1, minWidth: 110 }} onClick={() => { setPanel("takip"); setF({ durum: "", not: "", saat: "" }); }}>📞 Takip</button>}
+              {tk && <button data-testid="b-kapat" style={{ ...styles.ikincilButon, flex: 1, minWidth: 110, color: "#15803D", borderColor: "#15803D" }} onClick={() => { setPanel("kapat"); setF({ sonuc: "", not: "" }); }}>✓ Kapat</button>}
+            </div>
+          )}
+          {v.durum === "Kapandi" && kl && <button style={{ ...styles.ikincilButon, marginTop: 10 }} disabled={mesgul} onClick={() => islem("revir_yeniden_ac", { p_id: v.id }, "✓ Vaka yeniden açıldı")}>↺ Yeniden aç</button>}
+
+          {panel === "degerlendir" && (
+            <div style={kutu} data-testid="p-degerlendir">
+              <div style={styles.etiket}>KARAR</div>
+              <select style={girdi} value={f.karar} onChange={(e) => ayar("karar", e.target.value)}>
+                <option value="">Seçin…</option>
+                {REVIR_KARARLAR.map(([k, ad]) => (<option key={k} value={k}>{ad}</option>))}
+              </select>
+              {f.karar === "Hastane" && (
+                <>
+                  <div style={styles.etiket}>SEVK ŞEKLİ</div>
+                  <select style={girdi} value={f.sevk} onChange={(e) => ayar("sevk", e.target.value)}>
+                    <option value="">Seçin…</option>
+                    {REVIR_SEVK.map(([k, ad]) => (<option key={k} value={k}>{ad}</option>))}
+                  </select>
+                  <div style={styles.etiket}>HASTANE</div>
+                  <input style={girdi} maxLength={80} value={f.hastane} onChange={(e) => ayar("hastane", e.target.value)} />
+                </>
+              )}
+              {f.karar === "Ret" && (
+                <label style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10, fontWeight: 700 }}>
+                  <input type="checkbox" checked={f.ret} onChange={(e) => ayar("ret", e.target.checked)} /> İmzalı tedavi ret formu alındı
+                </label>
+              )}
+              <div style={styles.etiket}>TANI / DEĞERLENDİRME</div>
+              <textarea style={{ ...girdi, minHeight: 56 }} maxLength={600} value={f.tani} onChange={(e) => ayar("tani", e.target.value)} />
+              <div style={styles.etiket}>UYGULANAN TEDAVİ</div>
+              <textarea style={{ ...girdi, minHeight: 56 }} maxLength={600} value={f.tedavi} onChange={(e) => ayar("tedavi", e.target.value)} />
+              <div style={styles.etiket}>VİTAL BULGULAR</div>
+              <input style={girdi} maxLength={300} placeholder="Ateş, tansiyon, nabız…" value={f.vital} onChange={(e) => ayar("vital", e.target.value)} />
+              <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={styles.etiket}>ÜCRET</div>
+                  <select style={girdi} value={f.ucret} onChange={(e) => ayar("ucret", e.target.value)}>
+                    <option value="">—</option><option value="Ucretsiz">Ücretsiz</option><option value="Ucretli">Ücretli</option>
+                  </select>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={styles.etiket}>SONRAKİ TAKİP (saat)</div>
+                  <input style={girdi} inputMode="numeric" placeholder="otomatik" value={f.saat} onChange={(e) => ayar("saat", e.target.value.replace(/\D/g, "").slice(0, 2))} />
+                </div>
+              </div>
+              <button data-testid="p-degerlendir-kaydet" style={{ ...styles.anaButon, marginTop: 12 }} disabled={mesgul || !f.karar} onClick={() => islem("revir_degerlendir", { p_id: v.id, p_karar: f.karar, p_sevk_sekli: f.karar === "Hastane" ? f.sevk || null : null, p_hastane: f.karar === "Hastane" ? f.hastane || null : null, p_tani: f.tani || null, p_tedavi: f.tedavi || null, p_vital: f.vital || null, p_ucret: f.ucret || null, p_ret_formu: f.karar === "Ret" ? !!f.ret : false, p_takip_saat: f.saat ? Number(f.saat) : null }, "✓ Değerlendirme kaydedildi")}>Kaydet</button>
+            </div>
+          )}
+          {panel === "takip" && (
+            <div style={kutu} data-testid="p-takip">
+              <div style={styles.etiket}>MİSAFİRİN DURUMU</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {REVIR_TAKIP.map(([k, ad]) => (<button key={k} data-testid={`t-${k}`} type="button" style={chip(f.durum === k, k === "Kotu" ? "#B91C1C" : "#0369A1")} onClick={() => ayar("durum", k)}>{ad}</button>))}
+              </div>
+              <div style={styles.etiket}>NOT</div>
+              <input style={girdi} maxLength={200} value={f.not} onChange={(e) => ayar("not", e.target.value)} />
+              <button data-testid="p-takip-kaydet" style={{ ...styles.anaButon, marginTop: 12 }} disabled={mesgul || !f.durum} onClick={() => islem("revir_takip_ekle", { p_id: v.id, p_durum: f.durum, p_not: f.not || null }, "✓ Takip kaydedildi")}>Kaydet</button>
+            </div>
+          )}
+          {panel === "kapat" && (
+            <div style={kutu} data-testid="p-kapat">
+              <div style={styles.etiket}>KAPANIŞ SONUCU</div>
+              <select style={girdi} value={f.sonuc} onChange={(e) => ayar("sonuc", e.target.value)}>
+                <option value="">Seçin…</option>
+                {REVIR_SONUC.map(([k, ad]) => (<option key={k} value={k}>{ad}</option>))}
+              </select>
+              <div style={styles.etiket}>NOT</div>
+              <input style={girdi} maxLength={300} value={f.not} onChange={(e) => ayar("not", e.target.value)} />
+              <button data-testid="p-kapat-kaydet" style={{ ...styles.anaButon, marginTop: 12, background: "#15803D" }} disabled={mesgul || !f.sonuc} onClick={() => islem("revir_kapat", { p_id: v.id, p_sonuc: f.sonuc, p_not: f.not || null }, "✓ Vaka kapatıldı")}>Vakayı Kapat</button>
+            </div>
+          )}
+          <div style={kutu}>
+            <div style={styles.etiket}>ZAMAN ÇİZELGESİ</div>
+            {v.olaylar.map((o, i) => (
+              <div key={i} style={{ borderLeft: "3px solid #B91C1C", paddingLeft: 8, marginTop: 8 }}>
+                <div style={{ fontSize: 13, fontWeight: 800 }}>{o.tur}</div>
+                {o.metin && <div style={{ fontSize: 12, color: "#374151" }}>{o.metin}</div>}
+                <div style={{ fontSize: 11, color: "#6B7280" }}>{o.kim} ({o.poz || "-"}) · {servisKisa(o.zaman)}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function PavilionEkrani({ user, onGeri, toastGoster }) {
   const [gorunum, setGorunum] = useState("chart"); // chart | yeni | detay
