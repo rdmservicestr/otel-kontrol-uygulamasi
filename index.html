@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.15";
+window.UYGULAMA_SURUMU = "1.16";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -2334,7 +2334,7 @@ function SurumAlani() {
 }
 
 // Ana ekranın sağ üstündeki üç nokta (Ayarlar) menüsü: PIN Değiştir, Güncelleme Denetle, Çıkış Yap.
-function AyarlarMenusu({ onPinDegistir, onCikis }) {
+function AyarlarMenusu({ onPinDegistir, onCikis, bildirimDurumu }) {
   const [acik, setAcik] = useState(false);
   const [cikisOnay, setCikisOnay] = useState(false);
   const [durum, setDurum] = useState("");
@@ -2380,6 +2380,11 @@ function AyarlarMenusu({ onPinDegistir, onCikis }) {
             >
               🔑 PIN Değiştir
             </button>
+            {bildirimDurumu === "denied" && (
+              <div data-testid="ayar-bildirim-kapali" style={{ borderTop: "1px solid #E5E7EB", padding: "10px 16px", background: "#FFFBEB", fontSize: 12, color: "#92400E" }}>
+                🔕 Bildirimler kapalı. Hatırlatmalar için telefon/tarayıcı ayarlarından bu uygulamanın bildirimine izin verin.
+              </div>
+            )}
             <button
               data-testid="ayar-guncelle"
               style={{ ...satir, borderTop: "1px solid #E5E7EB" }}
@@ -2474,6 +2479,19 @@ function App() {
     if (typeof Notification === "undefined") return;
     Notification.requestPermission().then((sonuc) => setBildirimDurumu(sonuc));
   }
+
+  // Bildirimler otomatik açılır: giriş sonrası ilk dokunuşta (tarayıcılar izni yalnızca
+  // kullanıcı dokunuşuyla sorar) bildirim izni istenir; ayrı bir düğmeye gerek kalmaz.
+  useEffect(() => {
+    if (!currentUser || typeof Notification === "undefined" || Notification.permission !== "default") return undefined;
+    const sor = () => {
+      try {
+        Notification.requestPermission().then((sonuc) => setBildirimDurumu(sonuc));
+      } catch (e) {}
+    };
+    document.addEventListener("pointerdown", sor, { once: true });
+    return () => document.removeEventListener("pointerdown", sor);
+  }, [currentUser]);
 
   // --- Genel Müdür yönetim yetkileri: departman / kullanıcı / kontrol satırı ---
   // Kullanıcı oluşturma ve özet ekranı DAİMA çağıran GM'in kendi otel koduna
@@ -3486,19 +3504,10 @@ function App() {
             durum={durum}
             tamamlanan={tamamlanan}
             toplamMadde={toplamMadde}
-            onBaslat={() => setScreen("checklist")}
-            onGecmis={gecmiseGit}
+            onKontrolListesi={() => setScreen("kontrolMerkezi")}
             onCikis={handleLogout}
             onPinDegistir={pinEkraniAc}
-            raporPaneliAcik={raporPaneliAcik}
-            setRaporPaneliAcik={setRaporPaneliAcik}
-            raporEposta={raporEposta}
-            setRaporEposta={setRaporEposta}
-            raporMesaj={raporMesaj}
-            raporIsleniyor={raporIsleniyor}
-            onRaporGonder={() => raporOlusturVeGonder(record)}
             bildirimDurumu={bildirimDurumu}
-            onBildirimIzniIste={bildirimIzniIste}
             onGorevAta={() => setScreen("gorevAta")}
             onLostFound={() => setScreen("lostfound")}
             onArizaBildir={() => setScreen("ariza")}
@@ -3511,6 +3520,28 @@ function App() {
             onGMYonetim={() => setScreen("gmYonetim")}
             bekleyenGorevler={bekleyenGorevler}
             onGorevKabul={gorevKabulEt}
+          />
+        ) : screen === "kontrolMerkezi" ? (
+          <KontrolMerkeziEkrani
+            user={currentUser}
+            record={record}
+            kayitYukleniyor={kayitYukleniyor}
+            durum={durum}
+            tamamlanan={tamamlanan}
+            toplamMadde={toplamMadde}
+            onBaslat={() => setScreen("checklist")}
+            onGecmis={gecmiseGit}
+            onGecmisYukle={gecmisiGetir}
+            gecmisKayitlar={gecmisKayitlar}
+            gecmisYukleniyor={gecmisYukleniyor}
+            onGeri={() => setScreen("home")}
+            raporPaneliAcik={raporPaneliAcik}
+            setRaporPaneliAcik={setRaporPaneliAcik}
+            raporEposta={raporEposta}
+            setRaporEposta={setRaporEposta}
+            raporMesaj={raporMesaj}
+            raporIsleniyor={raporIsleniyor}
+            onRaporGonder={() => raporOlusturVeGonder(record)}
           />
         ) : screen === "checklist" ? (
           <KontrolListesiEkrani
@@ -3534,14 +3565,14 @@ function App() {
             onOdaFotoSecildi={handleOdaFotoSecildi}
             onOdaFotoSil={(odaKodu, gorevId) => odaGorevFotoAyarla(odaKodu, gorevId, null)}
             onBitir={handleBitir}
-            onGeri={() => setScreen("home")}
+            onGeri={() => setScreen("kontrolMerkezi")}
             fileInputRefs={fileInputRefs}
           />
         ) : screen === "history" ? (
           <GecmisEkrani
             kayitlar={gecmisKayitlar}
             yukleniyor={gecmisYukleniyor}
-            onGeri={() => setScreen("home")}
+            onGeri={() => setScreen("kontrolMerkezi")}
             onPdf={(k) => raporOlusturVeGonder(k)}
             jsPdfHazirMi={jsPdfHazirMi}
           />
@@ -3775,19 +3806,10 @@ function AnaSayfa({
   durum,
   tamamlanan,
   toplamMadde,
-  onBaslat,
-  onGecmis,
+  onKontrolListesi,
   onCikis,
   onPinDegistir,
-  raporPaneliAcik,
-  setRaporPaneliAcik,
-  raporEposta,
-  setRaporEposta,
-  raporMesaj,
-  raporIsleniyor,
-  onRaporGonder,
   bildirimDurumu,
-  onBildirimIzniIste,
   onGorevAta,
   onGMYonetim,
   onLostFound,
@@ -3801,23 +3823,6 @@ function AnaSayfa({
   bekleyenGorevler,
   onGorevKabul,
 }) {
-  const zamanPenceresi = DEPARTMAN_ZAMAN_PENCERELERI[user.department];
-  const baslangicMetni = zamanPenceresi ? saatMetni(zamanPenceresi.baslangic) : "";
-  const bitisMetni = zamanPenceresi ? saatMetni(zamanPenceresi.bitis) : "";
-  let durumYazisi = "";
-  let durumRengi = "#6B7280";
-  if (durum === "once") {
-    durumYazisi = `Bugünkü kontrol listesi henüz başlamadı (${baslangicMetni}'de açılır)`;
-  } else if (durum === "aktif") {
-    durumYazisi = `Devam ediyor · ${tamamlanan}/${toplamMadde} madde işaretlendi`;
-    durumRengi = "#B08D3E";
-  } else {
-    durumYazisi = record
-      ? `Süre doldu (${bitisMetni}) · ${tamamlanan}/${toplamMadde} madde ile kaydedildi`
-      : `Süre doldu (${bitisMetni}) · bugün için kayıt oluşturulmadı`;
-    durumRengi = "#B7472A";
-  }
-
   const hatirlatmalar = record && !record.pozisyonKaydi ? HATIRLATMALAR[record.department] : null;
   const gecikenler =
     record && hatirlatmalar
@@ -3827,7 +3832,7 @@ function AnaSayfa({
 
   return (
     <div style={{ ...styles.icerik, position: "relative" }}>
-      <AyarlarMenusu onPinDegistir={onPinDegistir} onCikis={onCikis} />
+      <AyarlarMenusu onPinDegistir={onPinDegistir} onCikis={onCikis} bildirimDurumu={bildirimDurumu} />
       <div style={styles.anahtarKart}>
         <div style={styles.anahtarUst}>
           <span style={styles.anahtarEtiket}>{user.hotelName}</span>
@@ -3872,36 +3877,22 @@ function AnaSayfa({
         </div>
       )}
 
-      <div style={styles.durumKarti}>
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, color: "#6B7280" }}>
-          {zamanPenceresi ? `BUGÜN · ${baslangicMetni} – ${bitisMetni}` : "BUGÜN"}
-        </div>
-        <div style={{ fontSize: 14, fontWeight: 600, color: durumRengi, marginTop: 4 }}>
-          {kayitYukleniyor ? "Yükleniyor…" : durumYazisi}
-        </div>
-      </div>
-
-      {gecikenler.length > 0 && (
-        <div style={styles.gecikmeBanner}>
-          ⏰ {gecikenler.length === 1
-            ? `Hatırlatma: "${gecikenler[0].text}" maddesi henüz işaretlenmedi.`
-            : `Hatırlatma: ${gecikenler.length} madde zamanında işaretlenmedi.`}
-        </div>
-      )}
-
-      {bildirimDurumu !== "granted" && bildirimDurumu !== "unsupported" && (
-        <button style={styles.bildirimButon} onClick={onBildirimIzniIste}>
-          🔔 Saatli Hatırlatma Bildirimlerini Aç
-        </button>
-      )}
-
       <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 12 }}>
         <button
-          style={{ ...styles.anaButon, opacity: durum === "once" ? 0.5 : 1 }}
-          onClick={onBaslat}
-          disabled={durum === "once"}
+          data-testid="modul-kontrol"
+          style={{ ...styles.anaButon, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}
+          onClick={onKontrolListesi}
         >
-          {durum === "aktif" ? "Kontrol Listesini Aç" : durum === "once" ? "Henüz Başlamadı" : "Bugünün Listesini Görüntüle"}
+          <span>📋 Kontrol Listesi</span>
+          <span
+            data-testid="kontrol-rozet"
+            style={{
+              fontSize: 12, fontWeight: 700, borderRadius: 999, padding: "3px 10px",
+              background: gecikenler.length > 0 ? "#B7472A" : "rgba(255,255,255,.18)", color: "#fff",
+            }}
+          >
+            {kayitYukleniyor ? "…" : gecikenler.length > 0 ? `⏰ ${gecikenler.length} geciken` : durum === "once" ? "Henüz başlamadı" : `${tamamlanan}/${toplamMadde}`}
+          </span>
         </button>
 
         <button style={styles.arizaButon} onClick={onArizaBildir}>
@@ -3942,9 +3933,15 @@ function AnaSayfa({
           </button>
         )}
 
-        <button style={styles.ikincilButon} onClick={onGecmis}>
-          Geçmiş Kayıtlar
-        </button>
+        {(user.department === "Kat Hizmetleri" || user.department === "Genel Müdürlük") && (
+          <button
+            data-testid="hk-is-takibi"
+            disabled
+            style={{ ...styles.pavilionButon, borderColor: "#9CA3AF", color: "#6B7280", background: "#F3F4F6", cursor: "not-allowed", opacity: 0.85 }}
+          >
+            🧹 HK İş Takibi <span style={{ fontSize: 12, fontWeight: 600 }}>· yapım aşamasında</span>
+          </button>
+        )}
 
         {user.department === "Genel Müdürlük" && GOREV_ATAMA_IZINLI_OTELLER.includes(user.hotelCode) && (
           <button style={styles.gorevAtaButon} onClick={onGorevAta}>
@@ -3958,10 +3955,147 @@ function AnaSayfa({
           </button>
         )}
 
+        <SurumAlani />
+      </div>
+    </div>
+  );
+}
+
+// Kontrol Listesi merkezi: bugünün durumu, ilerleme, geciken maddeler, son kayıtlar, geçmiş ve gün sonu raporu.
+function KontrolMerkeziEkrani({
+  user, record, kayitYukleniyor, durum, tamamlanan, toplamMadde, onBaslat, onGecmis, onGecmisYukle, gecmisKayitlar,
+  gecmisYukleniyor, onGeri, raporPaneliAcik, setRaporPaneliAcik, raporEposta, setRaporEposta, raporMesaj, raporIsleniyor, onRaporGonder,
+}) {
+  const zamanPenceresi = DEPARTMAN_ZAMAN_PENCERELERI[user.department];
+  const baslangicMetni = zamanPenceresi ? saatMetni(zamanPenceresi.baslangic) : "";
+  const bitisMetni = zamanPenceresi ? saatMetni(zamanPenceresi.bitis) : "";
+  const [, saniyeYenile] = useState(0);
+  useEffect(() => {
+    if (onGecmisYukle) onGecmisYukle();
+    const z = setInterval(() => saniyeYenile((n) => n + 1), 30000); // geciken/sıradaki hatırlatma canlı kalsın
+    return () => clearInterval(z);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  let durumYazisi = "";
+  let durumRengi = "#6B7280";
+  if (durum === "once") {
+    durumYazisi = `Bugünkü kontrol listesi henüz başlamadı (${baslangicMetni}'de açılır)`;
+  } else if (durum === "aktif") {
+    durumYazisi = `Devam ediyor · ${tamamlanan}/${toplamMadde} madde işaretlendi`;
+    durumRengi = "#B08D3E";
+  } else {
+    durumYazisi = record
+      ? `Süre doldu (${bitisMetni}) · ${tamamlanan}/${toplamMadde} madde ile kaydedildi`
+      : `Süre doldu (${bitisMetni}) · bugün için kayıt oluşturulmadı`;
+    durumRengi = "#B7472A";
+  }
+  const yuzde = toplamMadde > 0 ? Math.round((tamamlanan * 100) / toplamMadde) : 0;
+  const tumGorevler = record ? (record.odalar ? record.odalar.flatMap((o) => o.gorevler) : record.tasks || []) : [];
+  const olumsuz = tumGorevler.filter((t) => t.status === "olumsuz").length;
+  const mevcutDegil = tumGorevler.filter((t) => t.status === "mevcut_degil").length;
+  const kalan = Math.max(toplamMadde - tamamlanan, 0);
+  const hatirlatmalar = record && !record.pozisyonKaydi ? HATIRLATMALAR[record.department] : null;
+  const gecikenler = record && hatirlatmalar ? record.tasks.filter((t) => hatirlatmalar[t.id] && !t.status && saatGectiMi(hatirlatmalar[t.id])) : [];
+  let siradaki = null;
+  if (record && hatirlatmalar) {
+    record.tasks.forEach((t) => {
+      const saat = hatirlatmalar[t.id];
+      if (saat && !t.status && !saatGectiMi(saat) && (!siradaki || saat < siradaki.saat)) siradaki = { saat, text: t.text };
+    });
+  }
+  const son = (gecmisKayitlar || []).slice(0, 7).reverse();
+  const baslatYazisi = durum === "aktif" ? (tamamlanan > 0 ? "Kontrol Listesine Devam Et" : "Kontrol Listesini Aç") : durum === "once" ? "Henüz Başlamadı" : "Bugünün Listesini Görüntüle";
+  const chip = (renk, bg, yazi, id) => (
+    <div data-testid={id} style={{ flex: 1, textAlign: "center", background: bg, color: renk, borderRadius: 10, padding: "8px 4px", fontSize: 12, fontWeight: 700 }}>
+      {yazi}
+    </div>
+  );
+
+  return (
+    <div style={styles.icerik} data-testid="kontrol-merkezi">
+      <div style={styles.listeUstBaslik}>
+        <button style={styles.geriButon} onClick={onGeri} aria-label="Geri">
+          ←
+        </button>
+        <div className="baslik-font" style={styles.listeBaslikYazi}>
+          Kontrol Listesi
+        </div>
+      </div>
+
+      <div style={{ ...styles.durumKarti, marginTop: 4 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, color: "#6B7280" }}>
+          {zamanPenceresi ? `BUGÜN · ${baslangicMetni} – ${bitisMetni}` : "BUGÜN"}
+        </div>
+        <div data-testid="kontrol-durum" style={{ fontSize: 14, fontWeight: 600, color: durumRengi, marginTop: 4 }}>
+          {kayitYukleniyor ? "Yükleniyor…" : durumYazisi}
+        </div>
+        <div style={{ height: 10, background: "#E5E7EB", borderRadius: 6, marginTop: 10, overflow: "hidden" }}>
+          <div data-testid="kontrol-ilerleme" style={{ height: "100%", width: `${yuzde}%`, background: yuzde === 100 ? "#2F7D5C" : "#B08D3E", transition: "width .5s" }} />
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#6B7280", marginTop: 4 }}>
+          <span>%{yuzde}</span>
+          <span>{kalan > 0 ? `${kalan} madde kaldı` : toplamMadde > 0 ? "Tüm maddeler işaretlendi ✓" : ""}</span>
+        </div>
+        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+          {chip("#2F7D5C", "#E8F4EE", `✓ ${tamamlanan} işaretli`, "chip-isaretli")}
+          {chip(olumsuz > 0 ? "#B7472A" : "#6B7280", olumsuz > 0 ? "#FBEAE5" : "#F3F4F6", `✗ ${olumsuz} olumsuz`, "chip-olumsuz")}
+          {chip("#6B7280", "#F3F4F6", `— ${mevcutDegil} mevcut değil`, "chip-mevcutdegil")}
+        </div>
+      </div>
+
+      {gecikenler.length > 0 && (
+        <div data-testid="kontrol-geciken" style={styles.gecikmeBanner}>
+          ⏰ {gecikenler.length === 1
+            ? `Hatırlatma: "${gecikenler[0].text}" maddesi henüz işaretlenmedi.`
+            : `Hatırlatma: ${gecikenler.length} madde zamanında işaretlenmedi.`}
+        </div>
+      )}
+      {siradaki && (
+        <div data-testid="kontrol-siradaki" style={{ marginTop: 10, fontSize: 12, color: "#4B5563" }}>
+          🔔 Sıradaki hatırlatma: <strong>{siradaki.saat}</strong> · {siradaki.text}
+        </div>
+      )}
+
+      <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 12 }}>
         <button
-          style={styles.ucuncuButon}
-          onClick={() => setRaporPaneliAcik((a) => !a)}
+          data-testid="kontrol-ac"
+          style={{ ...styles.anaButon, opacity: durum === "once" ? 0.5 : 1 }}
+          onClick={onBaslat}
+          disabled={durum === "once"}
         >
+          {baslatYazisi}
+        </button>
+
+        <button data-testid="kontrol-gecmis" style={styles.ikincilButon} onClick={onGecmis}>
+          🗂 Geçmiş Kayıtlar
+        </button>
+
+        {son.length > 0 && (
+          <div data-testid="kontrol-son7" style={{ ...styles.durumKarti, marginTop: 0 }} onClick={onGecmis}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, color: "#6B7280" }}>SON {son.length} KAYIT</div>
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 70, marginTop: 8 }}>
+              {son.map((k, i) => {
+                const toplam = kayitToplamMaddeSayisi(k);
+                const yz = toplam > 0 ? Math.round((kayitTamamlananSayisi(k) * 100) / toplam) : 0;
+                const gorevler = k.odalar ? k.odalar.flatMap((o) => o.gorevler) : k.tasks || [];
+                const sorunlu = gorevler.some((t) => t.status === "olumsuz");
+                return (
+                  <div key={i} style={{ flex: 1, textAlign: "center" }}>
+                    <div style={{ height: 50, display: "flex", alignItems: "flex-end" }}>
+                      <div title={`%${yz}`} style={{ width: "100%", height: `${Math.max(yz, 6)}%`, background: sorunlu ? "#B7472A" : yz === 100 ? "#2F7D5C" : "#B08D3E", borderRadius: 4 }} />
+                    </div>
+                    <div style={{ fontSize: 10, color: "#6B7280", marginTop: 3 }}>{String(formatTarihSadece(k.date)).slice(0, 5)}</div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ fontSize: 11, color: "#6B7280", marginTop: 6 }}>Yeşil: tam · Altın: eksik · Kırmızı: olumsuz madde var</div>
+          </div>
+        )}
+        {son.length === 0 && gecmisYukleniyor && <div style={{ fontSize: 12, color: "#6B7280" }}>Son kayıtlar yükleniyor…</div>}
+
+        <button style={styles.ucuncuButon} onClick={() => setRaporPaneliAcik((a) => !a)}>
           📄 Gün Sonu Raporunu Oluştur ve E-posta ile Gönder
         </button>
 
@@ -3990,8 +4124,6 @@ function AnaSayfa({
             </div>
           </div>
         )}
-
-        <SurumAlani />
       </div>
     </div>
   );
