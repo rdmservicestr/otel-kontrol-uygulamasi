@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.18";
+window.UYGULAMA_SURUMU = "1.19";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -10577,7 +10577,7 @@ const HK_ODA_ONCELIK = [["Normal", "Normal"], ["Erken", "Erken giriş"], ["VIP",
 const HK_DURUM = { Acik: ["Bekliyor", "#B45309"], Kabul: ["Atandı", "#0369A1"], Basladi: ["Yapılıyor", "#6D28D9"], Tamam: ["Onay bekliyor", "#0F766E"], Kapandi: ["Kapandı", "#15803D"], Iptal: ["İptal", "#6B7280"] };
 const HK_ODA_DURUM = { Bekle: ["BEKLE – girme", "#6B7280"], Kirli: ["Kirli", "#B91C1C"], Temizleniyor: ["Temizleniyor", "#6D28D9"], Kontrol: ["Kontrol bekliyor", "#B45309"], Hazir: ["Hazır", "#15803D"] };
 function hkKullanabilir(user) {
-  return !!user && HK_OTELLER.includes(user.hotelCode) && HK_DEPARTMANLAR.includes(user.department);
+  return !!user && HK_OTELLER.includes(user.hotelCode);
 }
 function hkTur(k) {
   const x = HK_TURLER.find((a) => a[0] === k);
