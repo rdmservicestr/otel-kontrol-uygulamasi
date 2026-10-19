@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.19";
+window.UYGULAMA_SURUMU = "1.20";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -1774,7 +1774,28 @@ const PAV_DURUMLAR = ["Rezerve", "Kullanıldı", "Gelmedi", "İptal"];
 // Pavilion'u o gün için "dolu" sayan durumlar. Gelmedi/İptal kayıtları geçmişte
 // kalır ama pavilion'u tekrar boşa çıkarır.
 const PAV_AKTIF_DURUMLAR = ["Rezerve", "Kullanıldı"];
-const PAV_RENKLER = { bos: "#2F7D5C", rezerve: "#B08D3E", kullanildi: "#B7472A" };
+// Renkler: Boş = yeşil, işlemde (sarı kilit) = sarı, rezerve = kırmızı, kullanıldı = koyu kırmızı
+const PAV_RENKLER = { bos: "#2F7D5C", kilit: "#D9A400", rezerve: "#C62828", kullanildi: "#7F1D1D" };
+const PAV_OTELLER = ["5557"]; // sunucuda da aynı kısıt var (11a_pavilion.sql > pavilion_oteller)
+const PAV_KALIN = ["8005", "8006", "8007", "8008"]; // numarası kalın (bold) yazılacak pavilionlar
+function pavKullanabilir(user) {
+  return !!user && PAV_OTELLER.includes(user.hotelCode);
+}
+function pavNoStil(no) {
+  return { fontWeight: PAV_KALIN.includes(no) ? 900 : 400 };
+}
+function pavBasHarf(ad) {
+  return String(ad || "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((x) => x[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+}
+function pavKilitBul(kilitler, no, tarih) {
+  return (kilitler || []).find((x) => x.pavilion_no === no && x.tarih === tarih) || null;
+}
 
 const KAT_HIZMETLERI_BOLUMLER = [
   {
@@ -3915,9 +3936,11 @@ function AnaSayfa({
           ⏰ Uyandırma Servisi
         </button>
 
-        <button style={styles.pavilionButon} onClick={onPavilion}>
-          🏖️ Pavilion Rezervasyon
-        </button>
+        {pavKullanabilir(user) && (
+          <button data-testid="pavilion-btn" style={styles.pavilionButon} onClick={onPavilion}>
+            🏖️ Pavilion Rezervasyon
+          </button>
+        )}
 
         {servisKullanabilir(user) && (
           <button style={{ ...styles.pavilionButon, borderColor: "#6D28D9", color: "#6D28D9" }} onClick={onServis}>
@@ -8707,27 +8730,34 @@ function UYNDetay({ kayit, user, aramaYapabilirMi, yoneticiMi, onGeri, onSonucIs
 /* ------------------------------------------------------------------
    PAVILION REZERVASYON MODÜLÜ - yardımcı fonksiyonlar
 -------------------------------------------------------------------*/
-async function pavKayitlariGetir(hotelCode) {
-  try {
-    const liste = await window.storage.list(`pavilion:${hotelCode}:`, true);
-    const keys = (liste && liste.keys) || [];
-    const kayitlar = [];
-    for (const k of keys) {
-      const r = await safeGet(k, true);
-      if (r) {
-        try {
-          kayitlar.push(JSON.parse(r.value));
-        } catch (e) {}
-      }
-    }
-    return kayitlar;
-  } catch (e) {
-    return [];
-  }
+function pavSatirCevir(r) {
+  return {
+    id: r.id,
+    no: r.no,
+    pavilionNo: r.pavilion_no,
+    alan: r.alan,
+    tarih: r.tarih,
+    odaNo: r.oda,
+    kisiSayisi: r.kisi,
+    ucret: Number(r.ucret),
+    aciklama: r.aciklama,
+    durum: r.durum,
+    olusturanKullanici: r.olusturan_adi,
+    olusturanUserCode: r.olusturan_kodu,
+    olusturmaZamani: r.olusturma_zamani,
+    iptalNedeni: r.iptal_nedeni || "",
+    auditLog: [],
+  };
 }
 
-async function pavKayitKaydet(kayit) {
-  await window.storage.set(`pavilion:${kayit.hotelCode}:${kayit.no}`, JSON.stringify(kayit), true);
+// Sunucudan (bas günü + 7 gün) kayıtları, sarı kilitleri ve yetkiyi getirir.
+async function pavSunucuGetir(bas) {
+  const g = await window.OtelRpc.cagir("pavilion_getir", { p_bas: bas, p_gun: 7 });
+  return {
+    kayitlar: (g.rez || []).map(pavSatirCevir),
+    kilitler: g.kilit || [],
+    yonetici: !!(g.yetki && g.yetki.yonetici),
+  };
 }
 
 // Belirli bir pavilion + gün için geçerli (Rezerve / Kullanıldı) kaydı döner.
@@ -8838,7 +8868,7 @@ function pavPdfGunluk(kayitlar, tarih, hotelName, kullaniciAdi) {
       doc.setFillColor(rr, gg, bb);
       doc.roundedRect(x, yy, kw, kh, 5, 5, "F");
       doc.setTextColor(255, 255, 255);
-      doc.setFont(font, "bold");
+      doc.setFont(font, PAV_KALIN.includes(p.no) ? "bold" : "normal");
       doc.setFontSize(12);
       doc.text(p.no, x + 8, yy + 16);
       doc.setFont(font, "normal");
@@ -8912,10 +8942,11 @@ function pavPdfGunluk(kayitlar, tarih, hotelName, kullaniciAdi) {
       doc.setFillColor(246, 245, 241);
       doc.rect(m, y, W - 2 * m, h, "F");
     }
-    doc.setFont(font, "bold");
+    doc.setFont(font, PAV_KALIN.includes(s.p.no) ? "bold" : "normal");
     doc.setFontSize(9);
     doc.setTextColor(22, 50, 58);
     doc.text(s.p.no, xKonum[0] + 5, y + 13);
+    doc.setFont(font, "bold");
     const [rr, gg, bb] = pavHexToRgb(pavDurumRengi(k));
     doc.setTextColor(rr, gg, bb);
     doc.text(k ? k.durum : "Boş", xKonum[1] + 5, y + 13);
@@ -9010,7 +9041,7 @@ function pavPdfHaftalik(kayitlar, baslangic, hotelName, kullaniciAdi) {
     y += 16;
 
     PAV_LISTESI.filter((p) => p.alan === alan).forEach((p) => {
-      doc.setFont(font, "bold");
+      doc.setFont(font, PAV_KALIN.includes(p.no) ? "bold" : "normal");
       doc.setFontSize(9);
       doc.setTextColor(22, 50, 58);
       doc.rect(m, y, etiketW, hH, "S");
@@ -9019,8 +9050,8 @@ function pavPdfHaftalik(kayitlar, baslangic, hotelName, kullaniciAdi) {
         const k = pavAktifKayit(kayitlar, p.no, g);
         const x = m + etiketW + i * hW;
         if (!k) doc.setFillColor(232, 243, 237);
-        else if (k.durum === "Kullanıldı") doc.setFillColor(244, 214, 208);
-        else doc.setFillColor(245, 232, 198);
+        else if (k.durum === "Kullanıldı") doc.setFillColor(232, 190, 190);
+        else doc.setFillColor(248, 215, 215);
         doc.rect(x, y, hW, hH, "FD");
         if (k) {
           doc.setFont(font, "bold");
@@ -11654,95 +11685,87 @@ function PavilionEkrani({ user, onGeri, toastGoster }) {
   const [pdfLink, setPdfLink] = useState(null);
   const [pdfMesaj, setPdfMesaj] = useState("");
 
-  const yoneticiMi = LF_YONETICI_POZISYONLARI.includes(user.pozisyon);
-  const yetkiliMi = yoneticiMi || user.department === "Genel Müdürlük";
+  const [kilitler, setKilitler] = useState([]);
+  const [yonetici, setYonetici] = useState(
+    LF_YONETICI_POZISYONLARI.includes(user.pozisyon) || user.department === "Genel Müdürlük"
+  );
+  const [uyari, setUyari] = useState("");
+  const [detayLog, setDetayLog] = useState([]);
+  const [kilitIslemde, setKilitIslemde] = useState(false);
+  const istekNo = useRef(0);
+  const yetkiliMi = yonetici;
 
+  // Çizelge ekranındayken her 5 sn'de sunucudan tazele: başkalarının sarı (işlemde) ve kırmızı (rezerve)
+  // pavilionları sayfa yenilemeden görünür.
   useEffect(() => {
-    yukle(true);
+    if (gorunum !== "chart") return undefined;
+    yukle(kayitlar.length === 0);
+    const t = setInterval(() => yukle(false), 5000);
+    return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [tarih, gorunum]);
 
   async function yukle(goster) {
     if (goster) setYukleniyor(true);
-    const veri = await pavKayitlariGetir(user.hotelCode);
-    setKayitlar(veri);
-    setYukleniyor(false);
+    const no = ++istekNo.current;
+    try {
+      const v = await pavSunucuGetir(tarih);
+      if (no !== istekNo.current) return;
+      setKayitlar(v.kayitlar);
+      setKilitler(v.kilitler);
+      setYonetici(v.yonetici);
+    } catch (e) {
+      if (no === istekNo.current) setUyari(e && e.message ? e.message : "Veriler alınamadı.");
+    }
+    if (no === istekNo.current) setYukleniyor(false);
+  }
+
+  async function detayLogYukle(id) {
+    try {
+      const l = await window.OtelRpc.cagir("pavilion_log_getir", { p_id: id });
+      setDetayLog((l || []).map((a) => ({ zaman: a.zaman, kullanici: a.kullanici, islem: a.islem })));
+    } catch (e) {
+      setDetayLog([]);
+    }
   }
 
   async function rezervasyonOlustur(form) {
-    const taze = await pavKayitlariGetir(user.hotelCode);
-    if (pavAktifKayit(taze, form.pavilionNo, form.tarih)) {
-      throw new Error("Bu pavilion bu tarihte zaten rezerve edilmiş.");
-    }
-    const simdi = new Date();
-    const yil = simdi.getFullYear();
-    const sayac = taze.filter((k) => k.no.includes(`-${yil}-`)).length + 1;
-    const no = `PAV-${yil}-${String(sayac).padStart(4, "0")}`;
-    const pav = PAV_LISTESI.find((p) => p.no === form.pavilionNo);
-    const kayit = {
-      no,
-      hotelCode: user.hotelCode,
-      hotelName: user.hotelName,
-      pavilionNo: form.pavilionNo,
-      alan: pav ? pav.alan : "",
-      tarih: form.tarih,
-      odaNo: form.odaNo,
-      kisiSayisi: form.kisiSayisi,
-      ucret: form.ucret,
-      aciklama: form.aciklama,
-      durum: "Rezerve",
-      olusturanKullanici: user.name,
-      olusturanUserCode: user.userCode,
-      olusturmaZamani: simdi.toISOString(),
-      iptalNedeni: "",
-      auditLog: [{ zaman: simdi.toISOString(), kullanici: user.name, islem: "Rezervasyon oluşturuldu" }],
-    };
-    await pavKayitKaydet(kayit);
-    toastGoster(`✓ Rezervasyon kaydedildi: ${form.pavilionNo} (${no})`);
+    const r = await window.OtelRpc.cagir("pavilion_kaydet", {
+      p_tarih: form.tarih,
+      p_pav: form.pavilionNo,
+      p_oda: form.odaNo,
+      p_kisi: form.kisiSayisi,
+      p_ucret: form.ucret,
+      p_aciklama: form.aciklama,
+    });
+    toastGoster(`✓ Rezervasyon kaydedildi: ${form.pavilionNo} (${r && r.no ? r.no : ""})`);
     setTarih(form.tarih);
-    await yukle(true);
+    setUyari("");
     setGorunum("chart");
   }
 
   async function durumGuncelle(kayit, yeniDurum, neden) {
-    const simdi = new Date();
-    const guncel = {
-      ...kayit,
-      durum: yeniDurum,
-      iptalNedeni: yeniDurum === "İptal" ? neden : kayit.iptalNedeni,
-      auditLog: [
-        ...kayit.auditLog,
-        {
-          zaman: simdi.toISOString(),
-          kullanici: user.name,
-          islem: `Durum: ${yeniDurum}${yeniDurum === "İptal" && neden ? ` — ${neden}` : ""}`,
-        },
-      ],
-    };
-    await pavKayitKaydet(guncel);
-    toastGoster(`✓ "${yeniDurum}" olarak işaretlendi`);
+    try {
+      await window.OtelRpc.cagir("pavilion_durum", { p_id: kayit.id, p_yeni: yeniDurum, p_neden: neden || null });
+      toastGoster(`✓ "${yeniDurum}" olarak işaretlendi`);
+    } catch (e) {
+      toastGoster(`⚠ ${e.message}`);
+    }
     await yukle(false);
+    await detayLogYukle(kayit.id);
   }
 
   async function bilgiDuzenle(kayit, yeni) {
-    const simdi = new Date();
-    const degisiklikler = [];
-    if (yeni.odaNo !== kayit.odaNo) degisiklikler.push(`oda ${kayit.odaNo} → ${yeni.odaNo}`);
-    if (yeni.kisiSayisi !== kayit.kisiSayisi) degisiklikler.push(`kişi ${kayit.kisiSayisi} → ${yeni.kisiSayisi}`);
-    if (yeni.ucret !== kayit.ucret) degisiklikler.push(`ücret ${kayit.ucret} → ${yeni.ucret}`);
-    if (yeni.aciklama !== kayit.aciklama) degisiklikler.push("açıklama güncellendi");
-    if (degisiklikler.length === 0) return;
-    const guncel = {
-      ...kayit,
-      ...yeni,
-      auditLog: [
-        ...kayit.auditLog,
-        { zaman: simdi.toISOString(), kullanici: user.name, islem: `Düzenlendi: ${degisiklikler.join(", ")}` },
-      ],
-    };
-    await pavKayitKaydet(guncel);
+    await window.OtelRpc.cagir("pavilion_duzenle", {
+      p_id: kayit.id,
+      p_oda: yeni.odaNo,
+      p_kisi: yeni.kisiSayisi,
+      p_ucret: yeni.ucret,
+      p_aciklama: yeni.aciklama,
+    });
     toastGoster("✓ Rezervasyon güncellendi");
     await yukle(false);
+    await detayLogYukle(kayit.id);
   }
 
   function pdfAl(tur) {
@@ -11772,10 +11795,31 @@ function PavilionEkrani({ user, onGeri, toastGoster }) {
   }
 
   const secilenKayit = kayitlar.find((k) => k.no === secilenNo);
+  const secilenId = secilenKayit ? secilenKayit.id : null;
+  useEffect(() => {
+    if (gorunum === "detay" && secilenId) detayLogYukle(secilenId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gorunum, secilenId]);
 
-  function bosaTikla(pavNo, gun) {
-    setOnDeger({ pavilionNo: pavNo, tarih: gun < bugunTarihi() ? bugunTarihi() : gun });
-    setGorunum("yeni");
+  // Boş (yeşil) ya da başkasında olabilecek (sarı) pavilion: önce sunucuda 60 sn'lik kilit alınır.
+  async function bosaTikla(pavNo, gun) {
+    if (kilitIslemde) return;
+    const hedef = gun < bugunTarihi() ? bugunTarihi() : gun;
+    setKilitIslemde(true);
+    try {
+      await window.OtelRpc.cagir("pavilion_kilit_al", { p_tarih: hedef, p_pav: pavNo });
+      setUyari("");
+      setOnDeger({ pavilionNo: pavNo, tarih: hedef });
+      setGorunum("yeni");
+    } catch (e) {
+      setUyari(
+        e.kod === "PAV_KILITLI"
+          ? `Bu pavilion şu an ${e.message} tarafından işleme alınıyor (sarı). Birkaç saniye sonra tekrar deneyin.`
+          : e.message
+      );
+      yukle(false);
+    }
+    setKilitIslemde(false);
   }
   function doluyaTikla(k) {
     setSecilenNo(k.no);
@@ -11787,7 +11831,10 @@ function PavilionEkrani({ user, onGeri, toastGoster }) {
       <PAVYeniRezervasyon
         kayitlar={kayitlar}
         onDeger={onDeger}
-        onIptal={() => setGorunum("chart")}
+        onIptal={() => {
+          setGorunum("chart");
+          yukle(false);
+        }}
         onKaydet={rezervasyonOlustur}
       />
     );
@@ -11796,7 +11843,7 @@ function PavilionEkrani({ user, onGeri, toastGoster }) {
   if (gorunum === "detay" && secilenKayit) {
     return (
       <PAVDetay
-        kayit={secilenKayit}
+        kayit={{ ...secilenKayit, auditLog: detayLog }}
         yetkiliMi={yetkiliMi || secilenKayit.olusturanUserCode === user.userCode}
         onGeri={() => {
           setGorunum("chart");
@@ -11827,17 +11874,18 @@ function PavilionEkrani({ user, onGeri, toastGoster }) {
       PAV_LISTESI.filter((p) => p.alan === alan).forEach((p) => {
         matrisSatirlari.push(
           <tr key={p.no}>
-            <td style={styles.pavTabloEtiket}>{p.no}</td>
+            <td style={{ ...styles.pavTabloEtiket, ...pavNoStil(p.no) }}>{p.no}</td>
             {gunler.map((g) => {
               const k = pavAktifKayit(kayitlar, p.no, g);
-              const renk = pavDurumRengi(k);
+              const kl = k ? null : pavKilitBul(kilitler, p.no, g);
+              const renk = k ? pavDurumRengi(k) : kl ? PAV_RENKLER.kilit : PAV_RENKLER.bos;
               return (
                 <td
                   key={g}
-                  style={{ ...styles.pavHucre, background: `${renk}22`, color: k ? "#16323A" : "#9CA3AF" }}
+                  style={{ ...styles.pavHucre, background: `${renk}${k || kl ? "33" : "22"}`, color: k ? PAV_RENKLER.kullanildi : kl ? "#8A6A00" : "#9CA3AF" }}
                   onClick={() => (k ? doluyaTikla(k) : bosaTikla(p.no, g))}
                 >
-                  {k ? k.odaNo : "·"}
+                  {k ? `${k.odaNo} ${pavBasHarf(k.olusturanKullanici)}` : kl ? "…" : "·"}
                 </td>
               );
             })}
@@ -11862,6 +11910,12 @@ function PavilionEkrani({ user, onGeri, toastGoster }) {
           </div>
         </div>
       </div>
+
+      {uyari && (
+        <div data-testid="pav-uyari" style={{ ...styles.hataKutusu, marginTop: 12 }} onClick={() => setUyari("")}>
+          {uyari}
+        </div>
+      )}
 
       <button
         style={{ ...styles.anaButon, marginTop: 14 }}
@@ -11922,6 +11976,7 @@ function PavilionEkrani({ user, onGeri, toastGoster }) {
       <div style={styles.pavLejant}>
         {[
           ["Boş", PAV_RENKLER.bos],
+          ["İşlemde", PAV_RENKLER.kilit],
           ["Rezerve", PAV_RENKLER.rezerve],
           ["Kullanıldı", PAV_RENKLER.kullanildi],
         ].map(([etiket, renk]) => (
@@ -11945,21 +12000,35 @@ function PavilionEkrani({ user, onGeri, toastGoster }) {
               <div style={styles.pavIzgara}>
                 {liste.map((p) => {
                   const k = pavAktifKayit(kayitlar, p.no, tarih);
-                  const renk = pavDurumRengi(k);
+                  const kl = k ? null : pavKilitBul(kilitler, p.no, tarih);
+                  const renk = k ? pavDurumRengi(k) : kl ? PAV_RENKLER.kilit : PAV_RENKLER.bos;
                   return (
                     <button
                       key={p.no}
-                      style={{ ...styles.pavKutu, borderColor: renk, background: `${renk}14` }}
+                      data-testid={`pav-${p.no}`}
+                      style={{ ...styles.pavKutu, borderColor: renk, background: `${renk}${k || kl ? "22" : "14"}` }}
                       onClick={() => (k ? doluyaTikla(k) : bosaTikla(p.no, tarih))}
                     >
-                      <div style={{ fontSize: 14, fontWeight: 700, color: "#16323A" }}>{p.no}</div>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: renk }}>{k ? k.durum.toUpperCase() : "BOŞ"}</div>
+                      <div style={{ fontSize: 14, ...pavNoStil(p.no), color: "#16323A" }}>{p.no}</div>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: k ? PAV_RENKLER.rezerve : renk }}>
+                        {k ? (k.durum === "Kullanıldı" ? "KULLANILDI ✓" : "REZERVE") : kl ? "İŞLEMDE" : "BOŞ"}
+                      </div>
+                      {kl && (
+                        <div style={{ fontSize: 10, fontWeight: 700, color: "#8A6A00", marginTop: 2 }}>
+                          {kl.benim ? "Siz" : kl.kullanici_adi}
+                        </div>
+                      )}
                       {k && (
                         <div style={{ fontSize: 10, color: "#16323A", marginTop: 2 }}>
                           Oda {k.odaNo} · {k.kisiSayisi} kişi
                         </div>
                       )}
                       {k && <div style={{ fontSize: 10, color: "#6B7280" }}>{pavPara(k.ucret)} ₺</div>}
+                      {k && (
+                        <div style={{ fontSize: 10, fontWeight: 700, color: PAV_RENKLER.rezerve, marginTop: 1 }}>
+                          {k.olusturanKullanici}
+                        </div>
+                      )}
                     </button>
                   );
                 })}
@@ -11984,7 +12053,10 @@ function PavilionEkrani({ user, onGeri, toastGoster }) {
             </thead>
             <tbody>{matrisSatirlari}</tbody>
           </table>
-          <div style={styles.zamanNotu}>Hücrede oda numarası görünür; dokununca ayrıntı veya yeni rezervasyon açılır.</div>
+          <div style={styles.zamanNotu}>
+            Hücrede oda numarası ve rezerve edenin baş harfleri görünür; sarı "…" başka biri işlem yapıyor demektir. Dokununca
+            ayrıntı veya yeni rezervasyon açılır.
+          </div>
         </div>
       )}
 
@@ -12019,8 +12091,52 @@ function PAVYeniRezervasyon({ kayitlar, onDeger, onIptal, onKaydet }) {
   const [aciklama, setAciklama] = useState("");
   const [hata, setHata] = useState("");
   const [kaydediliyor, setKaydediliyor] = useState(false);
+  const [kilitHata, setKilitHata] = useState("");
+  const [sureDoldu, setSureDoldu] = useState(false);
+  const [kalan, setKalan] = useState(180);
 
   const mevcut = pavilionNo && tarih ? pavAktifKayit(kayitlar, pavilionNo, tarih) : null;
+
+  // Sarı kilit: seçili pavilion+gün bu kullanıcıya 60 sn ayrılır; form açıkken her 20 sn yenilenir (en çok 3 dk).
+  // Ekran kapanır/seçim değişirse kilit bırakılır; uygulama aniden kapanırsa 60 sn içinde sunucuda kendiliğinden düşer.
+  useEffect(() => {
+    if (!pavilionNo || !tarih || tarih < bugunTarihi()) return undefined;
+    let bitti = false;
+    const baslangic = Date.now();
+    setSureDoldu(false);
+    setKalan(180);
+    const al = async () => {
+      try {
+        await window.OtelRpc.cagir("pavilion_kilit_al", { p_tarih: tarih, p_pav: pavilionNo });
+        if (!bitti) setKilitHata("");
+      } catch (e) {
+        if (!bitti) {
+          setKilitHata(
+            e.kod === "PAV_KILITLI"
+              ? `Bu pavilion şu an ${e.message} tarafından işleme alınıyor (sarı). Birkaç saniye sonra tekrar deneyin.`
+              : e.message
+          );
+        }
+      }
+    };
+    al();
+    const sn = setInterval(() => setKalan(Math.max(0, 180 - Math.floor((Date.now() - baslangic) / 1000))), 1000);
+    const yenile = setInterval(() => {
+      if (Date.now() - baslangic > 180000) {
+        clearInterval(yenile);
+        setSureDoldu(true);
+        window.OtelRpc.cagir("pavilion_kilit_birak", { p_tarih: tarih, p_pav: pavilionNo }).catch(() => {});
+        return;
+      }
+      al();
+    }, 20000);
+    return () => {
+      bitti = true;
+      clearInterval(sn);
+      clearInterval(yenile);
+      window.OtelRpc.cagir("pavilion_kilit_birak", { p_tarih: tarih, p_pav: pavilionNo }).catch(() => {});
+    };
+  }, [pavilionNo, tarih]);
 
   async function kaydet() {
     setHata("");
@@ -12052,6 +12168,10 @@ function PAVYeniRezervasyon({ kayitlar, onDeger, onIptal, onKaydet }) {
     }
     if (!aciklama.trim()) {
       setHata("Açıklama zorunludur.");
+      return;
+    }
+    if (kilitHata || sureDoldu) {
+      setHata(sureDoldu ? "Süre doldu. Geri dönüp pavilionu yeniden seçin." : kilitHata);
       return;
     }
     setKaydediliyor(true);
@@ -12087,7 +12207,7 @@ function PAVYeniRezervasyon({ kayitlar, onDeger, onIptal, onKaydet }) {
         {PAV_ALANLAR.map((alan) => (
           <optgroup key={alan} label={alan}>
             {PAV_LISTESI.filter((p) => p.alan === alan).map((p) => (
-              <option key={p.no} value={p.no}>
+              <option key={p.no} value={p.no} style={pavNoStil(p.no)}>
                 {p.no}
               </option>
             ))}
@@ -12102,6 +12222,19 @@ function PAVYeniRezervasyon({ kayitlar, onDeger, onIptal, onKaydet }) {
         <div style={styles.hataKutusu}>
           Bu pavilion bu tarihte zaten {mevcut.durum.toLowerCase()} (Oda {mevcut.odaNo}, {mevcut.kisiSayisi} kişi).
         </div>
+      )}
+      {!mevcut && pavilionNo && tarih && kilitHata && (
+        <div data-testid="pav-kilit-hata" style={{ ...styles.hataKutusu, background: "#FEF3C7", color: "#92400E", borderColor: "#D9A400" }}>
+          {kilitHata}
+        </div>
+      )}
+      {!mevcut && pavilionNo && tarih && !kilitHata && !sureDoldu && (
+        <div data-testid="pav-kilit-bilgi" style={{ ...styles.zamanNotu, color: "#8A6A00", fontWeight: 700 }}>
+          Bu pavilion sizin için ayrıldı (sarı) · kalan süre {Math.floor(kalan / 60)}:{String(kalan % 60).padStart(2, "0")}
+        </div>
+      )}
+      {sureDoldu && (
+        <div style={styles.hataKutusu}>Süre doldu (3 dk). Pavilion serbest bırakıldı; geri dönüp yeniden seçin.</div>
       )}
 
       <Etiket>ODA NUMARASI (zorunlu)</Etiket>
@@ -12139,9 +12272,9 @@ function PAVYeniRezervasyon({ kayitlar, onDeger, onIptal, onKaydet }) {
       {hata && <div style={styles.hataKutusu}>{hata}</div>}
 
       <button
-        style={{ ...styles.anaButon, marginTop: 16, marginBottom: 24, opacity: kaydediliyor || mevcut ? 0.7 : 1 }}
+        style={{ ...styles.anaButon, marginTop: 16, marginBottom: 24, opacity: kaydediliyor || mevcut || kilitHata || sureDoldu ? 0.7 : 1 }}
         onClick={kaydet}
-        disabled={kaydediliyor || !!mevcut}
+        disabled={kaydediliyor || !!mevcut || !!kilitHata || sureDoldu}
       >
         {kaydediliyor ? "Kaydediliyor…" : "Rezervasyonu Kaydet"}
       </button>
@@ -12194,9 +12327,13 @@ function PAVDetay({ kayit, yetkiliMi, onGeri, onDurum, onDuzenle }) {
       return;
     }
     setIslem(true);
-    await onDuzenle(kayit, { odaNo: odaNo.trim(), kisiSayisi, ucret: ucretSayi, aciklama: aciklama.trim() });
+    try {
+      await onDuzenle(kayit, { odaNo: odaNo.trim(), kisiSayisi, ucret: ucretSayi, aciklama: aciklama.trim() });
+      setDuzenle(false);
+    } catch (e) {
+      setHata(e && e.message ? e.message : "Kayıt güncellenemedi.");
+    }
     setIslem(false);
-    setDuzenle(false);
   }
 
   return (
