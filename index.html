@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.23";
+window.UYGULAMA_SURUMU = "1.24";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -3595,7 +3595,6 @@ html[data-tema="gece"] .telefon-govde button.uyn-giris-btn{background:linear-gra
       <div className="telefon-govde" style={styles.telefonCerceve}>
         <div style={styles.durumCubugu}>
           <span>{new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}</span>
-          <span style={{ letterSpacing: 2 }}>●●●●</span>
         </div>
 
         {hazirlaniyor ? (
