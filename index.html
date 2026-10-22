@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.24";
+window.UYGULAMA_SURUMU = "1.25";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -262,13 +262,27 @@ window.UYGULAMA_SURUMU = "1.24";
     var s = await sb().auth.getSession();
     var oturum = s.data && s.data.session;
     if (!oturum) return null;
-    var r = await sb().from("profiles")
-      .select("hotel_code,user_code,name,department,bolum,pozisyon,is_admin,active,must_change_pin")
-      .eq("id", oturum.user.id).maybeSingle();
+    var alanlar = "hotel_code,user_code,name,department,bolum,pozisyon,is_admin,active,must_change_pin";
+    var r = await sb().from("profiles").select(alanlar + ",modul_yonetici").eq("id", oturum.user.id).maybeSingle();
+    if (r.error && /modul_yonetici/i.test(r.error.message || "")) {
+      // Modül yetkileri SQL'i henüz çalıştırılmamış: eski düzenle devam
+      r = await sb().from("profiles").select(alanlar).eq("id", oturum.user.id).maybeSingle();
+    }
     if (r.error) throw new Error(hataMesaji(r.error));
     if (!r.data || !r.data.active) {
       await sb().auth.signOut();
       return null;
+    }
+    // Görebildiği modüller (sunucudan). Fonksiyon henüz kurulmamışsa undefined kalır → uygulama eski kurallarla çalışır.
+    var moduller;
+    var mr = await sb().rpc("modul_listem");
+    if (mr.error) {
+      var mm = String(mr.error.message || "");
+      if (mr.error.code !== "PGRST202" && !/could not find the function|does not exist/i.test(mm)) {
+        throw new Error("Modül yetkileri alınamadı. İnternetinizi kontrol edip tekrar deneyin.");
+      }
+    } else {
+      moduller = Array.isArray(mr.data) ? mr.data : undefined; // sunucu her zaman dizi döner
     }
     var h = await sb().from("hotels").select("name").eq("code", r.data.hotel_code).maybeSingle();
     var p = r.data;
@@ -277,6 +291,7 @@ window.UYGULAMA_SURUMU = "1.24";
       bolum: p.bolum || undefined, pozisyon: p.pozisyon || undefined,
       hotelName: (h.data && h.data.name) || p.hotel_code,
       isAdmin: !!p.is_admin, mustChangePin: !!p.must_change_pin,
+      moduller: moduller, modulYonetici: !!p.modul_yonetici,
     };
   }
 
@@ -1778,8 +1793,21 @@ const PAV_AKTIF_DURUMLAR = ["Rezerve", "Kullanıldı"];
 const PAV_RENKLER = { bos: "#2F7D5C", kilit: "#D9A400", rezerve: "#C62828", kullanildi: "#7F1D1D" };
 const PAV_OTELLER = ["5557"]; // sunucuda da aynı kısıt var (11a_pavilion.sql > pavilion_oteller)
 const PAV_KALIN = ["8005", "8006", "8007", "8008"]; // numarası kalın (bold) yazılacak pavilionlar
+// ---- Modül yetkileri (Otel Yönetim Paneli > Modüller) ----
+// Kullanıcının görebildiği modüller girişte sunucudan gelir (user.moduller). Sunucu fonksiyonu henüz
+// kurulmamışsa (user.moduller tanımsız) eski sabit kurallar geçerli olur; böylece geçiş sırasında hiçbir şey bozulmaz.
+// Kontrol Listesi bu sistemin dışındadır: HERKESE HER ZAMAN açıktır.
+function modulAcik(user, modul, eskiKural) {
+  if (!user) return false;
+  if (Array.isArray(user.moduller)) return user.moduller.includes(modul);
+  return eskiKural ? !!eskiKural(user) : true;
+}
+function arizaKullanabilir(user) { return modulAcik(user, "ariza"); }
+function lostfoundKullanabilir(user) { return modulAcik(user, "lostfound"); }
+function odaservisiKullanabilir(user) { return modulAcik(user, "odaservisi"); }
+function uyandirmaKullanabilir(user) { return modulAcik(user, "uyandirma"); }
 function pavKullanabilir(user) {
-  return !!user && PAV_OTELLER.includes(user.hotelCode);
+  return modulAcik(user, "pavilion", (u) => PAV_OTELLER.includes(u.hotelCode));
 }
 function pavNoStil(no) {
   return { fontWeight: PAV_KALIN.includes(no) ? 900 : 400 };
@@ -2613,7 +2641,7 @@ function App() {
   const oncekiUyandirmaSayisi = useRef(0);
 
   useEffect(() => {
-    if (!currentUser || !UYN_ARAMA_DEPARTMANLARI.includes(currentUser.department)) {
+    if (!currentUser || !UYN_ARAMA_DEPARTMANLARI.includes(currentUser.department) || !uyandirmaKullanabilir(currentUser)) {
       setUyandirmaGeciken([]);
       oncekiUyandirmaSayisi.current = 0;
       return;
@@ -3724,15 +3752,15 @@ html[data-tema="gece"] .telefon-govde button.uyn-giris-btn{background:linear-gra
             onSatirDuzenle={kontrolSatiriDuzenle}
             onSatirSil={kontrolSatiriSil}
           />
-        ) : screen === "lostfound" ? (
+        ) : screen === "lostfound" && lostfoundKullanabilir(currentUser) ? (
           <LostFoundEkrani user={currentUser} onGeri={() => setScreen("home")} toastGoster={toastGoster} />
-        ) : screen === "ariza" ? (
+        ) : screen === "ariza" && arizaKullanabilir(currentUser) ? (
           <ArizaEkrani user={currentUser} onGeri={() => setScreen("home")} toastGoster={toastGoster} />
-        ) : screen === "roomservice" ? (
+        ) : screen === "roomservice" && odaservisiKullanabilir(currentUser) ? (
           <RoomServiceEkrani user={currentUser} onGeri={() => setScreen("home")} toastGoster={toastGoster} />
-        ) : screen === "uyandirma" ? (
+        ) : screen === "uyandirma" && uyandirmaKullanabilir(currentUser) ? (
           <UyandirmaEkrani user={currentUser} onGeri={() => setScreen("home")} toastGoster={toastGoster} />
-        ) : screen === "pavilion" ? (
+        ) : screen === "pavilion" && pavKullanabilir(currentUser) ? (
           <PavilionEkrani user={currentUser} onGeri={() => setScreen("home")} toastGoster={toastGoster} />
         ) : screen === "servis" && servisKullanabilir(currentUser) ? (
           <ServisTakipEkrani user={currentUser} onGeri={() => setScreen("home")} toastGoster={toastGoster} />
@@ -4045,21 +4073,29 @@ function AnaSayfa({
           </span>
         </button>
 
-        <button style={styles.arizaButon} onClick={onArizaBildir}>
-          🔧 Arıza Bildir
-        </button>
+        {arizaKullanabilir(user) && (
+          <button data-testid="ariza-btn" style={styles.arizaButon} onClick={onArizaBildir}>
+            🔧 Arıza Bildir
+          </button>
+        )}
 
-        <button style={styles.lostFoundButon} onClick={onLostFound}>
-          📦 Lost & Found
-        </button>
+        {lostfoundKullanabilir(user) && (
+          <button data-testid="lostfound-btn" style={styles.lostFoundButon} onClick={onLostFound}>
+            📦 Lost & Found
+          </button>
+        )}
 
-        <button style={styles.roomServiceButon} onClick={onRoomService}>
-          🍽️ Oda Servisi
-        </button>
+        {odaservisiKullanabilir(user) && (
+          <button data-testid="odaservisi-btn" style={styles.roomServiceButon} onClick={onRoomService}>
+            🍽️ Oda Servisi
+          </button>
+        )}
 
-        <button style={styles.uyandirmaButon} onClick={onUyandirma}>
-          ⏰ Uyandırma Servisi
-        </button>
+        {uyandirmaKullanabilir(user) && (
+          <button data-testid="uyandirma-btn" style={styles.uyandirmaButon} onClick={onUyandirma}>
+            ⏰ Uyandırma Servisi
+          </button>
+        )}
 
         {pavKullanabilir(user) && (
           <button data-testid="pavilion-btn" style={styles.pavilionButon} onClick={onPavilion}>
@@ -4097,8 +4133,8 @@ function AnaSayfa({
           </button>
         )}
 
-        {user.department === "Genel Müdürlük" && (
-          <button style={styles.gmYonetimButon} onClick={onGMYonetim}>
+        {(user.department === "Genel Müdürlük" || user.modulYonetici) && (
+          <button data-testid="gm-yonetim-btn" style={styles.gmYonetimButon} onClick={onGMYonetim}>
             🏨 Otel Yönetim Paneli
           </button>
         )}
@@ -5280,7 +5316,8 @@ function GMYonetimEkrani({
   onSatirDuzenle,
   onSatirSil,
 }) {
-  const [sekme, setSekme] = useState("ozet");
+  const gmMi = user.department === "Genel Müdürlük";
+  const [sekme, setSekme] = useState(gmMi ? "ozet" : "moduller");
 
   return (
     <div style={styles.icerik}>
@@ -5300,10 +5337,15 @@ function GMYonetimEkrani({
 
       <div style={styles.gmSekmeSatiri}>
         {[
-          ["ozet", "Özet"],
-          ["departman", "Departman"],
-          ["kullanici", "Kullanıcı"],
-          ["satirlar", "Maddeler"],
+          ...(gmMi
+            ? [
+                ["ozet", "Özet"],
+                ["departman", "Departman"],
+                ["kullanici", "Kullanıcı"],
+                ["satirlar", "Maddeler"],
+              ]
+            : []),
+          ...(user.modulYonetici ? [["moduller", "Modüller"]] : []),
         ].map(([key, label]) => (
           <button
             key={key}
@@ -5315,6 +5357,7 @@ function GMYonetimEkrani({
         ))}
       </div>
 
+      {sekme === "moduller" && user.modulYonetici && <GMModulSekmesi user={user} toastGoster={toastGoster} />}
       {sekme === "ozet" && <GMOzetSekmesi user={user} />}
       {sekme === "departman" && (
         <GMDepartmanSekmesi onDepartmanOlustur={onDepartmanOlustur} toastGoster={toastGoster} />
@@ -5330,6 +5373,443 @@ function GMYonetimEkrani({
           toastGoster={toastGoster}
         />
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------
+// MODÜL YETKİLERİ: hangi departman / pozisyon / kişi hangi modülü görsün.
+// Yalnızca "yetki yöneticisi" işaretli kullanıcılar kendi otelleri için düzenler (sunucu da denetler).
+// Öncelik: Kişiye özel > Pozisyon+Departman > Pozisyon > Departman > Başlangıç düzeni; aynı seviyede Engelle kazanır.
+// Kontrol Listesi bu sistemin dışındadır, herkese açıktır. Değişiklik kullanıcı sayfayı yenileyince geçerli olur.
+// ---------------------------------------------------------------------
+const MODUL_KAPSAM_ADI = {
+  kullanici: "Kişiye özel",
+  pozdep: "Pozisyon + Departman",
+  pozisyon: "Pozisyon",
+  departman: "Departman",
+  otel: "Tüm otel",
+  baslangic: "Başlangıç düzeni",
+};
+
+function ModulUcDurum({ deger, onSec, kapali }) {
+  return (
+    <div style={{ display: "flex", gap: 6 }}>
+      {[
+        ["sil", "Boş"],
+        ["ver", "✓ Ver"],
+        ["engelle", "⛔ Engelle"],
+      ].map(([k, e]) => (
+        <button
+          key={k}
+          type="button"
+          disabled={kapali}
+          aria-pressed={deger === k}
+          onClick={() => deger !== k && onSec(k)}
+          style={{ ...styles.gmSekmeButon, minHeight: 44, ...(deger === k ? styles.gmSekmeButonAktif : {}) }}
+        >
+          {e}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function GMModulSekmesi({ user, toastGoster }) {
+  const [veri, setVeri] = useState(null);
+  const [hata, setHata] = useState("");
+  const [mesgul, setMesgul] = useState(false);
+  const [gorunum, setGorunum] = useState("departman");
+  const [dep, setDep] = useState("");
+  const [poz, setPoz] = useState("");
+  const [pozDep, setPozDep] = useState("");
+  const [kisi, setKisi] = useState("");
+  const [tDep, setTDep] = useState("");
+  const [tPoz, setTPoz] = useState("");
+  const [tAra, setTAra] = useState("");
+  const [tSecili, setTSecili] = useState({});
+  const [tModul, setTModul] = useState({});
+
+  useEffect(() => {
+    yukle();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function yukle() {
+    try {
+      const v = await window.OtelRpc.cagir("modul_panel_veri", { p_hotel: user.hotelCode });
+      setVeri(v);
+      setHata("");
+    } catch (e) {
+      const m = String((e && e.message) || "");
+      setHata(
+        /could not find the function|PGRST202/i.test(m)
+          ? "Modül yetkileri sunucuda henüz kurulmamış (SQL dosyaları çalıştırılmalı)."
+          : m || "Modül yetkileri yüklenemedi."
+      );
+    }
+  }
+
+  async function kaydet(kapsam, depAd, pozAd, kullanicilar, moduller, izin, basari) {
+    setMesgul(true);
+    try {
+      await window.OtelRpc.cagir("modul_kural_kaydet", {
+        p_hotel: user.hotelCode,
+        p_kapsam: kapsam,
+        p_departman: depAd || "",
+        p_pozisyon: pozAd || "",
+        p_users: kullanicilar,
+        p_moduller: moduller,
+        p_izin: izin,
+      });
+      await yukle();
+      toastGoster(basari || "✓ Kaydedildi");
+      return true;
+    } catch (e) {
+      toastGoster("⚠ " + ((e && e.message) || "Kaydedilemedi"));
+      return false;
+    } finally {
+      setMesgul(false);
+    }
+  }
+
+  async function yoneticiDegistir(k, deger) {
+    setMesgul(true);
+    try {
+      await window.OtelRpc.cagir("modul_yonetici_ata", { p_hotel: user.hotelCode, p_user: k.user_code, p_deger: deger });
+      await yukle();
+      toastGoster(deger ? `✓ ${k.name} yetki yöneticisi oldu` : `✓ ${k.name} yetki yöneticisi değil`);
+    } catch (e) {
+      toastGoster("⚠ " + ((e && e.message) || "Kaydedilemedi"));
+    } finally {
+      setMesgul(false);
+    }
+  }
+
+  if (!veri) {
+    return hata ? (
+      <div>
+        <div style={styles.hataKutusu}>{hata}</div>
+        <button style={{ ...styles.ikincilButon, marginTop: 10 }} onClick={yukle}>
+          Tekrar dene
+        </button>
+      </div>
+    ) : (
+      <div style={styles.merkezYukleniyor}>Yükleniyor…</div>
+    );
+  }
+
+  const katalog = veri.katalog || [];
+  const kullanicilar = veri.kullanicilar || [];
+  const kurallar = veri.kurallar || [];
+  const departmanlar = Array.from(
+    new Set([...STANDART_DEPARTMAN_YAPISI.map((d) => d.departman), ...kullanicilar.map((k) => k.department)])
+  )
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, "tr"));
+  const pozisyonlar = Array.from(new Set([...STANDART_POZISYON_LISTESI, ...kullanicilar.map((k) => k.pozisyon)])).filter(Boolean);
+
+  function kuralIzin(kapsam, d, p, u, modul) {
+    const k = kurallar.find(
+      (x) => x.kapsam === kapsam && x.departman === (d || "") && x.pozisyon === (p || "") && x.user_code === (u || "") && x.modul === modul
+    );
+    return k ? k.izin : "sil";
+  }
+
+  const etiketSatiri = (k) => `${k.user_code} · ${k.name} · ${k.department}${k.pozisyon ? " · " + k.pozisyon : ""}`;
+  const secilenKisi = kullanicilar.find((k) => k.user_code === kisi);
+  const pozKapsam = pozDep ? "pozdep" : "pozisyon";
+  const depKisiSay = kullanicilar.filter((k) => k.department === dep).length;
+  const pozKisiSay = kullanicilar.filter((k) => k.pozisyon === poz && (!pozDep || k.department === pozDep)).length;
+
+  const tListe = kullanicilar.filter(
+    (k) =>
+      (!tDep || k.department === tDep) &&
+      (!tPoz || k.pozisyon === tPoz) &&
+      (!tAra.trim() || `${k.user_code} ${k.name}`.toLocaleLowerCase("tr").includes(tAra.trim().toLocaleLowerCase("tr")))
+  );
+  const tSecilenKodlar = tListe.filter((k) => tSecili[k.user_code]).map((k) => k.user_code);
+  const tSecilenModuller = katalog.filter((m) => tModul[m.modul]).map((m) => m.modul);
+  const tHazir = tSecilenKodlar.length > 0 && tSecilenModuller.length > 0 && !mesgul;
+
+  return (
+    <div data-testid="modul-paneli">
+      <div style={styles.bilgiKutusu}>
+        Kontrol Listesi herkese her zaman açıktır. Diğer modüller için kural yoksa modül kapalıdır; yeni kullanıcılar kural
+        verilene kadar yalnızca Kontrol Listesi'ni görür. Değişiklik, kullanıcı sayfayı yenileyince geçerli olur.
+        Öncelik: Kişi, Pozisyon + Departman, Pozisyon, Departman. Aynı seviyede Engelle kazanır.
+      </div>
+
+      <div style={styles.gmSekmeSatiri}>
+        {[
+          ["departman", "Departmana göre"],
+          ["pozisyon", "Pozisyona göre"],
+          ["kisi", "Kişiye göre"],
+          ["toplu", "Toplu atama"],
+          ["gecmis", "Geçmiş"],
+        ].map(([key, label]) => (
+          <button
+            key={key}
+            data-testid={`modul-sekme-${key}`}
+            style={{ ...styles.gmSekmeButon, minHeight: 44, ...(gorunum === key ? styles.gmSekmeButonAktif : {}) }}
+            onClick={() => setGorunum(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {gorunum === "departman" && (
+        <>
+          <Etiket>DEPARTMAN</Etiket>
+          <select data-testid="modul-dep" style={styles.gmSecim} value={dep} onChange={(e) => setDep(e.target.value)}>
+            <option value="">Seçiniz</option>
+            {departmanlar.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
+          {dep && (
+            <>
+              <div style={styles.bilgiKutusu}>
+                Bu departmanda {depKisiSay} kişi var. Kural, departmana sonradan eklenecek kişilere de uygulanır.
+              </div>
+              {katalog.map((m) => (
+                <div key={m.modul} data-testid={`modul-dep-${m.modul}`} style={{ ...styles.gmMaddeSatiri, marginTop: 8 }}>
+                  <div style={styles.gmMaddeMetni}>{m.ad}</div>
+                  <ModulUcDurum
+                    deger={kuralIzin("departman", dep, "", "", m.modul)}
+                    kapali={mesgul}
+                    onSec={(iz) => kaydet("departman", dep, "", null, [m.modul], iz, `✓ ${dep}: ${m.ad}`)}
+                  />
+                </div>
+              ))}
+            </>
+          )}
+        </>
+      )}
+
+      {gorunum === "pozisyon" && (
+        <>
+          <Etiket>POZİSYON</Etiket>
+          <select data-testid="modul-poz" style={styles.gmSecim} value={poz} onChange={(e) => setPoz(e.target.value)}>
+            <option value="">Seçiniz</option>
+            {pozisyonlar.map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </select>
+          <Etiket>DEPARTMAN (isteğe bağlı)</Etiket>
+          <select data-testid="modul-poz-dep" style={styles.gmSecim} value={pozDep} onChange={(e) => setPozDep(e.target.value)}>
+            <option value="">Tüm departmanlar</option>
+            {departmanlar.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
+          {poz && (
+            <>
+              <div style={styles.bilgiKutusu}>
+                {pozDep ? `${pozDep} departmanında ${poz}` : `Tüm departmanlarda ${poz}`}: {pozKisiSay} kişi. Kural sonradan
+                eklenecek kişilere de uygulanır.
+              </div>
+              {katalog.map((m) => (
+                <div key={m.modul} data-testid={`modul-poz-${m.modul}`} style={{ ...styles.gmMaddeSatiri, marginTop: 8 }}>
+                  <div style={styles.gmMaddeMetni}>{m.ad}</div>
+                  <ModulUcDurum
+                    deger={kuralIzin(pozKapsam, pozDep, poz, "", m.modul)}
+                    kapali={mesgul}
+                    onSec={(iz) => kaydet(pozKapsam, pozDep, poz, null, [m.modul], iz, `✓ ${poz}: ${m.ad}`)}
+                  />
+                </div>
+              ))}
+            </>
+          )}
+        </>
+      )}
+
+      {gorunum === "kisi" && (
+        <>
+          <Etiket>KİŞİ</Etiket>
+          <select data-testid="modul-kisi" style={styles.gmSecim} value={kisi} onChange={(e) => setKisi(e.target.value)}>
+            <option value="">Seçiniz</option>
+            {kullanicilar.map((k) => (
+              <option key={k.user_code} value={k.user_code}>
+                {etiketSatiri(k)}
+              </option>
+            ))}
+          </select>
+          {secilenKisi && (
+            <>
+              {katalog.map((m) => {
+                const e = (secilenKisi.moduller || {})[m.modul] || {};
+                return (
+                  <div key={m.modul} data-testid={`modul-kisi-${m.modul}`} style={{ ...styles.gmMaddeSatiri, marginTop: 8 }}>
+                    <div style={styles.gmMaddeMetni}>
+                      {m.ad} — <strong>{e.izin ? "✓ Açık" : "Kapalı"}</strong>
+                      <div style={{ fontSize: 11, fontWeight: 500, opacity: 0.8 }}>
+                        Kaynak: {e.kapsam ? MODUL_KAPSAM_ADI[e.kapsam] : "kural yok"}
+                      </div>
+                    </div>
+                    <ModulUcDurum
+                      deger={kuralIzin("kullanici", "", "", secilenKisi.user_code, m.modul)}
+                      kapali={mesgul}
+                      onSec={(iz) => kaydet("kullanici", "", "", [secilenKisi.user_code], [m.modul], iz, `✓ ${secilenKisi.name}: ${m.ad}`)}
+                    />
+                  </div>
+                );
+              })}
+              <div style={{ ...styles.gmMaddeSatiri, marginTop: 12 }}>
+                <div style={styles.gmMaddeMetni}>
+                  Yetki yöneticisi: <strong>{secilenKisi.yonetici ? "Evet" : "Hayır"}</strong>
+                  <div style={{ fontSize: 11, fontWeight: 500, opacity: 0.8 }}>
+                    Yetki yöneticileri bu panelden modül yetkilerini düzenleyebilir ve başkalarını yetki yöneticisi yapabilir.
+                  </div>
+                </div>
+                <button
+                  data-testid="modul-yonetici-btn"
+                  style={{ ...(secilenKisi.yonetici ? styles.ikincilButon : styles.anaButon), minHeight: 44 }}
+                  disabled={mesgul || (secilenKisi.yonetici && secilenKisi.user_code === user.userCode)}
+                  onClick={() => yoneticiDegistir(secilenKisi, !secilenKisi.yonetici)}
+                >
+                  {secilenKisi.yonetici ? "Yetki yöneticiliğini kaldır" : "Yetki yöneticisi yap"}
+                </button>
+              </div>
+            </>
+          )}
+        </>
+      )}
+
+      {gorunum === "toplu" && (
+        <>
+          <div style={styles.bilgiKutusu}>
+            Seçtiğiniz kişilere kişiye özel kural yazar. Sonradan eklenecek kişileri de kapsamak için Departman veya Pozisyon
+            sekmesini kullanın.
+          </div>
+          <Etiket>DEPARTMAN</Etiket>
+          <select data-testid="modul-t-dep" style={styles.gmSecim} value={tDep} onChange={(e) => setTDep(e.target.value)}>
+            <option value="">Tümü</option>
+            {departmanlar.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
+          <Etiket>POZİSYON</Etiket>
+          <select data-testid="modul-t-poz" style={styles.gmSecim} value={tPoz} onChange={(e) => setTPoz(e.target.value)}>
+            <option value="">Tümü</option>
+            {pozisyonlar.map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </select>
+          <Etiket>ARA (ad veya kod)</Etiket>
+          <input style={styles.epostaInput} value={tAra} onChange={(e) => setTAra(e.target.value)} placeholder="örn. 2001 veya Ayşe" />
+
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <button
+              data-testid="modul-t-hepsi"
+              style={{ ...styles.ikincilButon, flex: 1, minHeight: 44 }}
+              onClick={() => setTSecili((s) => ({ ...s, ...Object.fromEntries(tListe.map((k) => [k.user_code, true])) }))}
+            >
+              Listedekileri seç ({tListe.length})
+            </button>
+            <button
+              style={{ ...styles.ikincilButon, flex: 1, minHeight: 44 }}
+              onClick={() => setTSecili({})}
+            >
+              Seçimi temizle
+            </button>
+          </div>
+
+          <div style={{ ...styles.gmMaddeSatiri, marginTop: 10, maxHeight: 240, overflowY: "auto" }}>
+            {tListe.length === 0 ? (
+              <div style={styles.gmMaddeMetni}>Bu filtreyle kullanıcı yok.</div>
+            ) : (
+              tListe.map((k) => (
+                <label key={k.user_code} style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 44, fontSize: 13 }}>
+                  <input
+                    type="checkbox"
+                    style={{ width: 22, height: 22 }}
+                    checked={!!tSecili[k.user_code]}
+                    onChange={(e) => setTSecili((s) => ({ ...s, [k.user_code]: e.target.checked }))}
+                  />
+                  <span>{etiketSatiri(k)}</span>
+                </label>
+              ))
+            )}
+          </div>
+
+          <Etiket>MODÜLLER</Etiket>
+          <div style={styles.gmMaddeSatiri}>
+            {katalog.map((m) => (
+              <label key={m.modul} style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 44, fontSize: 13 }}>
+                <input
+                  type="checkbox"
+                  data-testid={`modul-t-m-${m.modul}`}
+                  style={{ width: 22, height: 22 }}
+                  checked={!!tModul[m.modul]}
+                  onChange={(e) => setTModul((s) => ({ ...s, [m.modul]: e.target.checked }))}
+                />
+                <span>{m.ad}</span>
+              </label>
+            ))}
+          </div>
+
+          <div style={{ ...styles.bilgiKutusu, marginTop: 12 }}>
+            {tSecilenKodlar.length} kişi × {tSecilenModuller.length} modül
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            {[
+              ["ver", "✓ Ver", styles.anaButon],
+              ["engelle", "⛔ Engelle", styles.ikincilButon],
+            ].map(([iz, etiket, stil]) => (
+              <button
+                key={iz}
+                data-testid={`modul-t-${iz}`}
+                style={{ ...stil, flex: 1, minHeight: 48, opacity: tHazir ? 1 : 0.5 }}
+                disabled={!tHazir}
+                onClick={async () => {
+                  const ok = await kaydet("kullanici", "", "", tSecilenKodlar, tSecilenModuller, iz, `✓ ${tSecilenKodlar.length} kişiye uygulandı`);
+                  if (ok) setTSecili({});
+                }}
+              >
+                {etiket}
+              </button>
+            ))}
+          </div>
+          <button
+            data-testid="modul-t-sil"
+            style={{ ...styles.ikincilButon, marginTop: 8, minHeight: 48, opacity: tHazir ? 1 : 0.5 }}
+            disabled={!tHazir}
+            onClick={async () => {
+              const ok = await kaydet("kullanici", "", "", tSecilenKodlar, tSecilenModuller, "sil", `✓ ${tSecilenKodlar.length} kişinin özel kuralı kaldırıldı`);
+              if (ok) setTSecili({});
+            }}
+          >
+            Kişiye özel kuralı kaldır (departman/pozisyon kurallarına dön)
+          </button>
+        </>
+      )}
+
+      {gorunum === "gecmis" && (
+        <div style={{ ...styles.gmMaddeSatiri, marginTop: 12 }}>
+          {(veri.gecmis || []).length === 0 ? (
+            <div style={styles.gmMaddeMetni}>Henüz değişiklik yok.</div>
+          ) : (
+            (veri.gecmis || []).map((g, i) => (
+              <div key={i} style={styles.zamanNotu}>
+                {lfZamanFormatla(g.zaman)} — {g.yapan} — {g.islem}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+      <div style={{ height: 24 }} />
     </div>
   );
 }
@@ -9252,7 +9732,7 @@ const ALACARTE_RESTORANLAR = [
   { ad: "Fangri", renk: "#1D4ED8" },
 ];
 function alacarteKullanabilir(user) {
-  return !!user && ALACARTE_OTELLER.includes(user.hotelCode) && ALACARTE_DEPARTMANLAR.includes(user.department);
+  return modulAcik(user, "alacarte", (u) => ALACARTE_OTELLER.includes(u.hotelCode) && ALACARTE_DEPARTMANLAR.includes(u.department));
 }
 // PMS hazırlığı: ileride { odaDolu, misafirAdi, cikisTarihi } döndürür. Şimdilik null (doğrulama yapılmaz).
 async function alacartePmsOdaBilgi(/* odaNo, tarih */) {
@@ -9904,7 +10384,7 @@ const SERVIS_SAATLER = (() => {
   return l;
 })();
 function servisKullanabilir(user) {
-  return !!user && SERVIS_OTELLER.includes(user.hotelCode) && SERVIS_DEPARTMANLAR.includes(user.department);
+  return modulAcik(user, "servis", (u) => SERVIS_OTELLER.includes(u.hotelCode) && SERVIS_DEPARTMANLAR.includes(u.department));
 }
 function servisAliciMi(user) {
   return servisKullanabilir(user) && SERVIS_ALICILAR.includes(pozAnahtar(user.bolum));
@@ -10733,7 +11213,7 @@ const HK_ODA_ONCELIK = [["Normal", "Normal"], ["Erken", "Erken giriş"], ["VIP",
 const HK_DURUM = { Acik: ["Bekliyor", "#B45309"], Kabul: ["Atandı", "#0369A1"], Basladi: ["Yapılıyor", "#6D28D9"], Tamam: ["Onay bekliyor", "#0F766E"], Kapandi: ["Kapandı", "#15803D"], Iptal: ["İptal", "#6B7280"] };
 const HK_ODA_DURUM = { Bekle: ["BEKLE – girme", "#6B7280"], Kirli: ["Kirli", "#B91C1C"], Temizleniyor: ["Temizleniyor", "#6D28D9"], Kontrol: ["Kontrol bekliyor", "#B45309"], Hazir: ["Hazır", "#15803D"] };
 function hkKullanabilir(user) {
-  return !!user && HK_OTELLER.includes(user.hotelCode);
+  return modulAcik(user, "hk", (u) => HK_OTELLER.includes(u.hotelCode));
 }
 function hkTur(k) {
   const x = HK_TURLER.find((a) => a[0] === k);
@@ -11220,7 +11700,7 @@ const REVIR_SEVK = [["Ambulans", "Ambulans"], ["KendiAraci", "Kendi aracı"], ["
 const REVIR_SONUC = [["Iyilesti", "İyileşti"], ["OteldenAyrildi", "Otelden ayrıldı"], ["HastayaYatirildi", "Hastaneye yatırıldı"], ["TedaviReddedildi", "Tedavi reddedildi (ret formu)"], ["TakipDisi", "Takip dışı"]];
 const REVIR_TAKIP = [["Iyi", "İyi"], ["Ayni", "Aynı"], ["Kotu", "Kötüleşti"], ["Ulasilamadi", "Ulaşılamadı"]];
 function revirKullanabilir(user) {
-  return !!user && REVIR_OTELLER.includes(user.hotelCode);
+  return modulAcik(user, "revir", (u) => REVIR_OTELLER.includes(u.hotelCode));
 }
 function revirEtiket(liste, k) {
   const x = liste.find((a) => a[0] === k);
