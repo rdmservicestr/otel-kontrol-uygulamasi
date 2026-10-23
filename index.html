@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.25";
+window.UYGULAMA_SURUMU = "1.26";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -235,6 +235,45 @@ window.UYGULAMA_SURUMU = "1.25";
       if (r.error) throw new Error(hataMesaji(r.error));
       oYaz(key, value);
       return { key: key, value: value };
+    },
+
+    // ---- Güvenli yazma yolları (v1.26) ----
+    // olustur: kayıt YALNIZCA yoksa yazılır; varsa Error("KAYIT_VAR") (iki kişi aynı numarayı alamaz)
+    async olustur(key, value) {
+      if (key.indexOf("users:") === 0 || key.indexOf("hotels:") === 0) throw new Error("Bu kayıt uygulamadan oluşturulamaz.");
+      var otel = anahtarOtel(key);
+      var govde = JSON.parse(value);
+      if (otel !== "*") govde = await fotolariYukle(govde, otel);
+      var s = await sb().auth.getSession();
+      var uid = s.data && s.data.session && s.data.session.user && s.data.session.user.id;
+      var r = await sb().from("kv_store").insert({ hotel_code: otel, key: key, value: govde, version: 1, updated_by: uid || null });
+      if (r.error) {
+        if (r.error.code === "23505" || /duplicate key/i.test(r.error.message || "")) throw new Error("KAYIT_VAR");
+        throw new Error(hataMesaji(r.error));
+      }
+      oYaz(key, value);
+      return { key: key, value: value };
+    },
+    // getV: önbelleği atlayıp sunucudan güncel değer + sürüm numarasını okur
+    async getV(key) {
+      var r = await sb().from("kv_store").select("value,version").eq("hotel_code", anahtarOtel(key)).eq("key", key).maybeSingle();
+      if (r.error) throw new Error(hataMesaji(r.error));
+      if (!r.data) return null;
+      await okumaHazirla([r.data.value]);
+      return { key: key, value: JSON.stringify(depoCoz(r.data.value)), version: r.data.version };
+    },
+    // setV: yalnızca sürüm hâlâ "expected" ise yazar; başkası arada değiştirmişse Error("CAKISMA")
+    async setV(key, value, expected) {
+      var otel = anahtarOtel(key);
+      var govde = JSON.parse(value);
+      if (otel !== "*") govde = await fotolariYukle(govde, otel);
+      var r = await sb().rpc("kv_set", { p_hotel: otel, p_key: key, p_value: govde, p_expected: expected });
+      if (r.error) {
+        if (/VERSION_CONFLICT/.test(r.error.message || "")) throw new Error("CAKISMA");
+        throw new Error(hataMesaji(r.error));
+      }
+      oYaz(key, value);
+      return { key: key, value: value, version: r.data };
     },
 
     async delete(key) {
@@ -7201,23 +7240,79 @@ function LFDetay({ kayit, yoneticiMi, onGeri, onDurumGuncelle, onIletisimEkle, o
    ARIZA BİLDİRİM VE TAKİP - depolama yardımcı fonksiyonları
 -------------------------------------------------------------------*/
 async function arzKayitlariGetir(hotelCode) {
-  try {
-    const liste = await window.storage.list(`ariza:${hotelCode}:`, true);
-    const keys = (liste && liste.keys) || [];
-    const kayitlar = [];
-    for (const k of keys) {
-      const r = await safeGet(k, true);
-      if (r) {
-        try {
-          kayitlar.push(JSON.parse(r.value));
-        } catch (e) {}
-      }
+  // Hata ARTIK yutulmaz: bağlantı yoksa çağıran bilir (eskiden boş liste dönüp numara çakışmasına yol açıyordu)
+  const liste = await window.storage.list(`ariza:${hotelCode}:`, true);
+  const keys = (liste && liste.keys) || [];
+  const kayitlar = [];
+  for (const k of keys) {
+    const r = await safeGet(k, true);
+    if (r) {
+      try {
+        kayitlar.push(JSON.parse(r.value));
+      } catch (e) {}
     }
-    kayitlar.sort((a, b) => (a.olusturmaZamani < b.olusturmaZamani ? 1 : -1));
-    return kayitlar;
-  } catch (e) {
-    return [];
   }
+  kayitlar.sort((a, b) => (a.olusturmaZamani < b.olusturmaZamani ? 1 : -1));
+  return kayitlar;
+}
+
+// Yeni arıza: numara sunucudaki en büyük numaradan türetilir ve kayıt "yalnızca yoksa" yazılır;
+// aynı anda başka biri aynı numarayı aldıysa bir sonraki numara denenir.
+async function arzYeniKaydet(taslak) {
+  for (let deneme = 0; deneme < 6; deneme++) {
+    const yil = new Date().getFullYear();
+    const liste = await window.storage.list(`ariza:${taslak.hotelCode}:`, true);
+    let enBuyuk = 0;
+    for (const k of (liste && liste.keys) || []) {
+      const m = String(k).match(/ARZ-(\d{4})-(\d+)$/);
+      if (m && Number(m[1]) === yil) enBuyuk = Math.max(enBuyuk, Number(m[2]));
+    }
+    const no = `ARZ-${yil}-${String(enBuyuk + 1).padStart(4, "0")}`;
+    const kayit = { ...taslak, no };
+    const anahtar = `ariza:${kayit.hotelCode}:${no}`;
+    if (!window.storage.olustur) {
+      await window.storage.set(anahtar, JSON.stringify(kayit), true);
+      return kayit;
+    }
+    try {
+      await window.storage.olustur(anahtar, JSON.stringify(kayit));
+      return kayit;
+    } catch (e) {
+      if (!e || e.message !== "KAYIT_VAR") throw e;
+    }
+  }
+  throw new Error("Arıza numarası alınamadı, lütfen tekrar deneyin.");
+}
+
+// Var olan arıza: güncel kayıt sunucudan okunur, değişiklik ONUN üzerine uygulanır, sürüm kontrolüyle yazılır.
+// Arada başkası değiştirdiyse yeniden okunup tekrar denenir (kimsenin değişikliği ezilmez).
+async function arzGuncelle(hotelCode, no, degistir) {
+  const anahtar = `ariza:${hotelCode}:${no}`;
+  for (let deneme = 0; deneme < 4; deneme++) {
+    let guncel, surum = null;
+    if (window.storage.getV) {
+      const r = await window.storage.getV(anahtar);
+      if (!r) throw new Error("Arıza kaydı bulunamadı.");
+      guncel = JSON.parse(r.value);
+      surum = r.version;
+    } else {
+      const r = await window.storage.get(anahtar, true);
+      if (!r) throw new Error("Arıza kaydı bulunamadı.");
+      guncel = JSON.parse(r.value);
+    }
+    const yeni = degistir(guncel); // kuraldışıysa Error fırlatır
+    if (surum === null || !window.storage.setV) {
+      await window.storage.set(anahtar, JSON.stringify(yeni), true);
+      return yeni;
+    }
+    try {
+      await window.storage.setV(anahtar, JSON.stringify(yeni), surum);
+      return yeni;
+    } catch (e) {
+      if (!e || e.message !== "CAKISMA") throw e;
+    }
+  }
+  throw new Error("Kayıt başka biri tarafından sürekli değiştiriliyor, lütfen tekrar deneyin.");
 }
 
 async function arzKayitKaydet(kayit) {
@@ -7251,9 +7346,28 @@ function ArizaEkrani({ user, onGeri, toastGoster }) {
 
   async function yukle() {
     setYukleniyor(true);
-    const veri = await arzKayitlariGetir(user.hotelCode);
-    setKayitlar(veri);
-    setYukleniyor(false);
+    try {
+      const veri = await arzKayitlariGetir(user.hotelCode);
+      setKayitlar(veri);
+      return true;
+    } catch (e) {
+      toastGoster("⚠ Arıza listesi alınamadı. İnternetinizi kontrol edin.");
+      return false;
+    } finally {
+      setYukleniyor(false);
+    }
+  }
+
+  // Hiçbir eylem hata fırlatmaz: hata olursa kullanıcıya söylenir, ekran takılı kalmaz.
+  async function guvenli(eylem, hataBasligi) {
+    try {
+      await eylem();
+      return true;
+    } catch (e) {
+      const m = e && e.message ? e.message : "";
+      toastGoster(`⚠ ${hataBasligi}${m ? ` (${m})` : ""}. İşlem kaydedilmedi, tekrar deneyin.`);
+      return false;
+    }
   }
 
   async function teknisyenleriGetir() {
@@ -7288,12 +7402,8 @@ function ArizaEkrani({ user, onGeri, toastGoster }) {
 
   async function arizaOlustur(form, fotograflar) {
     const simdi = new Date();
-    const yil = simdi.getFullYear();
-    const sayac = kayitlar.filter((k) => k.no.includes(`-${yil}-`)).length + 1;
-    const no = `ARZ-${yil}-${String(sayac).padStart(4, "0")}`;
     const tekrarSayisi = tekrarlayanUyari(form);
-    const kayit = {
-      no,
+    const taslak = {
       hotelCode: user.hotelCode,
       hotelName: user.hotelName,
       tarih: simdi.toLocaleDateString("tr-TR"),
@@ -7322,8 +7432,13 @@ function ArizaEkrani({ user, onGeri, toastGoster }) {
       kapanisZamani: null,
       auditLog: [{ zaman: simdi.toISOString(), kullanici: user.name, islem: "Arıza bildirildi" }],
     };
-    await arzKayitKaydet(kayit);
+    let kayit = null;
+    const tamam = await guvenli(async () => {
+      kayit = await arzYeniKaydet(taslak);
+    }, "Arıza kaydedilemedi");
+    if (!tamam) return false; // form açık kalır, yazılanlar kaybolmaz
 
+    const no = kayit.no;
     if (form.oncelik === "Acil") {
       telegramMesajGonder(
         `🔴 ACİL ARIZA\n${kayit.hotelName}\n\nArıza No: ${no}\nAlan: ${form.alan}${
@@ -7338,109 +7453,104 @@ function ArizaEkrani({ user, onGeri, toastGoster }) {
     }
     await yukle();
     setGorunum("liste");
+    return true;
   }
 
-  async function auditEkle(kayit, islem) {
+  function auditSatiri(islem) {
     return { zaman: new Date().toISOString(), kullanici: user.name, islem };
   }
 
+  // Ortak: güncel kaydı oku → kuralı kontrol et → değiştir → sürümle yaz → listeyi yenile
+  async function degistirVeKaydet(kayit, mesaj, hataBasligi, degistir) {
+    const ok = await guvenli(
+      () =>
+        arzGuncelle(kayit.hotelCode, kayit.no, (g) => {
+          if (g.durum === "Kapatıldı") throw new Error("Bu arıza zaten kapatılmış");
+          return degistir(g);
+        }),
+      hataBasligi
+    );
+    if (ok) toastGoster(mesaj);
+    await yukle();
+    return ok;
+  }
+
   async function teknisyenAta(kayit, teknisyen) {
-    const simdi = new Date();
-    const guncel = {
-      ...kayit,
+    await degistirVeKaydet(kayit, `✓ ${teknisyen.name} atandı`, "Atama yapılamadı", (g) => ({
+      ...g,
       durum: "Atandı",
       atananTeknisyen: { userCode: teknisyen.userCode, name: teknisyen.name },
-      atanmaZamani: simdi.toISOString(),
-      auditLog: [...kayit.auditLog, await auditEkle(kayit, `Teknisyen atandı: ${teknisyen.name}`)],
-    };
-    await arzKayitKaydet(guncel);
-    toastGoster(`✓ ${teknisyen.name} atandı`);
-    await yukle();
+      atanmaZamani: new Date().toISOString(),
+      auditLog: [...g.auditLog, auditSatiri(`Teknisyen atandı: ${teknisyen.name}`)],
+    }));
   }
 
   async function islemeBasla(kayit) {
-    const simdi = new Date();
-    const guncel = {
-      ...kayit,
+    await degistirVeKaydet(kayit, "✓ İşleme başlandı", "İşleme başlanamadı", (g) => ({
+      ...g,
       durum: "İşlemde",
-      baslamaZamani: simdi.toISOString(),
-      auditLog: [...kayit.auditLog, await auditEkle(kayit, "İşleme başlandı")],
-    };
-    await arzKayitKaydet(guncel);
-    toastGoster("✓ İşleme başlandı");
-    await yukle();
+      baslamaZamani: new Date().toISOString(),
+      auditLog: [...g.auditLog, auditSatiri("İşleme başlandı")],
+    }));
   }
 
   async function beklemeyeAl(kayit, neden) {
-    const guncel = {
-      ...kayit,
+    await degistirVeKaydet(kayit, "✓ Beklemeye alındı", "Beklemeye alınamadı", (g) => ({
+      ...g,
       durum: "Beklemede",
       beklemeNedeni: neden,
-      auditLog: [...kayit.auditLog, await auditEkle(kayit, `Beklemeye alındı: ${neden}`)],
-    };
-    await arzKayitKaydet(guncel);
-    toastGoster("✓ Beklemeye alındı");
-    await yukle();
+      auditLog: [...g.auditLog, auditSatiri(`Beklemeye alındı: ${neden}`)],
+    }));
   }
 
   async function islemeDevamEt(kayit) {
-    const guncel = {
-      ...kayit,
+    await degistirVeKaydet(kayit, "✓ İşleme devam ediliyor", "İşleme devam edilemedi", (g) => ({
+      ...g,
       durum: "İşlemde",
-      auditLog: [...kayit.auditLog, await auditEkle(kayit, "İşleme devam edildi")],
-    };
-    await arzKayitKaydet(guncel);
-    toastGoster("✓ İşleme devam ediliyor");
-    await yukle();
+      auditLog: [...g.auditLog, auditSatiri("İşleme devam edildi")],
+    }));
   }
 
   async function cozumKaydet(kayit, form, fotograflar) {
-    const simdi = new Date();
-    const guncel = {
-      ...kayit,
+    await degistirVeKaydet(kayit, "✓ Çözüm kaydedildi, bildiren kişinin kontrolü bekleniyor", "Çözüm kaydedilemedi", (g) => ({
+      ...g,
       durum: "Kontrol Bekliyor",
       cozumAciklamasi: form.cozumAciklamasi,
       kullanilanParca: form.kullanilanParca,
       cozumFotograflari: fotograflar || [],
-      cozumZamani: simdi.toISOString(),
-      auditLog: [...kayit.auditLog, await auditEkle(kayit, "Çözüldü olarak işaretlendi, kontrol bekleniyor")],
-    };
-    await arzKayitKaydet(guncel);
-    toastGoster("✓ Çözüm kaydedildi, bildiren kişinin kontrolü bekleniyor");
-    await yukle();
+      cozumZamani: new Date().toISOString(),
+      auditLog: [...g.auditLog, auditSatiri("Çözüldü olarak işaretlendi, kontrol bekleniyor")],
+    }));
   }
 
   async function kontrolOnayla(kayit, onaylandiMi, aciklama) {
-    const simdi = new Date();
     if (onaylandiMi) {
-      const guncel = {
-        ...kayit,
-        durum: "Kapatıldı",
-        kontrolEden: user.name,
-        kontrolZamani: simdi.toISOString(),
-        kapanisZamani: simdi.toISOString(),
-        auditLog: [...kayit.auditLog, await auditEkle(kayit, "Kontrol edildi ve kapatıldı")],
-      };
-      await arzKayitKaydet(guncel);
-      toastGoster("✓ Arıza kapatıldı");
+      await degistirVeKaydet(kayit, "✓ Arıza kapatıldı", "Arıza kapatılamadı", (g) => {
+        const simdi = new Date().toISOString();
+        return {
+          ...g,
+          durum: "Kapatıldı",
+          kontrolEden: user.name,
+          kontrolZamani: simdi,
+          kapanisZamani: simdi,
+          auditLog: [...g.auditLog, auditSatiri("Kontrol edildi ve kapatıldı")],
+        };
+      });
     } else {
-      const guncel = {
-        ...kayit,
+      await degistirVeKaydet(kayit, "↩ Arıza tekrar işleme alındı", "İşlem yapılamadı", (g) => ({
+        ...g,
         durum: "İşlemde",
-        auditLog: [
-          ...kayit.auditLog,
-          await auditEkle(kayit, `Sorun devam ediyor olarak işaretlendi: ${aciklama}`),
-        ],
-      };
-      await arzKayitKaydet(guncel);
-      toastGoster("↩ Arıza tekrar işleme alındı");
+        auditLog: [...g.auditLog, auditSatiri(`Sorun devam ediyor olarak işaretlendi: ${aciklama}`)],
+      }));
     }
-    await yukle();
   }
 
   async function fotografEkle(kayit, dataUrl) {
-    const guncel = { ...kayit, fotograflar: [...(kayit.fotograflar || []), dataUrl] };
-    await arzKayitKaydet(guncel);
+    const ok = await guvenli(
+      () => arzGuncelle(kayit.hotelCode, kayit.no, (g) => ({ ...g, fotograflar: [...(g.fotograflar || []), dataUrl] })),
+      "Fotoğraf eklenemedi"
+    );
+    if (ok) toastGoster("✓ Fotoğraf eklendi");
     await yukle();
   }
 
@@ -7645,8 +7755,13 @@ function ARZYeniBildirim({ user, onIptal, onKaydet }) {
     }
     setKaydediliyor(true);
     const nihaiAlan = alan === "Diğer" ? alanDiger.trim() : alan;
-    await onKaydet({ alan: nihaiAlan, odaNo, kategori, aciklama, oncelik }, fotograflar);
-    setKaydediliyor(false);
+    try {
+      await onKaydet({ alan: nihaiAlan, odaNo, kategori, aciklama, oncelik }, fotograflar);
+    } catch (e) {
+      setHata("Kaydedilemedi, lütfen tekrar deneyin.");
+    } finally {
+      setKaydediliyor(false);
+    }
   }
 
   return (
