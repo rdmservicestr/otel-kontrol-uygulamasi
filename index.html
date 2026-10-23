@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.27";
+window.UYGULAMA_SURUMU = "1.28";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -7358,6 +7358,42 @@ function arzDurumRozetiStil(durum, buyuk) {
 }
 
 // Liste sırası: açık arızalar önce (Acil → Yüksek → Normal; aynı derecede en eski bildirim üstte), kapalılar en yeni üstte.
+function ArzSayac({ kayit, buyuk }) {
+  const [, setTik] = useState(0);
+  const sr0 = arzSureler(kayit, Date.now());
+  const akiyor = !sr0.bitti && !sr0.duraklatildi;
+  useEffect(() => {
+    if (!akiyor) return undefined;
+    const id = setInterval(() => setTik((x) => x + 1), buyuk ? 1000 : 30000);
+    return () => clearInterval(id);
+  }, [akiyor, buyuk]);
+  const sr = arzSureler(kayit, Date.now());
+  if (buyuk) {
+    return (
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 10 }} data-testid="sayac-detay">
+        <div style={{ ...styles.lfKpiKart, cursor: "default", opacity: sr.bekliyor ? 1 : 0.85 }}>
+          <div style={{ ...styles.lfKpiSayi, fontVariantNumeric: "tabular-nums" }} data-testid="sayac-bekleme">{arzSureYaz(sr.bekleme, true)}</div>
+          <div style={styles.lfKpiEtiket}>{sr.bekliyor ? "⏳ Bekliyor (işe başlanmadı)" : "Başlamaya kadar bekleme"}</div>
+        </div>
+        <div style={{ ...styles.lfKpiKart, cursor: "default" }}>
+          <div style={{ ...styles.lfKpiSayi, fontVariantNumeric: "tabular-nums" }} data-testid="sayac-calisma">{kayit.baslamaZamani ? arzSureYaz(sr.calisma, true) : "—"}</div>
+          <div style={styles.lfKpiEtiket}>
+            {sr.calisiyor ? "🔧 Çalışılıyor" : sr.duraklatildi ? "⏸ Duraklatıldı" : sr.bitti ? "✓ Toplam çalışma" : "Çalışma süresi"}
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <span data-testid="sayac-kart" style={{ fontVariantNumeric: "tabular-nums" }}>
+      {sr.bekliyor && `⏳ ${arzSureYaz(sr.bekleme)} bekliyor`}
+      {sr.calisiyor && `🔧 ${arzSureYaz(sr.calisma)} çalışıldı`}
+      {sr.duraklatildi && `⏸ ${arzSureYaz(sr.calisma)} (duraklatıldı)`}
+      {kayit.durum === "Kapatıldı" && `✓ ${arzSureYaz(sr.calisma)} çalışma`}
+    </span>
+  );
+}
+
 function arzSirala(liste) {
   const rutbe = { Acil: 0, Yüksek: 1, Normal: 2 };
   const acik = (k) => k.durum !== "Kapatıldı";
@@ -7372,6 +7408,97 @@ function arzSirala(liste) {
     const zb = b.kapanisZamani || b.olusturmaZamani;
     return za < zb ? 1 : za > zb ? -1 : 0;
   });
+}
+// ---- Süre hesapları ----
+// Duraklatma aralıkları: "Beklemeye alındı" ve "Çözüldü (kontrol bekliyor)" kayıtlarından sonraki ilk işleme kadar.
+function arzDuraklamaAraliklari(k, simdi) {
+  const log = k.auditLog || [];
+  const araliklar = [];
+  for (let i = 0; i < log.length; i++) {
+    const t = log[i].islem || "";
+    if (/^Beklemeye alındı/.test(t) || /^Çözüldü olarak/.test(t)) {
+      const bas = new Date(log[i].zaman).getTime();
+      const bit = i + 1 < log.length ? new Date(log[i + 1].zaman).getTime() : simdi;
+      araliklar.push([bas, Math.max(bas, bit)]);
+    }
+  }
+  return araliklar;
+}
+// bekleme: bildirimden işe başlanana kadar · calisma: başlangıçtan çözüme (bekleme/kontrol süreleri hariç)
+function arzSureler(k, simdi) {
+  const olus = new Date(k.olusturmaZamani).getTime();
+  const bas = k.baslamaZamani ? new Date(k.baslamaZamani).getTime() : null;
+  const kapali = k.durum === "Kapatıldı";
+  const kontrol = k.durum === "Kontrol Bekliyor";
+  const bittiZ = (kapali || kontrol) && k.cozumZamani ? new Date(k.cozumZamani).getTime() : null;
+  const bitis = bittiZ !== null ? bittiZ : simdi;
+  const beklemeBitis = bas !== null ? bas : kapali && k.kapanisZamani ? new Date(k.kapanisZamani).getTime() : simdi;
+  const bekleme = Math.max(0, beklemeBitis - olus);
+  let calisma = 0;
+  if (bas !== null) {
+    calisma = Math.max(0, bitis - bas);
+    for (const [a, b] of arzDuraklamaAraliklari(k, simdi)) {
+      const x = Math.max(a, bas);
+      const y = Math.min(b, bitis);
+      if (y > x) calisma -= y - x;
+    }
+    calisma = Math.max(0, calisma);
+  }
+  const duraklatildi = k.durum === "Beklemede" || kontrol;
+  const calisiyor = k.durum === "İşlemde";
+  const bekliyor = k.durum === "Yeni" || k.durum === "Atandı";
+  return { bekleme, calisma, duraklatildi, calisiyor, bekliyor, bitti: kapali || kontrol };
+}
+function arzSureYaz(ms, saatSaat) {
+  const sn = Math.floor(ms / 1000);
+  const g = Math.floor(sn / 86400);
+  const sa = Math.floor((sn % 86400) / 3600);
+  const dk = Math.floor((sn % 3600) / 60);
+  const ss = sn % 60;
+  if (saatSaat) {
+    // detay ekranı: canlı akan saat 00:12:05 (gün varsa başına "1g")
+    const p = (n) => String(n).padStart(2, "0");
+    return `${g ? `${g}g ` : ""}${p(sa)}:${p(dk)}:${p(ss)}`;
+  }
+  if (g) return `${g} g ${sa} sa`;
+  if (sa) return `${sa} sa ${dk} dk`;
+  if (dk) return `${dk} dk`;
+  return `${ss} sn`;
+}
+function arzOrtanca(dizi) {
+  if (!dizi.length) return 0;
+  const a = [...dizi].sort((x, y) => x - y);
+  const m = Math.floor(a.length / 2);
+  return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+}
+function arzOrtalama(dizi) {
+  return dizi.length ? dizi.reduce((x, y) => x + y, 0) / dizi.length : 0;
+}
+// Performans: dönem içinde çözümü kaydedilen işler (çözüm zamanına göre), sorumlu teknisyene yazılır
+function arzPerformansHesapla(kayitlar, baslangicMs, simdi) {
+  const kisiler = {};
+  const al = (kod, ad) => (kisiler[kod] = kisiler[kod] || { kod, ad, bitirilen: 0, acil: 0, calismalar: [], beklemeler: [], geriAcilan: 0, acik: 0, gunluk: {} });
+  let toplam = 0;
+  for (const k of kayitlar) {
+    if (!k.atananTeknisyen) continue;
+    const kisi = al(k.atananTeknisyen.userCode, k.atananTeknisyen.name);
+    const finalMi = k.durum === "Kontrol Bekliyor" || k.durum === "Kapatıldı";
+    if (!finalMi && k.durum !== "Yeni") kisi.acik++;
+    for (const a of k.auditLog || []) {
+      if (/^Sorun devam ediyor/.test(a.islem || "") && new Date(a.zaman).getTime() >= baslangicMs) kisi.geriAcilan++;
+    }
+    if (finalMi && k.cozumZamani && new Date(k.cozumZamani).getTime() >= baslangicMs) {
+      const sr = arzSureler(k, simdi);
+      kisi.bitirilen++;
+      toplam++;
+      if (k.oncelik === "Acil") kisi.acil++;
+      kisi.calismalar.push(sr.calisma);
+      kisi.beklemeler.push(sr.bekleme);
+      const gun = arzYerelTarih(k.cozumZamani);
+      kisi.gunluk[gun] = (kisi.gunluk[gun] || 0) + 1;
+    }
+  }
+  return { kisiler, toplam };
 }
 function arzYerelTarih(iso) {
   const d = new Date(iso);
@@ -7697,6 +7824,19 @@ function ArizaEkrani({ user, onGeri, toastGoster }) {
     return <ARZYeniBildirim user={user} onIptal={() => setGorunum("liste")} onKaydet={arizaOlustur} />;
   }
 
+  if (gorunum === "performans") {
+    return (
+      <ARZPerformans
+        kayitlar={kayitlar}
+        user={user}
+        teknisyenler={teknisyenler}
+        yoneticiMi={atamaYapabilirMi}
+        teknikPersonelMi={teknikPersonelMi}
+        onGeri={() => setGorunum("liste")}
+      />
+    );
+  }
+
   if (gorunum === "detay" && secilenKayit) {
     return (
       <ARZDetay
@@ -7738,6 +7878,11 @@ function ArizaEkrani({ user, onGeri, toastGoster }) {
       <button style={{ ...styles.anaButon, marginTop: 14 }} onClick={() => setGorunum("yeni")}>
         🔧 Yeni Arıza Bildir
       </button>
+      {(teknikPersonelMi || atamaYapabilirMi) && (
+        <button style={{ ...styles.ikincilButon, marginTop: 10, width: "100%" }} onClick={() => setGorunum("performans")} data-testid="performans-btn">
+          📊 {atamaYapabilirMi ? "Ekip Performansı" : "Performansım"}
+        </button>
+      )}
 
       <div style={styles.lfKpiIzgara}>
         {[
@@ -7869,6 +8014,9 @@ function ArizaEkrani({ user, onGeri, toastGoster }) {
                   {k.odaNo ? ` · Oda ${k.odaNo}` : ""} · {k.tarih} {k.saat}
                   {k.atananTeknisyen ? ` · 👤 ${k.atananTeknisyen.name}` : ""}
                 </div>
+                <div style={{ ...styles.lfKayitAltBilgi, marginTop: 4, fontWeight: 700 }}>
+                  <ArzSayac kayit={k} />
+                </div>
               </button>
             );
           })
@@ -7881,6 +8029,159 @@ function ArizaEkrani({ user, onGeri, toastGoster }) {
 /* ------------------------------------------------------------------
    ARIZA BİLDİRİM VE TAKİP - yeni bildirim formu
 -------------------------------------------------------------------*/
+const ARZ_DONEMLER = [
+  { key: "bugun", etiket: "Bugün" },
+  { key: "7", etiket: "7 gün" },
+  { key: "30", etiket: "30 gün" },
+  { key: "tum", etiket: "Tümü" },
+];
+function arzDonemBaslangici(key, simdi) {
+  const d = new Date(simdi);
+  d.setHours(0, 0, 0, 0);
+  if (key === "bugun") return d.getTime();
+  if (key === "7") return d.getTime() - 6 * 86400000;
+  if (key === "30") return d.getTime() - 29 * 86400000;
+  return 0;
+}
+function ARZPerformans({ kayitlar, user, teknisyenler, yoneticiMi, teknikPersonelMi, onGeri }) {
+  const [donem, setDonem] = useState("30");
+  const [sekme, setSekme] = useState(yoneticiMi ? "ekip" : "benim");
+  const simdi = Date.now();
+  const bas = arzDonemBaslangici(donem, simdi);
+  const { kisiler, toplam } = arzPerformansHesapla(kayitlar, bas, simdi);
+  const bos = (kod, ad) => ({ kod, ad, bitirilen: 0, acil: 0, calismalar: [], beklemeler: [], geriAcilan: 0, acik: 0, gunluk: {} });
+  // Ekip listesi: Teknik Servis personeli + dönemde iş yapmış herkes
+  const kodlar = new Map();
+  teknisyenler.forEach((t) => kodlar.set(t.userCode, t.name));
+  Object.values(kisiler).forEach((k) => kodlar.set(k.kod, k.ad));
+  const ekip = [...kodlar.entries()]
+    .map(([kod, ad]) => kisiler[kod] || bos(kod, ad))
+    .sort((a, b) => b.bitirilen - a.bitirilen || a.ad.localeCompare(b.ad, "tr"));
+  const benim = kisiler[user.userCode] || bos(user.userCode, user.name);
+  const enCok = Math.max(1, ...ekip.map((k) => k.bitirilen));
+  const yuzde = (k) => (toplam ? Math.round((k.bitirilen / toplam) * 100) : 0);
+  const gunler = [];
+  const gunSayisi = donem === "bugun" ? 1 : donem === "7" ? 7 : 14;
+  for (let i = gunSayisi - 1; i >= 0; i--) gunler.push(arzYerelTarih(new Date(simdi - i * 86400000).toISOString()));
+
+  const Kpi = ({ sayi, etiket, id }) => (
+    <div style={{ ...styles.lfKpiKart, cursor: "default" }}>
+      <div style={styles.lfKpiSayi} data-testid={id}>{sayi}</div>
+      <div style={styles.lfKpiEtiket}>{etiket}</div>
+    </div>
+  );
+
+  function KisiOzet({ k }) {
+    const ort = arzOrtalama(k.calismalar);
+    const med = arzOrtanca(k.calismalar);
+    const yanit = arzOrtanca(k.beklemeler);
+    const enBuyukGun = Math.max(1, ...gunler.map((g) => k.gunluk[g] || 0));
+    return (
+      <div data-testid="perf-benim">
+        <div style={styles.lfKpiIzgara}>
+          <Kpi id="p-bitirilen" sayi={k.bitirilen} etiket="Bitirilen iş" />
+          <Kpi id="p-pay" sayi={`%${yuzde(k)}`} etiket="Toplam işteki payı" />
+          <Kpi id="p-ortanca" sayi={k.bitirilen ? arzSureYaz(med) : "—"} etiket="Ortanca süre / iş" />
+          <Kpi id="p-ortalama" sayi={k.bitirilen ? arzSureYaz(ort) : "—"} etiket="Ortalama süre / iş" />
+          <Kpi id="p-yanit" sayi={k.bitirilen ? arzSureYaz(yanit) : "—"} etiket="Başlamaya kadar bekleme (ortanca)" />
+          <Kpi id="p-acil" sayi={k.acil} etiket="Acil iş" />
+          <Kpi id="p-acik" sayi={k.acik} etiket="Şu an açık işi" />
+          <Kpi id="p-geri" sayi={k.geriAcilan} etiket="Geri açılan (sorun devam etti)" />
+        </div>
+        <div style={{ ...styles.lfBilgiKarti, marginTop: 14 }}>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>Günlük bitirilen iş</div>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 90 }} data-testid="gunluk-grafik">
+            {gunler.map((g) => {
+              const n = k.gunluk[g] || 0;
+              return (
+                <div key={g} style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center", height: "100%" }}>
+                  <div style={{ fontSize: 10 }}>{n || ""}</div>
+                  <div style={{ width: "100%", maxWidth: 22, height: `${(n / enBuyukGun) * 100}%`, minHeight: n ? 4 : 1, background: n ? "#2F7D5C" : "#C9CFCB", borderRadius: 3 }} />
+                  <div style={{ fontSize: 9, marginTop: 2 }}>{g.slice(8)}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={styles.icerik}>
+      <div style={styles.listeUstBaslik}>
+        <button style={styles.geriButon} onClick={onGeri} aria-label="Geri">←</button>
+        <div>
+          <div className="baslik-font" style={styles.listeBaslikYazi}>{yoneticiMi && sekme === "ekip" ? "Ekip Performansı" : "Performansım"}</div>
+          <div style={styles.ilerlemeYazi}>{user.hotelName} · Teknik Servis</div>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
+        {ARZ_DONEMLER.map((d) => (
+          <button key={d.key} style={{ ...styles.gmSekmeButon, flex: "none", padding: "7px 14px", ...(donem === d.key ? styles.gmSekmeButonAktif : {}) }} onClick={() => setDonem(d.key)} data-testid={`donem-${d.key}`}>
+            {d.etiket}
+          </button>
+        ))}
+      </div>
+
+      {yoneticiMi && teknikPersonelMi && (
+        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+          {[["ekip", "Ekip"], ["benim", "Benim"]].map(([k, e]) => (
+            <button key={k} style={{ ...styles.gmSekmeButon, flex: 1, ...(sekme === k ? styles.gmSekmeButonAktif : {}) }} onClick={() => setSekme(k)}>{e}</button>
+          ))}
+        </div>
+      )}
+
+      {yoneticiMi && sekme === "ekip" ? (
+        <div data-testid="perf-ekip">
+          <div style={{ ...styles.lfBilgiKarti, marginTop: 14 }}>
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>Bitirilen iş sayısı · toplam {toplam}</div>
+            {ekip.map((k) => (
+              <div key={k.kod} style={{ marginBottom: 8 }} data-testid={`ekip-satir-${k.kod}`}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                  <span>{k.ad}</span>
+                  <strong>{k.bitirilen} · %{yuzde(k)}</strong>
+                </div>
+                <div style={{ height: 10, background: "#E7ECE9", borderRadius: 5 }}>
+                  <div style={{ height: 10, width: `${(k.bitirilen / enCok) * 100}%`, background: "#2F7D5C", borderRadius: 5 }} />
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ ...styles.lfBilgiKarti, marginTop: 14, overflowX: "auto" }}>
+            <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ textAlign: "left" }}>
+                  <th>Kişi</th><th>Biten</th><th>Pay</th><th>Ortanca</th><th>Ort.</th><th>Açık</th><th>Geri</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ekip.map((k) => (
+                  <tr key={k.kod} data-testid={`ekip-tablo-${k.kod}`}>
+                    <td>{k.ad}</td>
+                    <td>{k.bitirilen}</td>
+                    <td>%{yuzde(k)}</td>
+                    <td>{k.bitirilen ? arzSureYaz(arzOrtanca(k.calismalar)) : "—"}</td>
+                    <td>{k.bitirilen ? arzSureYaz(arzOrtalama(k.calismalar)) : "—"}</td>
+                    <td>{k.acik}</td>
+                    <td>{k.geriAcilan}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ ...styles.ilerlemeYazi, marginTop: 10 }}>
+            Süre = işe başlamadan çözüme, "Beklemede" ve kontrol bekleme süreleri çıkarılarak. Ortanca, tek bir uzun işten etkilenmez.
+          </div>
+        </div>
+      ) : (
+        <KisiOzet k={benim} />
+      )}
+    </div>
+  );
+}
+
 function ARZYeniBildirim({ user, onIptal, onKaydet }) {
   const [alan, setAlan] = useState("");
   const [alanDiger, setAlanDiger] = useState("");
@@ -8167,6 +8468,7 @@ function ARZDetay({
       {kayit.atananTeknisyen && (
         <div style={{ ...styles.ilerlemeYazi, marginTop: 6 }}>👤 Sorumlu: {kayit.atananTeknisyen.name}</div>
       )}
+      <ArzSayac kayit={kayit} buyuk />
 
       <div style={styles.lfBilgiKarti}>
         <div style={styles.lfBilgiSatiri}>
