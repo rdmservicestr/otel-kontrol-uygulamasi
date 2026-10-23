@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.26";
+window.UYGULAMA_SURUMU = "1.27";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -7323,6 +7323,61 @@ function arzOncelikBilgisi(oncelik) {
   return ARZ_ONCELIKLER.find((o) => o.deger === oncelik) || ARZ_ONCELIKLER[2];
 }
 
+// Atama ve yönetim yetkisi: Teknik Müdür, GM Yardımcısı, Operasyon Müdürü, Nöbetçi Müdür, Gece Müdürü (5557)
+// + diğer otellerde Teknik Servis'in yönetici pozisyonları.
+const ARZ_YONETICI_KODLARI = { "5557": ["1189", "1101", "1102", "1103", "1104"] };
+function arzYoneticiMi(user) {
+  if ((ARZ_YONETICI_KODLARI[user.hotelCode] || []).includes(user.userCode)) return true;
+  return user.department === ARZ_TEKNIK_DEPARTMAN && LF_YONETICI_POZISYONLARI.includes(user.pozisyon);
+}
+function arzTeknikPersonelMi(user) {
+  return user.department === ARZ_TEKNIK_DEPARTMAN;
+}
+
+// Durum rozeti: koyu zemin üzerine beyaz yazı
+const ARZ_DURUM_RENKLERI = {
+  "Yeni": "#C62828",
+  "Atandı": "#E65100",
+  "İşlemde": "#1565C0",
+  "Beklemede": "#616161",
+  "Kontrol Bekliyor": "#6A1B9A",
+  "Kapatıldı": "#2E7D32",
+};
+function arzDurumRozetiStil(durum, buyuk) {
+  return {
+    display: "inline-block",
+    background: ARZ_DURUM_RENKLERI[durum] || "#616161",
+    color: "#FFFFFF",
+    fontWeight: 800,
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    borderRadius: 6,
+    padding: buyuk ? "6px 14px" : "3px 9px",
+    fontSize: buyuk ? 14 : 11,
+  };
+}
+
+// Liste sırası: açık arızalar önce (Acil → Yüksek → Normal; aynı derecede en eski bildirim üstte), kapalılar en yeni üstte.
+function arzSirala(liste) {
+  const rutbe = { Acil: 0, Yüksek: 1, Normal: 2 };
+  const acik = (k) => k.durum !== "Kapatıldı";
+  return [...liste].sort((a, b) => {
+    if (acik(a) !== acik(b)) return acik(a) ? -1 : 1;
+    if (acik(a)) {
+      const fark = (rutbe[a.oncelik] ?? 2) - (rutbe[b.oncelik] ?? 2);
+      if (fark) return fark;
+      return a.olusturmaZamani < b.olusturmaZamani ? -1 : a.olusturmaZamani > b.olusturmaZamani ? 1 : 0;
+    }
+    const za = a.kapanisZamani || a.olusturmaZamani;
+    const zb = b.kapanisZamani || b.olusturmaZamani;
+    return za < zb ? 1 : za > zb ? -1 : 0;
+  });
+}
+function arzYerelTarih(iso) {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 /* ------------------------------------------------------------------
    ARIZA BİLDİRİM VE TAKİP - ana ekran (KPI + liste + gezinme)
 -------------------------------------------------------------------*/
@@ -7334,21 +7389,44 @@ function ArizaEkrani({ user, onGeri, toastGoster }) {
   const [filtre, setFiltre] = useState("acik");
   const [teknisyenler, setTeknisyenler] = useState([]);
 
-  const teknisyenMi = user.department === ARZ_TEKNIK_DEPARTMAN;
-  const yoneticiMi = LF_YONETICI_POZISYONLARI.includes(user.pozisyon);
-  const atamaYapabilirMi = teknisyenMi && yoneticiMi;
+  const teknikPersonelMi = arzTeknikPersonelMi(user);
+  const atamaYapabilirMi = arzYoneticiMi(user);
+  const [tFiltre, setTFiltre] = useState({ bas: "", bit: "", alan: "", oda: "", durum: "", kategori: "", ara: "" });
+  const yenileSayac = useRef(0);
+  const gorunumRef = useRef("liste");
+  gorunumRef.current = gorunum;
 
   useEffect(() => {
     yukle();
     teknisyenleriGetir();
+    // Canlı yenileme: ekran açıkken 15 sn'de bir ve uygulamaya dönünce (yeni/çözülen arızalar kendiliğinden görünür)
+    const yenile = () => {
+      if (document.hidden || gorunumRef.current === "yeni") return;
+      sessizYukle();
+    };
+    const zaman = setInterval(yenile, 15000);
+    document.addEventListener("visibilitychange", yenile);
+    return () => {
+      clearInterval(zaman);
+      document.removeEventListener("visibilitychange", yenile);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function yukle() {
-    setYukleniyor(true);
+  async function sessizYukle() {
+    const no = ++yenileSayac.current;
     try {
       const veri = await arzKayitlariGetir(user.hotelCode);
-      setKayitlar(veri);
+      if (no === yenileSayac.current) setKayitlar(veri); // eski cevap yeniyi ezmesin
+    } catch (e) {}
+  }
+
+  async function yukle() {
+    setYukleniyor(true);
+    const no = ++yenileSayac.current;
+    try {
+      const veri = await arzKayitlariGetir(user.hotelCode);
+      if (no === yenileSayac.current) setKayitlar(veri);
       return true;
     } catch (e) {
       toastGoster("⚠ Arıza listesi alınamadı. İnternetinizi kontrol edin.");
@@ -7485,6 +7563,31 @@ function ArizaEkrani({ user, onGeri, toastGoster }) {
     }));
   }
 
+  // Teknik Servis'ten herkes "Yeni" arızaya başlayabilir; başlayan kişi arızayı üstlenir (yalnız o bitirebilir)
+  async function iseBasla(kayit) {
+    const ok = await guvenli(
+      () =>
+        arzGuncelle(kayit.hotelCode, kayit.no, (g) => {
+          if (g.durum !== "Yeni") {
+            const kim = g.atananTeknisyen ? ` (${g.atananTeknisyen.name})` : "";
+            throw new Error(`Bu arıza artık yeni değil, başka biri üstlenmiş${kim}`);
+          }
+          const simdi = new Date().toISOString();
+          return {
+            ...g,
+            durum: "İşlemde",
+            atananTeknisyen: { userCode: user.userCode, name: user.name },
+            atanmaZamani: simdi,
+            baslamaZamani: simdi,
+            auditLog: [...g.auditLog, auditSatiri("İşe başlandı, arıza üstlenildi")],
+          };
+        }),
+      "İşe başlanamadı"
+    );
+    if (ok) toastGoster("✓ İşe başladınız, arıza size atandı");
+    await yukle();
+  }
+
   async function islemeBasla(kayit) {
     await degistirVeKaydet(kayit, "✓ İşleme başlandı", "İşleme başlanamadı", (g) => ({
       ...g,
@@ -7567,11 +7670,28 @@ function ArizaEkrani({ user, onGeri, toastGoster }) {
   const bugunKapatilan = kayitlar.filter((k) => k.kapanisZamani && new Date(k.kapanisZamani).toLocaleDateString("tr-TR") === bugun).length;
 
   let gosterilecekler = kayitlar;
+  if (filtre === "hepsi") {
+    const f = tFiltre;
+    const ara = f.ara.trim().toLocaleLowerCase("tr-TR");
+    gosterilecekler = kayitlar.filter((k) => {
+      const t = arzYerelTarih(k.olusturmaZamani);
+      if (f.bas && t < f.bas) return false;
+      if (f.bit && t > f.bit) return false;
+      if (f.alan && k.alan !== f.alan) return false;
+      if (f.oda && !String(k.odaNo || "").includes(f.oda.trim())) return false;
+      if (f.durum && k.durum !== f.durum) return false;
+      if (f.kategori && k.kategori !== f.kategori) return false;
+      if (ara && !`${k.no} ${k.aciklama}`.toLocaleLowerCase("tr-TR").includes(ara)) return false;
+      return true;
+    });
+  }
   if (filtre === "acik") gosterilecekler = kayitlar.filter(acikMi);
   if (filtre === "benim") gosterilecekler = kayitlar.filter((k) => k.bildirenUserCode === user.userCode);
   if (filtre === "islerim")
     gosterilecekler = kayitlar.filter((k) => k.atananTeknisyen && k.atananTeknisyen.userCode === user.userCode && acikMi(k));
   if (filtre === "kapatildi") gosterilecekler = kayitlar.filter((k) => k.durum === "Kapatıldı");
+  gosterilecekler = arzSirala(gosterilecekler);
+  const tFiltreAktif = Object.values(tFiltre).some((v) => v);
 
   if (gorunum === "yeni") {
     return <ARZYeniBildirim user={user} onIptal={() => setGorunum("liste")} onKaydet={arizaOlustur} />;
@@ -7588,7 +7708,9 @@ function ArizaEkrani({ user, onGeri, toastGoster }) {
           setGorunum("liste");
           setSecilenNo(null);
         }}
+        teknikPersonelMi={teknikPersonelMi}
         onTeknisyenAta={teknisyenAta}
+        onIseBasla={iseBasla}
         onIslemeBasla={islemeBasla}
         onBeklemeyeAl={beklemeyeAl}
         onIslemeDevamEt={islemeDevamEt}
@@ -7657,6 +7779,62 @@ function ArizaEkrani({ user, onGeri, toastGoster }) {
         ))}
       </div>
 
+      {filtre === "hepsi" && (
+        <div style={styles.lfBilgiKarti} data-testid="ariza-filtre">
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <div>
+              <Etiket>BAŞLANGIÇ TARİHİ</Etiket>
+              <input type="date" style={styles.epostaInput} value={tFiltre.bas} onChange={(e) => setTFiltre({ ...tFiltre, bas: e.target.value })} data-testid="f-bas" />
+            </div>
+            <div>
+              <Etiket>BİTİŞ TARİHİ</Etiket>
+              <input type="date" style={styles.epostaInput} value={tFiltre.bit} onChange={(e) => setTFiltre({ ...tFiltre, bit: e.target.value })} data-testid="f-bit" />
+            </div>
+            <div>
+              <Etiket>ALAN</Etiket>
+              <select style={styles.gmSecim} value={tFiltre.alan} onChange={(e) => setTFiltre({ ...tFiltre, alan: e.target.value })} data-testid="f-alan">
+                <option value="">Hepsi</option>
+                {[...new Set([...ARZ_ALANLAR, ...kayitlar.map((k) => k.alan)])].filter(Boolean).map((a) => (
+                  <option key={a} value={a}>{a}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Etiket>ODA NO</Etiket>
+              <input style={styles.epostaInput} value={tFiltre.oda} onChange={(e) => setTFiltre({ ...tFiltre, oda: e.target.value })} placeholder="örn. 218" data-testid="f-oda" />
+            </div>
+            <div>
+              <Etiket>ARIZA DURUMU</Etiket>
+              <select style={styles.gmSecim} value={tFiltre.durum} onChange={(e) => setTFiltre({ ...tFiltre, durum: e.target.value })} data-testid="f-durum">
+                <option value="">Hepsi</option>
+                {ARZ_DURUMLAR.map((d) => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Etiket>KATEGORİ</Etiket>
+              <select style={styles.gmSecim} value={tFiltre.kategori} onChange={(e) => setTFiltre({ ...tFiltre, kategori: e.target.value })} data-testid="f-kategori">
+                <option value="">Hepsi</option>
+                {ARZ_KATEGORILER.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <Etiket>ARA (arıza no veya açıklama)</Etiket>
+          <input style={styles.epostaInput} value={tFiltre.ara} onChange={(e) => setTFiltre({ ...tFiltre, ara: e.target.value })} placeholder="ARZ-2026-0007 veya kelime" data-testid="f-ara" />
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10 }}>
+            <span style={styles.ilerlemeYazi} data-testid="f-sayi">{gosterilecekler.length} kayıt</span>
+            {tFiltreAktif && (
+              <button style={styles.gmKucukButon} onClick={() => setTFiltre({ bas: "", bit: "", alan: "", oda: "", durum: "", kategori: "", ara: "" })} data-testid="f-temizle">
+                Filtreleri temizle
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 14 }}>
         {yukleniyor ? (
           <div style={styles.merkezYukleniyor}>Yükleniyor…</div>
@@ -7678,7 +7856,7 @@ function ArizaEkrani({ user, onGeri, toastGoster }) {
                   <span style={styles.lfKayitNo}>
                     {oncelik.emoji} {k.no}
                   </span>
-                  <span style={{ ...styles.lfDurumRozeti, ...(k.durum === "Kapatıldı" ? styles.lfDurumRozetiTamam : {}) }}>
+                  <span style={arzDurumRozetiStil(k.durum)} data-testid="durum-rozet">
                     {k.durum}
                   </span>
                 </div>
@@ -7886,7 +8064,9 @@ function ARZDetay({
   user,
   teknisyenler,
   atamaYapabilirMi,
+  teknikPersonelMi,
   onGeri,
+  onIseBasla,
   onTeknisyenAta,
   onIslemeBasla,
   onBeklemeyeAl,
@@ -7980,9 +8160,13 @@ function ARZDetay({
         </div>
       </div>
 
-      <div style={{ ...styles.lfUyariKutusu, background: `${oncelik.renk}1A`, color: oncelik.renk }}>
-        {oncelik.emoji} {oncelik.deger} öncelik · Durum: {kayit.durum}
+      <div style={{ ...styles.lfUyariKutusu, background: `${oncelik.renk}1A`, color: oncelik.renk, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+        <span>{oncelik.emoji} {oncelik.deger} öncelik</span>
+        <span style={arzDurumRozetiStil(kayit.durum, true)} data-testid="detay-durum">{kayit.durum}</span>
       </div>
+      {kayit.atananTeknisyen && (
+        <div style={{ ...styles.ilerlemeYazi, marginTop: 6 }}>👤 Sorumlu: {kayit.atananTeknisyen.name}</div>
+      )}
 
       <div style={styles.lfBilgiKarti}>
         <div style={styles.lfBilgiSatiri}>
@@ -8066,9 +8250,20 @@ function ARZDetay({
 
       {/* --- Durum bazlı işlem alanları --- */}
 
-      {kayit.durum === "Yeni" && atamaYapabilirMi && (
+      {kayit.durum === "Yeni" && teknikPersonelMi && (
+        <button
+          style={{ ...styles.anaButon, marginTop: 14, opacity: islem ? 0.7 : 1 }}
+          onClick={async () => { setIslem(true); await onIseBasla(kayit); setIslem(false); }}
+          disabled={islem}
+          data-testid="ise-basla"
+        >
+          ▶ İşe Başla (arıza bana atansın)
+        </button>
+      )}
+
+      {["Yeni", "Atandı", "İşlemde", "Beklemede"].includes(kayit.durum) && atamaYapabilirMi && (
         <>
-          <Etiket>TEKNİSYEN ATA</Etiket>
+          <Etiket>{kayit.atananTeknisyen ? "TEKNİSYENİ DEĞİŞTİR" : "TEKNİSYEN ATA"}</Etiket>
           <select style={styles.gmSecim} value={secilenTeknisyen} onChange={(e) => setSecilenTeknisyen(e.target.value)}>
             <option value="">Seçiniz</option>
             {teknisyenler.map((t) => (
