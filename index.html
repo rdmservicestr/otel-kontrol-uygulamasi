@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.28";
+window.UYGULAMA_SURUMU = "1.30";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -7386,7 +7386,11 @@ function ArzSayac({ kayit, buyuk }) {
   }
   return (
     <span data-testid="sayac-kart" style={{ fontVariantNumeric: "tabular-nums" }}>
-      {sr.bekliyor && `⏳ ${arzSureYaz(sr.bekleme)} bekliyor`}
+      {sr.bekliyor && (arzBaslanmadiMi(kayit, Date.now()) ? (
+        <span style={{ color: "#C62828", fontWeight: 800 }} data-testid="gecikti">⏰ {arzSureYaz(sr.bekleme)} bekliyor — kimse başlamadı</span>
+      ) : (
+        `⏳ ${arzSureYaz(sr.bekleme)} bekliyor`
+      ))}
       {sr.calisiyor && `🔧 ${arzSureYaz(sr.calisma)} çalışıldı`}
       {sr.duraklatildi && `⏸ ${arzSureYaz(sr.calisma)} (duraklatıldı)`}
       {kayit.durum === "Kapatıldı" && `✓ ${arzSureYaz(sr.calisma)} çalışma`}
@@ -7500,6 +7504,29 @@ function arzPerformansHesapla(kayitlar, baslangicMs, simdi) {
   }
   return { kisiler, toplam };
 }
+// Aynı oda + aynı kategori (oda yoksa aynı alan + aynı kategori) için AÇIK arıza var mı?
+function arzBenzerleri(acikKayitlar, alan, odaNo, kategori) {
+  if (!kategori) return [];
+  const oda = (odaNo || "").trim();
+  if (!oda && !alan) return [];
+  return acikKayitlar
+    .filter((k) => {
+      if (k.durum === "Kapatıldı" || k.kategori !== kategori) return false;
+      const ko = String(k.odaNo || "").trim();
+      return oda ? ko === oda : !ko && k.alan === alan;
+    })
+    .sort((a, b) => (a.olusturmaZamani < b.olusturmaZamani ? -1 : 1));
+}
+function arzKacKisi(k) {
+  return 1 + ((k.ekBildirimler || []).length);
+}
+function arzBildirdiMi(k, user) {
+  return k.bildirenUserCode === user.userCode || (k.ekBildirimler || []).some((e) => e.userCode === user.userCode);
+}
+const ARZ_BASLANMADI_DK = 10; // "Yeni" arızaya bu kadar dakikada kimse başlamazsa uyarı
+function arzBaslanmadiMi(k, simdi) {
+  return k.durum === "Yeni" && simdi - new Date(k.olusturmaZamani).getTime() >= ARZ_BASLANMADI_DK * 60000;
+}
 function arzYerelTarih(iso) {
   const d = new Date(iso);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -7528,7 +7555,7 @@ function ArizaEkrani({ user, onGeri, toastGoster }) {
     teknisyenleriGetir();
     // Canlı yenileme: ekran açıkken 15 sn'de bir ve uygulamaya dönünce (yeni/çözülen arızalar kendiliğinden görünür)
     const yenile = () => {
-      if (document.hidden || gorunumRef.current === "yeni") return;
+      if (document.hidden) return;
       sessizYukle();
     };
     const zaman = setInterval(yenile, 15000);
@@ -7715,6 +7742,32 @@ function ArizaEkrani({ user, onGeri, toastGoster }) {
     await yukle();
   }
 
+  // "Aynı arıza, ben de görüyorum": yeni kayıt açmadan mevcut arızaya ek bildirim eklenir
+  async function ekBildirimEkle(no, not) {
+    let eklenen = false;
+    const ok = await guvenli(async () => {
+      await arzGuncelle(user.hotelCode, no, (g) => {
+        if (g.durum === "Kapatıldı") throw new Error("Bu arıza az önce kapatıldı; isterseniz yeni arıza olarak bildirebilirsiniz");
+        if (arzBildirdiMi(g, user)) throw new Error("Bu arızayı zaten bildirmiştiniz");
+        eklenen = true;
+        const simdi = new Date().toISOString();
+        const kayitEk = { userCode: user.userCode, name: user.name, departman: user.department, zaman: simdi, not: (not || "").trim() };
+        return {
+          ...g,
+          ekBildirimler: [...(g.ekBildirimler || []), kayitEk],
+          auditLog: [...g.auditLog, { zaman: simdi, kullanici: user.name, islem: `Ek bildirim: ${user.name} (${user.department})${kayitEk.not ? ` — ${kayitEk.not}` : ""}` }],
+        };
+      });
+    }, "Bildirim eklenemedi");
+    if (ok && eklenen) {
+      toastGoster(`✓ Bildiriminiz mevcut arızaya eklendi (${no})`);
+      await yukle();
+      setGorunum("liste");
+      return true;
+    }
+    return false;
+  }
+
   async function islemeBasla(kayit) {
     await degistirVeKaydet(kayit, "✓ İşleme başlandı", "İşleme başlanamadı", (g) => ({
       ...g,
@@ -7788,6 +7841,7 @@ function ArizaEkrani({ user, onGeri, toastGoster }) {
   const acikMi = (k) => k.durum !== "Kapatıldı";
   const bugun = new Date().toLocaleDateString("tr-TR");
 
+  const gecikmisSayisi = kayitlar.filter((k) => arzBaslanmadiMi(k, Date.now())).length;
   const acikSayisi = kayitlar.filter(acikMi).length;
   const yeniSayisi = kayitlar.filter((k) => k.durum === "Yeni").length;
   const atandiSayisi = kayitlar.filter((k) => k.durum === "Atandı").length;
@@ -7813,7 +7867,8 @@ function ArizaEkrani({ user, onGeri, toastGoster }) {
     });
   }
   if (filtre === "acik") gosterilecekler = kayitlar.filter(acikMi);
-  if (filtre === "benim") gosterilecekler = kayitlar.filter((k) => k.bildirenUserCode === user.userCode);
+  if (filtre === "gecikmis") gosterilecekler = kayitlar.filter((k) => arzBaslanmadiMi(k, Date.now()));
+  if (filtre === "benim") gosterilecekler = kayitlar.filter((k) => arzBildirdiMi(k, user));
   if (filtre === "islerim")
     gosterilecekler = kayitlar.filter((k) => k.atananTeknisyen && k.atananTeknisyen.userCode === user.userCode && acikMi(k));
   if (filtre === "kapatildi") gosterilecekler = kayitlar.filter((k) => k.durum === "Kapatıldı");
@@ -7821,7 +7876,15 @@ function ArizaEkrani({ user, onGeri, toastGoster }) {
   const tFiltreAktif = Object.values(tFiltre).some((v) => v);
 
   if (gorunum === "yeni") {
-    return <ARZYeniBildirim user={user} onIptal={() => setGorunum("liste")} onKaydet={arizaOlustur} />;
+    return (
+      <ARZYeniBildirim
+        user={user}
+        onIptal={() => setGorunum("liste")}
+        onKaydet={arizaOlustur}
+        acikKayitlar={kayitlar.filter((k) => k.durum !== "Kapatıldı")}
+        onEkBildirim={ekBildirimEkle}
+      />
+    );
   }
 
   if (gorunum === "performans") {
@@ -7878,6 +7941,15 @@ function ArizaEkrani({ user, onGeri, toastGoster }) {
       <button style={{ ...styles.anaButon, marginTop: 14 }} onClick={() => setGorunum("yeni")}>
         🔧 Yeni Arıza Bildir
       </button>
+      {(teknikPersonelMi || atamaYapabilirMi) && gecikmisSayisi > 0 && (
+        <button
+          style={{ marginTop: 10, width: "100%", background: "#C62828", color: "#FFFFFF", border: "none", borderRadius: 10, padding: "12px 14px", fontWeight: 800, fontSize: 14, textAlign: "left", cursor: "pointer" }}
+          onClick={() => setFiltre(filtre === "gecikmis" ? "acik" : "gecikmis")}
+          data-testid="gecikme-bandi"
+        >
+          ⏰ {gecikmisSayisi} arızaya {ARZ_BASLANMADI_DK} dakikadır kimse başlamadı {filtre === "gecikmis" ? "(hepsini göster)" : "(göster)"}
+        </button>
+      )}
       {(teknikPersonelMi || atamaYapabilirMi) && (
         <button style={{ ...styles.ikincilButon, marginTop: 10, width: "100%" }} onClick={() => setGorunum("performans")} data-testid="performans-btn">
           📊 {atamaYapabilirMi ? "Ekip Performansı" : "Performansım"}
@@ -7887,7 +7959,7 @@ function ArizaEkrani({ user, onGeri, toastGoster }) {
       <div style={styles.lfKpiIzgara}>
         {[
           ["Açık Arıza", acikSayisi, "acik"],
-          ["Benim Bildirdiklerim", kayitlar.filter((k) => k.bildirenUserCode === user.userCode).length, "benim"],
+          ["Benim Bildirdiklerim", kayitlar.filter((k) => arzBildirdiMi(k, user)).length, "benim"],
           ["Benim İşlerim", kayitlar.filter((k) => k.atananTeknisyen && k.atananTeknisyen.userCode === user.userCode && acikMi(k)).length, "islerim"],
           ["Yeni", yeniSayisi, null],
           ["İşlemde", islemdeSayisi, null],
@@ -8016,6 +8088,7 @@ function ArizaEkrani({ user, onGeri, toastGoster }) {
                 </div>
                 <div style={{ ...styles.lfKayitAltBilgi, marginTop: 4, fontWeight: 700 }}>
                   <ArzSayac kayit={k} />
+                  {(k.ekBildirimler || []).length > 0 && <span data-testid="kisi-sayisi"> · 👥 {arzKacKisi(k)} kişi bildirdi</span>}
                 </div>
               </button>
             );
@@ -8182,7 +8255,7 @@ function ARZPerformans({ kayitlar, user, teknisyenler, yoneticiMi, teknikPersone
   );
 }
 
-function ARZYeniBildirim({ user, onIptal, onKaydet }) {
+function ARZYeniBildirim({ user, onIptal, onKaydet, acikKayitlar, onEkBildirim }) {
   const [alan, setAlan] = useState("");
   const [alanDiger, setAlanDiger] = useState("");
   const [odaNo, setOdaNo] = useState("");
@@ -8192,7 +8265,21 @@ function ARZYeniBildirim({ user, onIptal, onKaydet }) {
   const [fotograflar, setFotograflar] = useState([]);
   const [hata, setHata] = useState("");
   const [kaydediliyor, setKaydediliyor] = useState(false);
+  const [destekNo, setDestekNo] = useState(null);
+  const [destekNot, setDestekNot] = useState("");
+  const [destekGonderiliyor, setDestekGonderiliyor] = useState(false);
   const fileRef = useRef(null);
+  const nihaiAlanOnizleme = alan === "Diğer" ? alanDiger.trim() : alan;
+  const benzerler = arzBenzerleri(acikKayitlar || [], nihaiAlanOnizleme, odaNo, kategori);
+
+  async function destekGonder(no) {
+    setDestekGonderiliyor(true);
+    try {
+      await onEkBildirim(no, destekNot);
+    } finally {
+      setDestekGonderiliyor(false);
+    }
+  }
 
   function fotoSecildi(file) {
     if (!file) return;
@@ -8289,6 +8376,50 @@ function ARZYeniBildirim({ user, onIptal, onKaydet }) {
           </option>
         ))}
       </select>
+
+      {benzerler.length > 0 && (
+        <div style={{ ...styles.lfBilgiKarti, marginTop: 14, background: "#FFF6DC", border: "1px solid #E0B94A" }} data-testid="benzer-kutu">
+          <div style={{ fontWeight: 800, color: "#7A5A00" }}>
+            ⚠ Bu {odaNo.trim() ? `odada (${odaNo.trim()})` : "alanda"} aynı kategoride açık arıza var
+          </div>
+          <div style={{ ...styles.ilerlemeYazi, marginTop: 4 }}>
+            Aynı arıza ise yeni kayıt açmayın, aşağıdan siz de bildirin. Farklı bir arızaysa formu doldurup normal şekilde bildirebilirsiniz.
+          </div>
+          {benzerler.map((k) => {
+            const zaten = arzBildirdiMi(k, user);
+            return (
+              <div key={k.no} style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #E9D9A6" }} data-testid={`benzer-${k.no}`}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                  <strong>{k.no}</strong>
+                  <span style={arzDurumRozetiStil(k.durum)}>{k.durum}</span>
+                </div>
+                <div style={{ fontSize: 13, marginTop: 4 }}>{k.aciklama.slice(0, 90)}{k.aciklama.length > 90 ? "…" : ""}</div>
+                <div style={{ ...styles.ilerlemeYazi, marginTop: 4 }}>
+                  👥 {arzKacKisi(k)} kişi bildirdi · {k.tarih} {k.saat}
+                  {k.atananTeknisyen ? ` · 👤 ${k.atananTeknisyen.name}` : ""}
+                </div>
+                {zaten ? (
+                  <div style={{ ...styles.ilerlemeYazi, marginTop: 6, fontWeight: 700 }}>✓ Bu arızayı zaten bildirdiniz</div>
+                ) : destekNo === k.no ? (
+                  <div style={{ marginTop: 8 }}>
+                    <input style={styles.epostaInput} value={destekNot} onChange={(e) => setDestekNot(e.target.value)} placeholder="Not (isteğe bağlı) — örn. şimdi daha da kötü" data-testid="destek-not" />
+                    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                      <button style={{ ...styles.anaButon, flex: 1, opacity: destekGonderiliyor ? 0.7 : 1 }} disabled={destekGonderiliyor} onClick={() => destekGonder(k.no)} data-testid="destek-gonder">
+                        {destekGonderiliyor ? "Gönderiliyor…" : "Gönder"}
+                      </button>
+                      <button style={{ ...styles.ikincilButon, flex: 1 }} onClick={() => { setDestekNo(null); setDestekNot(""); }}>Vazgeç</button>
+                    </div>
+                  </div>
+                ) : (
+                  <button style={{ ...styles.ikincilButon, marginTop: 8, width: "100%" }} onClick={() => { setDestekNo(k.no); setDestekNot(""); }} data-testid={`destek-${k.no}`}>
+                    👥 Aynı arıza — ben de bildiriyorum
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       <Etiket>ARIZA AÇIKLAMASI (zorunlu)</Etiket>
       <textarea
@@ -8392,7 +8523,7 @@ function ARZDetay({
 
   const oncelik = arzOncelikBilgisi(kayit.oncelik);
   const benimAtananimMi = kayit.atananTeknisyen && kayit.atananTeknisyen.userCode === user.userCode;
-  const benimBildirdigimMi = kayit.bildirenUserCode === user.userCode;
+  const benimBildirdigimMi = arzBildirdiMi(kayit, user);
 
   function fotoSecildiGenel(file, hedefFonksiyon) {
     if (!file) return;
@@ -8469,6 +8600,17 @@ function ARZDetay({
         <div style={{ ...styles.ilerlemeYazi, marginTop: 6 }}>👤 Sorumlu: {kayit.atananTeknisyen.name}</div>
       )}
       <ArzSayac kayit={kayit} buyuk />
+      {(kayit.ekBildirimler || []).length > 0 && (
+        <div style={{ ...styles.lfBilgiKarti, marginTop: 10 }} data-testid="ek-bildirimler">
+          <div style={{ fontWeight: 700 }}>👥 {arzKacKisi(kayit)} kişi bildirdi</div>
+          {kayit.ekBildirimler.map((e, i) => (
+            <div key={i} style={{ ...styles.ilerlemeYazi, marginTop: 4 }}>
+              {e.name} ({e.departman}) · {lfZamanFormatla(e.zaman)}
+              {e.not ? ` — ${e.not}` : ""}
+            </div>
+          ))}
+        </div>
+      )}
 
       <div style={styles.lfBilgiKarti}>
         <div style={styles.lfBilgiSatiri}>
