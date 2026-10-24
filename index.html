@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.34";
+window.UYGULAMA_SURUMU = "1.35";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -10619,7 +10619,7 @@ function alacartePdf(restoranlar, tarih, rez, masalar, hotelName, kullaniciAdi) 
       yeniSayfaGerekirse(26);
       doc.setFontSize(8);
       if (aktif.some((r) => r.limit_asildi)) {
-        doc.text("* Müdür onayıyla 7 gün oda kuralı aşılan rezervasyon", m, y);
+        doc.text("* 7 gün oda kuralı yetkili tarafından ücretsiz geçilen rezervasyon", m, y);
         y += 10;
       }
       if (aktif.some((r) => r.ucretli)) {
@@ -10839,7 +10839,7 @@ function AlacarteEkrani({ user, onGeri, toastGoster }) {
     }
   }
 
-  async function kaydet(ucretOnay) {
+  async function kaydet(ucretOnay, ucretsiz) {
     const f = form;
     setFormHata("");
     if (!/^[0-9]{3,4}$/.test(f.oda.trim())) return setFormHata("Oda numarası 3 veya 4 haneli olmalı.");
@@ -10852,11 +10852,11 @@ function AlacarteEkrani({ user, onGeri, toastGoster }) {
       await alacartePmsOdaBilgi(f.oda, f.tarih); // PMS hazır olunca burada oda doğrulaması yapılacak
       const r = await window.OtelRpc.cagir("alacarte_kaydet", {
         p_tarih: f.tarih, p_restoran: f.restoran, p_masa: f.masa, p_oda: f.oda.trim(), p_misafir: f.ad.trim(),
-        p_kisi: f.kisi, p_saat: f.saat, p_not: f.not.trim() || null, p_ucret_onay: !!ucretOnay, p_vip: f.vip || "Normal",
+        p_kisi: f.kisi, p_saat: f.saat, p_not: f.not.trim() || null, p_ucret_onay: !!ucretOnay, p_ucretsiz: !!ucretsiz, p_vip: f.vip || "Normal",
       });
       setForm(null);
       setOnayGerek("");
-      toastGoster(`✓ ${f.restoran} Masa ${f.masa} rezerve edildi${f.vip && f.vip !== "Normal" ? " (" + f.vip + ")" : ""}${r && r.ucretli ? ` · ÜCRETLİ ${r.ucret_tutar} €` : ""}`);
+      toastGoster(`✓ ${f.restoran} Masa ${f.masa} rezerve edildi${f.vip && f.vip !== "Normal" ? " (" + f.vip + ")" : ""}${r && r.ucretli ? ` · ÜCRETLİ ${r.ucret_tutar} €` : ""}${r && r.ucretsiz_izin ? " · ÜCRETSİZ (yetkili) ⭐" : ""}`);
       yukle(true);
     } catch (e) {
       if (e.kod === "ODA_UCRETLI") setOnayGerek(e.message);
@@ -11267,9 +11267,14 @@ function AlacarteEkrani({ user, onGeri, toastGoster }) {
                     Bu ikinci rezervasyon ÜCRETLİDİR: {form.kisi} kişi × {Number(kisiBasi)} € = {Number(tutar)} €
                   </div>
                   <div style={{ marginTop: 4 }}>Misafire ücretli olduğu bildirildi mi? Onaylıyorsanız rezervasyon ücretli olarak kaydedilir.</div>
-                  <button style={{ ...styles.anaButon, marginTop: 8 }} disabled={mesgul} onClick={() => kaydet(true)}>
+                  <button style={{ ...styles.anaButon, marginTop: 8 }} disabled={mesgul} onClick={() => kaydet(true, false)}>
                     Evet, ÜCRETLİ rezervasyonu kaydet ({Number(tutar)} €)
                   </button>
+                  {yetki.ucretsiz && (
+                    <button style={{ ...styles.anaButon, marginTop: 8, background: "#15803D" }} disabled={mesgul} onClick={() => kaydet(false, true)}>
+                      ⭐ ÜCRETSİZ kaydet (yetkiniz var)
+                    </button>
+                  )}
                 </div>
               );
             })()}
@@ -11300,7 +11305,7 @@ function AlacarteEkrani({ user, onGeri, toastGoster }) {
               {detayRez.notu && <div style={{ fontSize: 13, marginTop: 4, color: "#4B5563" }}>Not: {detayRez.notu}</div>}
               <div style={{ fontSize: 12, color: "#6B7280", marginTop: 6 }}>
                 Rezervasyonu yapan: <b>{detayRez.olusturan_adi}</b> · {alacarteZamanYaz(detayRez.olusturma_zamani)}
-                {detayRez.limit_asildi ? " · ⭐ 7 gün kuralı Müdür onayıyla aşıldı" : ""}
+                {detayRez.limit_asildi ? " · ⭐ 7 gün kuralı yetkili tarafından ücretsiz geçildi" : ""}
               </div>
               {detayRez.durum_degistiren_adi && (
                 <div style={{ fontSize: 12, color: "#6B7280" }}>
