@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.35";
+window.UYGULAMA_SURUMU = "1.36";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -10712,6 +10712,13 @@ function AlacarteEkrani({ user, onGeri, toastGoster }) {
   }
   async function loglariYukle(f) {
     const lf = f || logFiltre;
+    if (!lf.tarih && !lf.restoran && !lf.oda.trim() && !lf.yapan.trim() && !lf.misafir.trim()) {
+      setLoglar([]);
+      setLogYuklendi(false);
+      setHata("Önce en az bir filtre seçin veya misafir adı yazın, sonra ARA'ya basın.");
+      return;
+    }
+    setHata("");
     try {
       setLoglar(
         await window.OtelRpc.cagir("alacarte_log_ara", {
@@ -10736,8 +10743,10 @@ function AlacarteEkrani({ user, onGeri, toastGoster }) {
     if (sekme === "log") {
       // Bir restorana girilmişse geçmiş o restoran seçili gelir; değilse tüm restoranlar
       const f = { tarih: "", restoran: restoran || "", oda: "", yapan: "", misafir: "" };
+      // Toplu liste gösterilmez: sonuçlar yalnızca filtre seçilip ARA'ya basılınca gelir
       setLogFiltre(f);
-      loglariYukle(f);
+      setLoglar([]);
+      setLogYuklendi(false);
     }
   }, [sekme, restoran]);
 
@@ -11036,12 +11045,13 @@ function AlacarteEkrani({ user, onGeri, toastGoster }) {
                 onKeyDown={(e) => { if (e.key === "Enter") loglariYukle(); }} />
               <button style={{ ...styles.anaButon, width: "auto", padding: "0 16px" }} onClick={() => loglariYukle()}>🔍 ARA</button>
             </div>
-            <button style={{ ...styles.ikincilButon, marginTop: 8 }} onClick={() => { const f = { tarih: "", restoran: restoran || "", oda: "", yapan: "", misafir: "" }; setLogFiltre(f); loglariYukle(f); }}>
+            <button style={{ ...styles.ikincilButon, marginTop: 8 }} onClick={() => { const f = { tarih: "", restoran: restoran || "", oda: "", yapan: "", misafir: "" }; setLogFiltre(f); setLoglar([]); setLogYuklendi(false); setHata(""); }}>
               Filtreleri temizle
             </button>
           </div>
           {logYuklendi && <div style={{ ...styles.ilerlemeYazi, marginTop: 6 }}>{loglar.length} kayıt bulundu{loglar.length >= 200 ? " (en yeni 200)" : ""}</div>}
-          {loglar.length === 0 && <div style={styles.ilerlemeYazi}>Bu filtrelere uyan kayıt yok.</div>}
+          {!logYuklendi && <div style={{ ...styles.ilerlemeYazi, marginTop: 8 }}>Kayıtları görmek için filtre seçin ve 🔍 ARA'ya basın.</div>}
+          {logYuklendi && loglar.length === 0 && <div style={styles.ilerlemeYazi}>Bu filtrelere uyan kayıt yok.</div>}
           {loglar.map((l, i) => (
             <div key={i} style={{ ...kutu, marginTop: 6, padding: 10, borderLeft: `4px solid ${l.islem === "İptal" ? "#B91C1C" : l.islem === "Rezervasyon" ? "#16A34A" : "#CA8A04"}` }}>
               <div style={{ fontSize: 13, fontWeight: 700 }}>
