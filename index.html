@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.31";
+window.UYGULAMA_SURUMU = "1.32";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -10634,6 +10634,8 @@ function AlacarteEkrani({ user, onGeri, toastGoster }) {
   const [hata, setHata] = useState("");
   const [sekme, setSekme] = useState("masalar"); // masalar | log
   const [loglar, setLoglar] = useState([]);
+  const [logFiltre, setLogFiltre] = useState({ tarih: "", restoran: "", oda: "", yapan: "", misafir: "" });
+  const [logYuklendi, setLogYuklendi] = useState(false);
   const [form, setForm] = useState(null); // yeni rezervasyon formu {masa, kapasite, ...}
   const [detay, setDetay] = useState(null); // rezervasyon id
   const [mesgul, setMesgul] = useState(false);
@@ -10667,9 +10669,16 @@ function AlacarteEkrani({ user, onGeri, toastGoster }) {
       setHata(e.message);
     }
   }
-  async function loglariYukle() {
+  async function loglariYukle(f) {
+    const lf = f || logFiltre;
     try {
-      setLoglar(await window.OtelRpc.cagir("alacarte_log_getir", { p_tarih: null, p_limit: 150 }));
+      setLoglar(
+        await window.OtelRpc.cagir("alacarte_log_ara", {
+          p_tarih: lf.tarih || null, p_restoran: lf.restoran || null, p_oda: lf.oda.trim() || null,
+          p_yapan: lf.yapan.trim() || null, p_misafir: lf.misafir.trim() || null, p_limit: 200,
+        })
+      );
+      setLogYuklendi(true);
     } catch (e) {
       setHata(e.message);
     }
@@ -10682,8 +10691,13 @@ function AlacarteEkrani({ user, onGeri, toastGoster }) {
     return () => clearInterval(t);
   }, [tarih]);
   useEffect(() => {
-    if (sekme === "log") loglariYukle();
-  }, [sekme]);
+    if (sekme === "log") {
+      // Bir restorana girilmişse geçmiş o restoran seçili gelir; değilse tüm restoranlar
+      const f = { tarih: "", restoran: restoran || "", oda: "", yapan: "", misafir: "" };
+      setLogFiltre(f);
+      loglariYukle(f);
+    }
+  }, [sekme, restoran]);
 
   // Form açıkken sarı kilidi yenile (her 15 sn) — en çok 1 dk; ekran kapanırsa kilidi bırak
   useEffect(() => {
@@ -10939,7 +10953,43 @@ function AlacarteEkrani({ user, onGeri, toastGoster }) {
 
       {sekme === "log" && (
         <div style={{ marginTop: 10 }}>
-          {loglar.length === 0 && <div style={styles.ilerlemeYazi}>Henüz kayıt yok.</div>}
+          <div style={{ ...kutu, padding: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#6B7280" }}>REZERVASYON TARİHİ</div>
+                <input type="date" aria-label="Tarih filtresi" style={girdi} value={logFiltre.tarih} onChange={(e) => setLogFiltre({ ...logFiltre, tarih: e.target.value })} />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#6B7280" }}>RESTAURANT</div>
+                <select aria-label="Restaurant filtresi" style={girdi} value={logFiltre.restoran} onChange={(e) => setLogFiltre({ ...logFiltre, restoran: e.target.value })}>
+                  <option value="">Tümü</option>
+                  {ALACARTE_RESTORANLAR.map((r) => (
+                    <option key={r.ad} value={r.ad}>{r.ad}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#6B7280" }}>ODA</div>
+                <input aria-label="Oda filtresi" style={girdi} inputMode="numeric" maxLength={4} placeholder="örn. 1204" value={logFiltre.oda} onChange={(e) => setLogFiltre({ ...logFiltre, oda: e.target.value.replace(/\D/g, "").slice(0, 4) })} />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#6B7280" }}>REZERVASYONU YAPAN</div>
+                <input aria-label="Yapan filtresi" style={girdi} placeholder="ad veya kod" maxLength={40} value={logFiltre.yapan} onChange={(e) => setLogFiltre({ ...logFiltre, yapan: e.target.value })} />
+              </div>
+            </div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#6B7280", marginTop: 8 }}>MİSAFİR ADI</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input aria-label="Misafir arama" style={{ ...girdi, flex: 1 }} placeholder="🔍 misafir adı yazın" maxLength={80} value={logFiltre.misafir}
+                onChange={(e) => setLogFiltre({ ...logFiltre, misafir: e.target.value })}
+                onKeyDown={(e) => { if (e.key === "Enter") loglariYukle(); }} />
+              <button style={{ ...styles.anaButon, width: "auto", padding: "0 16px" }} onClick={() => loglariYukle()}>🔍 ARA</button>
+            </div>
+            <button style={{ ...styles.ikincilButon, marginTop: 8 }} onClick={() => { const f = { tarih: "", restoran: restoran || "", oda: "", yapan: "", misafir: "" }; setLogFiltre(f); loglariYukle(f); }}>
+              Filtreleri temizle
+            </button>
+          </div>
+          {logYuklendi && <div style={{ ...styles.ilerlemeYazi, marginTop: 6 }}>{loglar.length} kayıt bulundu{loglar.length >= 200 ? " (en yeni 200)" : ""}</div>}
+          {loglar.length === 0 && <div style={styles.ilerlemeYazi}>Bu filtrelere uyan kayıt yok.</div>}
           {loglar.map((l, i) => (
             <div key={i} style={{ ...kutu, marginTop: 6, padding: 10, borderLeft: `4px solid ${l.islem === "İptal" ? "#B91C1C" : l.islem === "Rezervasyon" ? "#16A34A" : "#CA8A04"}` }}>
               <div style={{ fontSize: 13, fontWeight: 700 }}>
