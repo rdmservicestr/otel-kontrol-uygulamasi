@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.30";
+window.UYGULAMA_SURUMU = "1.31";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -10475,6 +10475,8 @@ function pavPdfHaftalik(kayitlar, baslangic, hotelName, kullaniciAdi) {
    PMS (Sedna) hazırlığı: oda kontrolü için alacartePmsOdaBilgi() yer tutucusu; API gelince
    yalnızca bu fonksiyon doldurulur (Edge Function üzerinden), ekran değişmez.
 -------------------------------------------------------------------*/
+const ALACARTE_VIP_TIPLERI = ["Normal", "VIP-1", "VIP-2", "Balayı", "Doğumgünü", "Repeat", "Yıldönümü", "Acenteci", "GM", "Owner"];
+const ALACARTE_KILIT_SN = 60;
 const ALACARTE_OTELLER = ["5557"];
 const ALACARTE_DEPARTMANLAR = ["Önbüro", "Misafir Deneyimi & Kalite", "Yiyecek & İçecek", "Genel Müdürlük"];
 const ALACARTE_SAATLER = ["19:00", "19:15", "19:30", "19:45", "20:00"];
@@ -10520,7 +10522,7 @@ function alacartePdf(restoranlar, tarih, rez, masalar, hotelName, kullaniciAdi) 
   const H = doc.internal.pageSize.getHeight();
   const m = 36;
   let y = m;
-  const kolonlar = [["Saat", 40], ["Masa", 34], ["Oda", 40], ["Misafir", 130], ["Kişi", 30], ["Durum", 52], ["Not / Yapan", 0]];
+  const kolonlar = [["Saat", 40], ["Masa", 34], ["Oda", 40], ["Misafir", 112], ["VIP", 56], ["Kişi", 30], ["Durum", 52], ["Not / Yapan", 0]];
   kolonlar[kolonlar.length - 1][1] = W - 2 * m - kolonlar.slice(0, -1).reduce((t, k) => t + k[1], 0);
 
   function yeniSayfaGerekirse(ihtiyac) {
@@ -10591,7 +10593,7 @@ function alacartePdf(restoranlar, tarih, rez, masalar, hotelName, kullaniciAdi) 
     if (aktif.length === 0) satir(["Rezervasyon yok"], false);
     aktif.forEach((r, i) => {
       satir(
-        [r.saat, String(r.masa_no), r.oda, r.misafir, String(r.kisi), r.durum, [r.notu, r.olusturan_adi].filter(Boolean).join(" / ")],
+        [r.saat, String(r.masa_no), r.oda + (r.limit_asildi ? " *" : ""), r.misafir, r.vip_tip && r.vip_tip !== "Normal" ? r.vip_tip : "", String(r.kisi), r.durum, [r.notu, r.olusturan_adi].filter(Boolean).join(" / ")],
         r.durum === "Geldi",
         r.durum === "Geldi" ? [254, 202, 202] : i % 2 ? [247, 244, 235] : null
       );
@@ -10606,11 +10608,18 @@ function alacartePdf(restoranlar, tarih, rez, masalar, hotelName, kullaniciAdi) 
       doc.setTextColor(30, 30, 30);
       iptal.forEach((r) => {
         satir(
-          [r.saat, String(r.masa_no), r.oda, r.misafir, String(r.kisi), "İptal", `Iptal eden: ${r.iptal_eden_adi || "-"}${r.iptal_notu ? " - " + r.iptal_notu : ""}`.replace("Iptal", "İptal")],
+          [r.saat, String(r.masa_no), r.oda, r.misafir, "", String(r.kisi), "İptal", `Iptal eden: ${r.iptal_eden_adi || "-"}${r.iptal_notu ? " - " + r.iptal_notu : ""}`.replace("Iptal", "İptal")],
           false,
           null
         );
       });
+    }
+    if (aktif.some((r) => r.limit_asildi)) {
+      y += 8;
+      yeniSayfaGerekirse(16);
+      doc.setFontSize(8);
+      doc.text("* Müdür onayıyla 7 gün oda kuralı aşılan rezervasyon", m, y);
+      y += 10;
     }
     y += 16;
   });
@@ -10676,20 +10685,20 @@ function AlacarteEkrani({ user, onGeri, toastGoster }) {
     if (sekme === "log") loglariYukle();
   }, [sekme]);
 
-  // Form açıkken sarı kilidi yenile (her 20 sn) — en çok 3 dk; ekran kapanırsa kilidi bırak
+  // Form açıkken sarı kilidi yenile (her 15 sn) — en çok 1 dk; ekran kapanırsa kilidi bırak
   useEffect(() => {
     if (!form) return undefined;
     const baslangic = Date.now();
     const saniye = setInterval(() => {
-      setSayac(Math.max(0, 180 - Math.floor((Date.now() - baslangic) / 1000)));
+      setSayac(Math.max(0, ALACARTE_KILIT_SN - Math.floor((Date.now() - baslangic) / 1000)));
     }, 1000);
     const yenile = setInterval(async () => {
       const f = formRef.current;
       if (!f) return;
-      if (Date.now() - baslangic > 180000) {
+      if (Date.now() - baslangic > ALACARTE_KILIT_SN * 1000) {
         kilidiBirak(f);
         setForm(null);
-        setHata("Süre doldu (3 dk). Masa serbest bırakıldı, tekrar seçebilirsiniz.");
+        setHata("Süre doldu (1 dk). Masa serbest bırakıldı, tekrar seçebilirsiniz.");
         return;
       }
       try {
@@ -10698,7 +10707,7 @@ function AlacarteEkrani({ user, onGeri, toastGoster }) {
         setForm(null);
         setHata("Masa kilidi kaybedildi: " + e.message);
       }
-    }, 20000);
+    }, 15000);
     return () => {
       clearInterval(saniye);
       clearInterval(yenile);
@@ -10750,10 +10759,10 @@ function AlacarteEkrani({ user, onGeri, toastGoster }) {
     try {
       setMesgul(true);
       await window.OtelRpc.cagir("alacarte_kilit_al", { p_tarih: tarih, p_restoran: restoran, p_masa: m.masa_no });
-      setSayac(180);
+      setSayac(ALACARTE_KILIT_SN);
       setFormHata("");
       setOnayGerek("");
-      setForm({ tarih, restoran, masa: m.masa_no, kapasite: m.kapasite, oda: "", ad: "", kisi: Math.min(2, m.kapasite), saat: "", not: "" });
+      setForm({ tarih, restoran, masa: m.masa_no, kapasite: m.kapasite, oda: "", ad: "", kisi: Math.min(2, m.kapasite), saat: "", not: "", vip: "Normal" });
       yukle(true);
     } catch (e) {
       setHata(e.message.startsWith("Bu masa") ? e.message : e.kod === "MASA_KILITLI" ? `Bu masayı şu an ${e.message} işlem yapıyor (sarı). Birkaç saniye sonra tekrar deneyin.` : e.message);
@@ -10776,11 +10785,11 @@ function AlacarteEkrani({ user, onGeri, toastGoster }) {
       await alacartePmsOdaBilgi(f.oda, f.tarih); // PMS hazır olunca burada oda doğrulaması yapılacak
       const r = await window.OtelRpc.cagir("alacarte_kaydet", {
         p_tarih: f.tarih, p_restoran: f.restoran, p_masa: f.masa, p_oda: f.oda.trim(), p_misafir: f.ad.trim(),
-        p_kisi: f.kisi, p_saat: f.saat, p_not: f.not.trim() || null, p_limit_onay: !!limitOnay,
+        p_kisi: f.kisi, p_saat: f.saat, p_not: f.not.trim() || null, p_limit_onay: !!limitOnay, p_vip: f.vip || "Normal",
       });
       setForm(null);
       setOnayGerek("");
-      toastGoster(`✓ ${f.restoran} Masa ${f.masa} rezerve edildi${r && r.limit_asildi ? " (7 gün kuralı aşıldı)" : ""}`);
+      toastGoster(`✓ ${f.restoran} Masa ${f.masa} rezerve edildi${f.vip && f.vip !== "Normal" ? " (" + f.vip + ")" : ""}${r && r.limit_asildi ? " (7 gün kuralı aşıldı)" : ""}`);
       yukle(true);
     } catch (e) {
       if (e.kod === "ODA_LIMIT_ONAY") setOnayGerek(e.message);
@@ -10815,6 +10824,7 @@ function AlacarteEkrani({ user, onGeri, toastGoster }) {
   const aktifRez = (ad) => rez.filter((x) => x.restoran === ad && x.durum !== "İptal");
   const iptaller = rez.filter((x) => x.durum === "İptal" && (!restoran || x.restoran === restoran));
   const detayRez = detay ? rez.find((x) => x.id === detay) : null;
+  const durumZamaniUygun = !!detayRez && detayRez.tarih === bugun && servisParca(Date.now()).saat >= "19:00";
   const kutu = { background: "#fff", border: "1px solid #E2DCCC", borderRadius: 12, padding: 12, marginTop: 10 };
   const girdi = { width: "100%", padding: "11px 12px", borderRadius: 10, border: "1.5px solid #D6CFBD", fontSize: 16, boxSizing: "border-box", background: "#fff" };
 
@@ -10984,8 +10994,8 @@ function AlacarteEkrani({ user, onGeri, toastGoster }) {
                   <div>{m.kapasite} kişilik</div>
                   {r ? (
                     <div style={{ fontSize: 11 }}>
-                      {r.saat} · Oda {r.oda}
-                      <br />
+                      {r.saat} · Oda {r.oda}{r.limit_asildi ? " ⭐" : ""}
+                      {r.vip_tip && r.vip_tip !== "Normal" ? <div style={{ fontWeight: 800, fontSize: 10 }}>♛ {r.vip_tip}</div> : null}
                       {r.durum === "Geldi" ? "GELDİ" : r.durum === "Gelmedi" ? "GELMEDİ" : r.misafir.length > 14 ? r.misafir.slice(0, 13) + "…" : r.misafir}
                     </div>
                   ) : k ? (
@@ -11046,6 +11056,14 @@ function AlacarteEkrani({ user, onGeri, toastGoster }) {
                 </button>
               ))}
             </div>
+            <Etiket>VIP TİPİ</Etiket>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {ALACARTE_VIP_TIPLERI.map((v) => (
+                <button key={v} onClick={() => setForm({ ...form, vip: v })} style={{ padding: "8px 10px", borderRadius: 10, border: "1.5px solid #B08D3E", background: form.vip === v ? "#B08D3E" : "#fff", color: form.vip === v ? "#fff" : "#7A5F1E", fontWeight: 700, fontSize: 13 }}>
+                  {v}
+                </button>
+              ))}
+            </div>
             <Etiket>NOT (isteğe bağlı)</Etiket>
             <textarea style={{ ...girdi, minHeight: 60 }} maxLength={300} value={form.not} onChange={(e) => setForm({ ...form, not: e.target.value })} />
 
@@ -11078,10 +11096,11 @@ function AlacarteEkrani({ user, onGeri, toastGoster }) {
               <div style={{ fontSize: 14, marginTop: 2 }}>
                 Oda {detayRez.oda} · {detayRez.kisi} kişi · {alacarteTarihYaz(detayRez.tarih)} {detayRez.saat}
               </div>
+              {detayRez.vip_tip && detayRez.vip_tip !== "Normal" && <div style={{ fontSize: 13, marginTop: 4, fontWeight: 800, color: "#7A5F1E" }}>♛ VIP tipi: {detayRez.vip_tip}</div>}
               {detayRez.notu && <div style={{ fontSize: 13, marginTop: 4, color: "#4B5563" }}>Not: {detayRez.notu}</div>}
               <div style={{ fontSize: 12, color: "#6B7280", marginTop: 6 }}>
                 Rezervasyonu yapan: <b>{detayRez.olusturan_adi}</b> · {alacarteZamanYaz(detayRez.olusturma_zamani)}
-                {detayRez.limit_asildi ? " · (7 gün kuralı Müdür onayıyla aşıldı)" : ""}
+                {detayRez.limit_asildi ? " · ⭐ 7 gün kuralı Müdür onayıyla aşıldı" : ""}
               </div>
               {detayRez.durum_degistiren_adi && (
                 <div style={{ fontSize: 12, color: "#6B7280" }}>
@@ -11090,9 +11109,10 @@ function AlacarteEkrani({ user, onGeri, toastGoster }) {
               )}
             </div>
             <Etiket>DURUM</Etiket>
-            <div style={{ display: "flex", gap: 6 }}>
+            {!durumZamaniUygun && <div style={{ fontSize: 12, color: "#92400E", marginBottom: 6 }}>Geldi / Gelmedi işaretlemesi yalnızca rezervasyon günü 19:00 - 23:59 arasında yapılabilir.</div>}
+            <div style={{ display: "flex", gap: 6, opacity: durumZamaniUygun ? 1 : 0.45 }}>
               {[["Rezerve", "#DC2626"], ["Geldi", "#7F1D1D"], ["Gelmedi", "#6B7280"]].map(([d, renk]) => (
-                <button key={d} disabled={mesgul} onClick={() => durumDegistir(detayRez, d)} style={{ flex: 1, padding: "12px 4px", borderRadius: 10, border: `2px solid ${renk}`, background: detayRez.durum === d ? renk : "#fff", color: detayRez.durum === d ? "#fff" : renk, fontWeight: 800, fontSize: 14 }}>
+                <button key={d} disabled={mesgul || !durumZamaniUygun} onClick={() => durumDegistir(detayRez, d)} style={{ flex: 1, padding: "12px 4px", borderRadius: 10, border: `2px solid ${renk}`, background: detayRez.durum === d ? renk : "#fff", color: detayRez.durum === d ? "#fff" : renk, fontWeight: 800, fontSize: 14 }}>
                   {d === "Geldi" ? "✓ " : ""}{d}
                 </button>
               ))}
