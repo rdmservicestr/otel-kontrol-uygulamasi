@@ -1,6 +1,6 @@
 {
-  "name": "Otel Departman Kontrol Listesi",
-  "short_name": "Kontrol Listesi",
+  "name": "KOS - Kirman OS",
+  "short_name": "KOS",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#E51F2D",
