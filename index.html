@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.39";
+window.UYGULAMA_SURUMU = "1.40";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -11559,6 +11559,8 @@ function AlacarteEkrani({ user, onGeri, toastGoster }) {
 -------------------------------------------------------------------*/
 const SERVIS_OTELLER = ["5557"];
 const SERVIS_DEPARTMANLAR = ["Misafir Deneyimi & Kalite", "Önbüro", "IT / Bilgi Teknolojileri", "Genel Müdürlük"];
+// Departmanından bağımsız olarak rezervasyon, takip ve cihaz atama yetkisi verilen kullanıcı kodları (sunucudaki servis_ek_kodlar ile aynı olmalı)
+const SERVIS_EK_KODLAR = ["1100", "1101", "1102", "1103"];
 const SERVIS_ALICILAR = ["MISAFIR ILISKILERI MUDURU", "BILGI TEKNOLOJILERI MUDURU", "GENEL MUDUR YARDIMCISI"];
 const SERVIS_URUNLER = [
   { kod: "BK", ad: "Bebek Kamerası", ikon: "👶", renk: "#0F766E" },
@@ -11570,7 +11572,7 @@ const SERVIS_SAATLER = (() => {
   return l;
 })();
 function servisKullanabilir(user) {
-  return modulAcik(user, "servis", (u) => SERVIS_OTELLER.includes(u.hotelCode) && SERVIS_DEPARTMANLAR.includes(u.department));
+  return modulAcik(user, "servis", (u) => SERVIS_OTELLER.includes(u.hotelCode) && (SERVIS_DEPARTMANLAR.includes(u.department) || SERVIS_EK_KODLAR.includes(u.userCode)));
 }
 function servisAliciMi(user) {
   return servisKullanabilir(user) && SERVIS_ALICILAR.includes(pozAnahtar(user.bolum));
@@ -12247,6 +12249,69 @@ function ServisTakipEkrani({ user, onGeri, toastGoster }) {
       )}
 
       {sekme === "log" && (
+        <ServisGecmisPaneli girdi={girdi} kutu={kutu} simdi={simdi} loglar={loglar} />
+      )}
+    </div>
+  );
+}
+
+const SERVIS_GECMIS_DURUMLAR = [
+  ["", "Hepsi"],
+  ["teslim_bekleyen", "Teslim Bekleyen"],
+  ["misafirde", "Misafirde"],
+  ["iade_bekleyen", "İade Bekleyen (BT onayı)"],
+  ["biten", "Biten"],
+  ["iptal", "İptal"],
+];
+// Geçmiş: sonuçlar yalnızca filtre seçilip ARA'ya basılınca gelir (toplu liste yok). "İşlem kayıtları" eski günlüktür.
+function ServisGecmisPaneli({ girdi, kutu, simdi, loglar }) {
+  const bos = { bas: "", bit: "", durum: "", urun: "", oda: "", alan: "" };
+  const [mod, setMod] = useState("rez");
+  const [f, setF] = useState(bos);
+  const [sonuc, setSonuc] = useState(null);
+  const [hata, setHata] = useState("");
+  const [yukleniyor, setYukleniyor] = useState(false);
+  const etiket = { fontSize: 11, fontWeight: 700, color: "#6B7280" };
+  async function ara() {
+    setHata("");
+    if (!f.bas && !f.bit && !f.durum && !f.urun && !f.oda.trim() && !f.alan.trim()) {
+      setHata("En az bir filtre seçin.");
+      return;
+    }
+    if (f.bas && f.bit && f.bit < f.bas) {
+      setHata("Bitiş tarihi başlangıçtan önce olamaz.");
+      return;
+    }
+    setYukleniyor(true);
+    try {
+      const v = await window.OtelRpc.cagir("servis_gecmis_ara", {
+        p_bas: f.bas || null, p_bit: f.bit || null, p_durum: f.durum || null,
+        p_oda: f.oda.trim() || null, p_urun: f.urun || null, p_alan: f.alan.trim() || null, p_limit: 200,
+      });
+      setSonuc(v);
+    } catch (e) {
+      setHata(e.message || "Arama yapılamadı.");
+      setSonuc(null);
+    }
+    setYukleniyor(false);
+  }
+  const sekmeBtn = (k, ad) => (
+    <button
+      key={k}
+      data-testid={`gecmis-mod-${k}`}
+      style={{ flex: 1, padding: "10px 8px", minHeight: 44, borderRadius: 10, border: "1.5px solid #6D28D9", fontWeight: 700, fontSize: 13, background: mod === k ? "#6D28D9" : "transparent", color: mod === k ? "#fff" : "#6D28D9" }}
+      onClick={() => setMod(k)}
+    >
+      {ad}
+    </button>
+  );
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div style={{ display: "flex", gap: 8 }}>
+        {sekmeBtn("rez", "Rezervasyon geçmişi")}
+        {sekmeBtn("islem", "İşlem kayıtları")}
+      </div>
+      {mod === "islem" && (
         <div style={{ marginTop: 10 }}>
           {loglar.length === 0 && <div style={styles.ilerlemeYazi}>Henüz kayıt yok.</div>}
           {loglar.map((l, i) => (
@@ -12259,6 +12324,80 @@ function ServisTakipEkrani({ user, onGeri, toastGoster }) {
             </div>
           ))}
         </div>
+      )}
+      {mod === "rez" && (
+        <>
+          <div style={{ ...kutu, padding: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <div>
+                <div style={etiket}>BAŞLANGIÇ TARİHİ</div>
+                <input type="date" aria-label="Başlangıç tarihi" data-testid="gecmis-bas" style={girdi} value={f.bas} onChange={(e) => setF({ ...f, bas: e.target.value })} />
+              </div>
+              <div>
+                <div style={etiket}>BİTİŞ TARİHİ</div>
+                <input type="date" aria-label="Bitiş tarihi" data-testid="gecmis-bit" style={girdi} value={f.bit} onChange={(e) => setF({ ...f, bit: e.target.value })} />
+              </div>
+              <div>
+                <div style={etiket}>DURUM</div>
+                <select aria-label="Durum filtresi" data-testid="gecmis-durum" style={girdi} value={f.durum} onChange={(e) => setF({ ...f, durum: e.target.value })}>
+                  {SERVIS_GECMIS_DURUMLAR.map(([k, ad]) => (<option key={k} value={k}>{ad}</option>))}
+                </select>
+              </div>
+              <div>
+                <div style={etiket}>HİZMET</div>
+                <select aria-label="Hizmet filtresi" data-testid="gecmis-urun" style={girdi} value={f.urun} onChange={(e) => setF({ ...f, urun: e.target.value })}>
+                  <option value="">Hepsi</option>
+                  <option value="BK">BK (Bebek Kamerası)</option>
+                  <option value="PS">PS (PS Player)</option>
+                </select>
+              </div>
+              <div>
+                <div style={etiket}>ODA NO</div>
+                <input aria-label="Oda no filtresi" data-testid="gecmis-oda" style={girdi} inputMode="numeric" maxLength={10} placeholder="örn. 1204" value={f.oda} onChange={(e) => setF({ ...f, oda: e.target.value.replace(/\D/g, "") })} />
+              </div>
+              <div>
+                <div style={etiket}>REZERVE ALAN</div>
+                <input aria-label="Rezerve alan filtresi" data-testid="gecmis-alan" style={girdi} maxLength={60} placeholder="isim yazın" value={f.alan} onChange={(e) => setF({ ...f, alan: e.target.value })} />
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <button style={{ ...styles.ikincilButon, flex: 1 }} onClick={() => { setF(bos); setSonuc(null); setHata(""); }}>Temizle</button>
+              <button data-testid="gecmis-ara" style={{ ...styles.anaButon, flex: 2 }} disabled={yukleniyor} onClick={ara}>{yukleniyor ? "Aranıyor…" : "ARA"}</button>
+            </div>
+          </div>
+          {hata && <div style={{ ...styles.hataKutusu, marginTop: 8 }}>{hata}</div>}
+          {sonuc === null && !hata && <div style={{ ...styles.ilerlemeYazi, marginTop: 10 }}>Filtreleri seçip ARA'ya basın; sonuçlar burada listelenir.</div>}
+          {sonuc && (
+            <>
+              <div data-testid="gecmis-sayi" style={{ fontSize: 13, fontWeight: 700, margin: "10px 2px 0" }}>
+                {sonuc.toplam} kayıt{sonuc.kesildi ? " (ilk 200 gösteriliyor, filtreyi daraltın)" : ""}
+              </div>
+              {sonuc.satirlar.length === 0 && <div style={styles.ilerlemeYazi}>Bu filtrelere uygun kayıt yok.</div>}
+              {sonuc.satirlar.map((r) => {
+                const d = servisDurum(r, simdi);
+                const u = servisUrun(r.urun);
+                return (
+                  <div key={r.id} data-testid="gecmis-satir" style={{ ...kutu, marginTop: 8, padding: 10, borderLeft: `4px solid ${d.renk}` }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
+                      <div style={{ fontSize: 14, fontWeight: 800 }}>{u.ikon} {servisNo(r.urun, r.birim_no)} · Oda {r.oda}</div>
+                      <div style={{ fontSize: 12, fontWeight: 800, color: d.renk, whiteSpace: "nowrap" }}>{d.ad}</div>
+                    </div>
+                    <div style={{ fontSize: 13 }}>{r.misafir}</div>
+                    <div style={{ fontSize: 12, color: "#4B5563" }}>Kurulum {servisKisa(r.kurulum_zamani)} → İade {servisKisa(r.iade_zamani)}</div>
+                    <div style={{ fontSize: 11, color: "#6B7280", marginTop: 3, lineHeight: 1.5 }}>
+                      Rezerve alan: {r.olusturan_adi || "-"} ({servisKisa(r.olusturma_zamani)})
+                      {r.teslim_zamani && <div>Teslim: {r.teslim_eden || "-"} ({servisKisa(r.teslim_zamani)})</div>}
+                      {r.iade_alindi_zamani && <div>İade alan: {r.iade_alan || "-"} ({servisKisa(r.iade_alindi_zamani)}){r.iade_notu ? ` · ${r.iade_notu}` : ""}</div>}
+                      {r.onay_zamani && <div>Onaylayan: {r.onaylayan || "-"} ({servisKisa(r.onay_zamani)}){r.onay_notu ? ` · ${r.onay_notu}` : ""}</div>}
+                      {r.iptal_zamani && <div>İptal eden: {r.iptal_eden || "-"} ({servisKisa(r.iptal_zamani)}){r.iptal_notu ? ` · ${r.iptal_notu}` : ""}</div>}
+                      {r.notu && <div>Not: {r.notu}</div>}
+                    </div>
+                  </div>
+                );
+              })}
+            </>
+          )}
+        </>
       )}
     </div>
   );
