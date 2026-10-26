@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.40";
+window.UYGULAMA_SURUMU = "1.41";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -390,6 +390,12 @@ window.UYGULAMA_SURUMU = "1.40";
 
   // PDF için: imzalı fotoğraf adresini data-URL'ye çevirir (jsPDF adresten resim ekleyemez)
   window.OtelDepo = {
+    yukle: function (otel, dataUrl) { return fotoYukle(otel, dataUrl); },
+    imzali: async function (ref) {
+      if (typeof ref !== "string" || ref.indexOf("depo:") !== 0) return ref;
+      await imzaYenile([ref.slice(5)]);
+      return depoCoz(ref);
+    },
     async dataUrlYap(url) {
       var blob = await (await fetch(url)).blob();
       return await new Promise(function (res, rej) {
@@ -3837,6 +3843,7 @@ html[data-tema="gece"] .telefon-govde button.uyn-giris-btn{background:linear-gra
             onPavilion={() => setScreen("pavilion")}
             onAlacarte={() => setScreen("alacarte")}
             onServis={() => setScreen("servis")}
+            onIkram={() => setScreen("ikram")}
             onRevir={() => setScreen("revir")}
             onHK={() => setScreen("hk")}
             onGMYonetim={() => setScreen("gmYonetim")}
@@ -3927,6 +3934,8 @@ html[data-tema="gece"] .telefon-govde button.uyn-giris-btn{background:linear-gra
           <PavilionEkrani user={currentUser} onGeri={() => setScreen("home")} toastGoster={toastGoster} />
         ) : screen === "servis" && servisKullanabilir(currentUser) ? (
           <ServisTakipEkrani user={currentUser} onGeri={() => setScreen("home")} toastGoster={toastGoster} />
+        ) : screen === "ikram" && ikramKullanabilir(currentUser) ? (
+          <IkramEkrani user={currentUser} onGeri={() => setScreen("home")} toastGoster={toastGoster} />
         ) : screen === "revir" && revirKullanabilir(currentUser) ? (
           <RevirEkrani user={currentUser} onGeri={() => setScreen("home")} toastGoster={toastGoster} />
         ) : screen === "hk" && hkKullanabilir(currentUser) ? (
@@ -4198,6 +4207,7 @@ function AnaSayfa({
   onPavilion,
   onAlacarte,
   onServis,
+  onIkram,
   onRevir,
   onHK,
   bekleyenGorevler,
@@ -4232,6 +4242,7 @@ function AnaSayfa({
     { id: "uyandirma", goster: uyandirmaKullanabilir(user), ikon: "⏰", baslik: "Uyandırma Servisi", tid: "uyandirma-btn", renk: "#3F6C8F", tikla: onUyandirma },
     { id: "pavilion", goster: pavKullanabilir(user), ikon: "🏖️", baslik: "Pavilion Rezervasyon", tid: "pavilion-btn", renk: "#0F766E", tikla: onPavilion },
     { id: "servis", goster: servisKullanabilir(user), ikon: "🎮", baslik: "Servis Takip", tid: "servis-btn", renk: "#6D28D9", tikla: onServis },
+    { id: "ikram", goster: ikramKullanabilir(user), ikon: "🥂", baslik: "İkram Listesi", tid: "ikram-btn", renk: "#9A3412", tikla: onIkram },
     { id: "revir", goster: revirKullanabilir(user), ikon: "🩺", baslik: "Revir Takip", tid: "revir-btn", renk: "#B91C1C", tikla: onRevir },
     { id: "alacarte", goster: alacarteKullanabilir(user), ikon: "🍷", baslik: "Alacarte Rezervasyon", tid: "alacarte-btn", renk: "#9A3412", tikla: onAlacarte },
     { id: "hk", goster: hkKullanabilir(user), ikon: "🧹", baslik: "HK İş Takibi", tid: "hk-is-takibi", renk: "#0F766E", tikla: onHK },
@@ -13120,6 +13131,424 @@ function revirPdf(liste, pano, tarih, hotelName, kullaniciAdi) {
     satir([revirNo(v.vaka_no), servisKisa(v.olay_zamani), v.oda, v.kategori.map((k) => revirKat(k).ad.split(" /")[0]).join(", "), `${v.kisi_sayisi} · ${revirEtiket(REVIR_YAS, v.yas_grubu)}`, revirEtiket(REVIR_YERLER, v.olay_yeri), [v.karar ? revirEtiket(REVIR_KARARLAR, v.karar) : "-", v.sevk_sekli ? revirEtiket(REVIR_SEVK, v.sevk_sekli) : ""].filter(Boolean).join(" · "), v.durum === "Kapandi" ? "Kapandı" : d.ad, v.son_takip_durumu ? revirEtiket(REVIR_TAKIP, v.son_takip_durumu) : ""], false, i % 2 ? [247, 244, 235] : null);
   });
   return doc;
+}
+
+// ===================== İKRAM LİSTESİ (yalnız 5557) =====================
+const IKRAM_SECENEKLER = ["Lokum & Şarap", "Kırmızı Şarap", "Beyaz Şarap", "Şampanya", "Doğumgünü Pastası", "Meyve Sepeti & Şarap", "Peynir Tabağı & Şarap"];
+const IKRAM_DURUMLAR = [["Servis Edildi", "✅", "#15803D"], ["Servis Edilmedi", "❌", "#B91C1C"], ["DND Kapıda", "🚫", "#B45309"]];
+function ikramKullanabilir(user) {
+  return modulAcik(user, "ikram", (u) => u.hotelCode === "5557");
+}
+function ikramFotoKucult(file) {
+  return new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onerror = () => rej(new Error("Fotoğraf okunamadı"));
+    fr.onload = (e) => {
+      const img = new Image();
+      img.onerror = () => rej(new Error("Fotoğraf okunamadı"));
+      img.onload = () => {
+        const olcek = Math.min(1, 1024 / Math.max(img.width, img.height));
+        const c = document.createElement("canvas");
+        c.width = Math.round(img.width * olcek);
+        c.height = Math.round(img.height * olcek);
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        res(c.toDataURL("image/jpeg", 0.7));
+      };
+      img.src = e.target.result;
+    };
+    fr.readAsDataURL(file);
+  });
+}
+function IkramFoto({ yol }) {
+  const [url, setUrl] = useState("");
+  useEffect(() => {
+    let iptal = false;
+    window.OtelDepo.imzali(yol).then((u) => { if (!iptal) setUrl(u); }).catch(() => {});
+    return () => { iptal = true; };
+  }, [yol]);
+  if (!url) return <span style={{ fontSize: 12, color: "#6B7280" }}>📷 …</span>;
+  return (
+    <a href={url} target="_blank" rel="noreferrer">
+      <img src={url} alt="Servis fotoğrafı" style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 8, border: "1px solid #D6CFBD" }} />
+    </a>
+  );
+}
+function ikramServisMetin(k) {
+  if (!k.servis_durum) return "";
+  return `${k.servis_durum} · ${servisParca(Date.parse(k.servis_zamani)).saat} · ${k.servis_eden}${k.servis_notu ? " · " + k.servis_notu : ""}`;
+}
+function ikramPdf(kayitlar, gun, hotelName, kullaniciAdi, ozet) {
+  const { jsPDF } = window.jspdf;
+  const doc = kosPdf(new jsPDF({ unit: "pt", format: "a4", orientation: "landscape" }));
+  const font = pavPdfFontYukle(doc);
+  const W = doc.internal.pageSize.getWidth();
+  const H = doc.internal.pageSize.getHeight();
+  const m = 30;
+  let y = m;
+  doc.setFont(font, "bold");
+  doc.setFontSize(16);
+  doc.setTextColor(22, 50, 58);
+  doc.text("İkram Listesi", m, y + 4);
+  doc.setDrawColor(176, 141, 62);
+  doc.setLineWidth(1.2);
+  doc.line(m, y + 12, W - m, y + 12);
+  y += 30;
+  doc.setFont(font, "normal");
+  doc.setFontSize(10);
+  doc.setTextColor(70, 70, 70);
+  doc.text(`${hotelName}   |   Tarih: ${formatTarihSadece(gun)}   |   Hazırlayan: ${kullaniciAdi}   |   ${new Date().toLocaleString("tr-TR")}`, m, y);
+  y += 14;
+  doc.text(`Onaylı kayıt: ${kayitlar.length}   |   Servis edildi: ${ozet.edildi}   |   Servis edilmedi: ${ozet.edilmedi}   |   DND kapıda: ${ozet.dnd}   |   Bekleyen: ${ozet.bekleyen}`, m, y);
+  y += 16;
+  const kol = [["Oda", 38], ["İsim Soyisim", 118], ["Kişi", 28], ["İkram", 108], ["Açıklama", 140], ["Servis Sonucu", 196], ["Kaydeden", 154]];
+  function baslik() {
+    let x = m;
+    doc.setFillColor(22, 50, 58);
+    doc.rect(m, y - 11, W - 2 * m, 16, "F");
+    doc.setFont(font, "bold");
+    doc.setFontSize(9);
+    doc.setTextColor(255, 255, 255);
+    kol.forEach(([ad, w]) => { doc.text(ad, x + 3, y); x += w; });
+    y += 14;
+    doc.setFont(font, "normal");
+    doc.setTextColor(30, 30, 30);
+  }
+  baslik();
+  kayitlar.forEach((k, i) => {
+    const hucre = [k.oda, k.misafir, String(k.kisi), k.ikram, k.aciklama || "", ikramServisMetin(k), k.olusturan_adi];
+    const satirlar = hucre.map((t, j) => doc.splitTextToSize(String(t), kol[j][1] - 6));
+    const yuk = Math.max(...satirlar.map((s) => s.length)) * 11 + 5;
+    if (y + yuk > H - m) { doc.addPage(); y = m + 14; baslik(); }
+    if (i % 2 === 1) { doc.setFillColor(244, 241, 232); doc.rect(m, y - 9, W - 2 * m, yuk, "F"); }
+    let x = m;
+    satirlar.forEach((s, j) => { doc.text(s, x + 3, y); x += kol[j][1]; });
+    y += yuk;
+  });
+  if (!kayitlar.length) doc.text("Onaylanmış kayıt yok.", m, y + 6);
+  return doc;
+}
+
+function IkramEkrani({ user, onGeri, toastGoster }) {
+  const [v, setV] = useState(null);
+  const [gun, setGun] = useState("");
+  const [sekme, setSekme] = useState("liste");
+  const [hata, setHata] = useState("");
+  const [fark, setFark] = useState(0);
+  const [, yenile] = useState(0);
+  const [mesgul, setMesgul] = useState(false);
+  const [adaylar, setAdaylar] = useState([]);
+  const [secGorevli, setSecGorevli] = useState("");
+  const [servisId, setServisId] = useState(null);
+  const [sDurum, setSDurum] = useState("");
+  const [sFoto, setSFoto] = useState("");
+  const [sNot, setSNot] = useState("");
+  const [log, setLog] = useState(null);
+  const [f, setF] = useState({ oda: "", misafir: "", kisi: "", ikram: "", aciklama: "" });
+  const [tekrarSor, setTekrarSor] = useState("");
+  const [g, setG] = useState({ bas: "", bit: "", durum: "", oda: "", alan: "" });
+  const [gSonuc, setGSonuc] = useState(null);
+  const [pdfMesaj, setPdfMesaj] = useState("");
+  const fotoRef = useRef(null);
+  const kutu = { background: "#fff", border: "1px solid #E2DCCC", borderRadius: 12, padding: 12, marginTop: 10 };
+  const girdi = { width: "100%", padding: "11px 12px", borderRadius: 10, border: "1.5px solid #D6CFBD", fontSize: 16, boxSizing: "border-box", background: "#fff" };
+  const simdi = Date.now() + fark;
+  const tp = servisParca(simdi);
+  const bugunMu = !v || v.gun === v.bugun;
+
+  async function yukle(sessiz) {
+    try {
+      const r = await window.OtelRpc.cagir("ikram_getir", { p_gun: gun || null });
+      setV(r);
+      setFark(Date.parse(r.simdi) - Date.now());
+      if (!sessiz) setHata("");
+    } catch (e) {
+      if (!sessiz || !v) setHata(e.message);
+    }
+  }
+  useEffect(() => {
+    yukle(false);
+    const t = setInterval(() => yukle(true), 20000);
+    const sn = setInterval(() => yenile((n) => n + 1), 30000);
+    return () => { clearInterval(t); clearInterval(sn); };
+  }, [gun]);
+  useEffect(() => {
+    if (v && v.yetki.fb_yon && adaylar.length === 0) {
+      window.OtelRpc.cagir("ikram_gorevli_adaylar").then(setAdaylar).catch(() => {});
+    }
+  }, [v && v.yetki.fb_yon]);
+
+  async function islem(fn, basari) {
+    setMesgul(true);
+    setHata("");
+    try {
+      await fn();
+      if (basari) toastGoster(basari);
+      await yukle(true);
+      return true;
+    } catch (e) {
+      setHata(e.message);
+      return false;
+    } finally {
+      setMesgul(false);
+    }
+  }
+  const onayla = (k, deger) => islem(() => window.OtelRpc.cagir("ikram_onay", { p_id: k.id, p_onay: deger }));
+  const iptalEt = (k) => islem(() => window.OtelRpc.cagir("ikram_iptal", { p_id: k.id }), "Kayıt silindi");
+  const gorevliAta = () => islem(() => window.OtelRpc.cagir("ikram_gorevli_ata", { p_kod: secGorevli }), "Görevli atandı");
+
+  async function fotoSec(file) {
+    if (!file) return;
+    try { setSFoto(await ikramFotoKucult(file)); } catch (e) { setHata(e.message); }
+  }
+  function servisAc(k) {
+    setServisId(k.id); setSDurum(""); setSFoto(""); setSNot(""); setHata("");
+  }
+  async function servisKaydet() {
+    if (!sDurum) return setHata("Önce durumu seçin.");
+    if (!sFoto) return setHata("Fotoğraf zorunludur.");
+    if (sDurum === "Servis Edilmedi" && sNot.trim().length < 3) return setHata("Servis edilmeme nedenini yazın.");
+    const ok = await islem(async () => {
+      const ref = await window.OtelDepo.yukle(user.hotelCode, sFoto);
+      await window.OtelRpc.cagir("ikram_servis", { p_id: servisId, p_durum: sDurum, p_foto: ref, p_not: sNot.trim() || null });
+    }, "Servis sonucu kaydedildi");
+    if (ok) setServisId(null);
+  }
+  async function kaydetTikla(tekrar) {
+    setTekrarSor("");
+    setMesgul(true);
+    setHata("");
+    try {
+      await window.OtelRpc.cagir("ikram_kaydet", { p_oda: f.oda.trim(), p_misafir: f.misafir.trim(), p_kisi: parseInt(f.kisi, 10) || 0, p_ikram: f.ikram, p_aciklama: f.aciklama.trim() || null, p_tekrar_onay: !!tekrar });
+      toastGoster("İkram kaydı eklendi");
+      setF({ oda: "", misafir: "", kisi: "", ikram: "", aciklama: "" });
+      setSekme("liste");
+      await yukle(true);
+    } catch (e) {
+      if (e.kod === "ODA_VAR") setTekrarSor(e.message);
+      else setHata(e.message);
+    } finally {
+      setMesgul(false);
+    }
+  }
+  async function logAc() {
+    if (log) return setLog(null);
+    try { setLog(await window.OtelRpc.cagir("ikram_log_getir", { p_gun: gun || null })); } catch (e) { setHata(e.message); }
+  }
+  async function gecmisAra() {
+    setHata("");
+    try {
+      setGSonuc(await window.OtelRpc.cagir("ikram_gecmis_ara", { p_bas: g.bas || null, p_bit: g.bit || null, p_durum: g.durum || null, p_oda: g.oda || null, p_alan: g.alan || null, p_limit: 200 }));
+    } catch (e) { setHata(e.message); }
+  }
+  async function pdfAl() {
+    setPdfMesaj("");
+    if (!(window.jspdf && window.jspdf.jsPDF)) return setPdfMesaj("PDF oluşturucu hazırlanıyor, birkaç saniye sonra tekrar deneyin.");
+    try {
+      const onayli = v.kayitlar.filter((k) => k.onay);
+      const doc = ikramPdf(onayli, v.gun, user.hotelName, user.name, v.ozet);
+      doc.save(`ikram-listesi-${v.gun}.pdf`);
+      setPdfMesaj("PDF indirildi (yalnız onaylı satırlar).");
+    } catch (e) { setPdfMesaj("PDF oluşturulamadı: " + e.message); }
+  }
+
+  const y = v && v.yetki;
+  const servisYetkili = !!(y && (y.gorevli || y.ekip));
+  const pencereMetin = "Veri girişi 08:00–10:00 · Onay 10:01–11:00";
+  const sekmeler = [["liste", "Liste"], ...(y && y.giris ? [["yeni", "+ Yeni Kayıt"]] : []), ["gecmis", "Geçmiş"]];
+  const gecSaat = tp.saat >= "15:00";
+  const onayliSonrasi = bugunMu && tp.saat >= "11:01";
+
+  function satir(k) {
+    let stil, durumEtiket = "";
+    if (k.onay) stil = { color: "#15803D", fontWeight: 700 };
+    else if (bugunMu && tp.saat < "11:01") stil = { color: "#8A8A8A" };
+    else { stil = { color: "#000", textDecoration: "line-through" }; durumEtiket = "onaylanmadı"; }
+    return (
+      <div key={k.id} data-testid={`ikram-${k.oda}`} data-onay={k.onay ? "1" : "0"} style={{ ...kutu, marginTop: 8, borderLeft: `5px solid ${k.onay ? "#15803D" : "#B8B2A0"}` }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+          <input type="checkbox" data-testid={`ikram-chk-${k.oda}`} checked={!!k.onay} disabled={!y.onayci || mesgul || !bugunMu} onChange={(e) => onayla(k, e.target.checked)} style={{ width: 24, height: 24, marginTop: 2, flex: "none" }} aria-label="Onay" />
+          <div style={{ flex: 1, minWidth: 0, ...stil }}>
+            <div style={{ fontSize: 16, fontWeight: 800 }}>Oda {k.oda} · {k.misafir} · {k.kisi} kişi</div>
+            <div style={{ fontSize: 14 }}>{k.ikram}{k.aciklama ? " — " + k.aciklama : ""}</div>
+            <div style={{ fontSize: 12, fontWeight: 400 }}>{k.olusturan_adi}{durumEtiket ? " · " + durumEtiket : ""}{k.onay && k.onaylayan ? " · onay: " + k.onaylayan : ""}</div>
+          </div>
+        </div>
+        {k.servis_durum && (
+          <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8 }}>
+            {k.foto && <IkramFoto yol={k.foto.replace(/^depo:/, "depo:")} />}
+            <div style={{ fontSize: 13, fontWeight: 700, color: (IKRAM_DURUMLAR.find((d) => d[0] === k.servis_durum) || [0, 0, "#111"])[2] }}>
+              {(IKRAM_DURUMLAR.find((d) => d[0] === k.servis_durum) || [0, ""])[1]} {ikramServisMetin(k)}
+            </div>
+          </div>
+        )}
+        {!k.servis_durum && k.onay && servisYetkili && bugunMu && servisId !== k.id && (
+          <button data-testid={`ikram-servis-${k.oda}`} style={{ ...styles.anaButon, marginTop: 8, width: "100%" }} onClick={() => servisAc(k)}>Servis Sonucu Gir</button>
+        )}
+        {servisId === k.id && (
+          <div data-testid="ikram-servis-panel" style={{ marginTop: 8, borderTop: "1px dashed #D6CFBD", paddingTop: 8 }}>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {IKRAM_DURUMLAR.map(([ad, ikon, renk]) => (
+                <button key={ad} data-testid={`durum-${ad}`} onClick={() => setSDurum(ad)} style={{ flex: "1 1 30%", padding: "10px 4px", borderRadius: 10, border: `2px solid ${renk}`, background: sDurum === ad ? renk : "#fff", color: sDurum === ad ? "#fff" : renk, fontWeight: 800, fontSize: 13 }}>{ikon} {ad}</button>
+              ))}
+            </div>
+            <input ref={fotoRef} data-testid="ikram-foto-input" type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={(e) => fotoSec(e.target.files[0])} />
+            <button style={{ ...styles.fotoButon, marginTop: 8 }} onClick={() => fotoRef.current && fotoRef.current.click()}>📷 {sFoto ? "Fotoğrafı Değiştir" : "Fotoğraf Çek (zorunlu)"}</button>
+            {sFoto && <img src={sFoto} alt="" style={{ display: "block", marginTop: 8, maxWidth: 140, borderRadius: 8 }} />}
+            <input data-testid="ikram-not" style={{ ...girdi, marginTop: 8 }} maxLength={120} placeholder={sDurum === "Servis Edilmedi" ? "Neden servis edilmedi? (zorunlu)" : "Not (isteğe bağlı)"} value={sNot} onChange={(e) => setSNot(e.target.value)} />
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <button style={{ ...styles.ikincilButon, flex: 1 }} onClick={() => setServisId(null)}>Vazgeç</button>
+              <button data-testid="ikram-servis-kaydet" disabled={mesgul} style={{ ...styles.anaButon, flex: 1 }} onClick={servisKaydet}>{mesgul ? "Kaydediliyor…" : "Kaydet"}</button>
+            </div>
+          </div>
+        )}
+        {!k.servis_durum && bugunMu && ((y.ekip) || (y.giris && !k.onay && v.pencere.giris)) && servisId !== k.id && (
+          <button style={{ background: "none", border: "none", color: "#B7472A", fontSize: 12, marginTop: 6, padding: 0, textDecoration: "underline" }} onClick={() => iptalEt(k)}>Kaydı sil</button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div style={styles.icerik}>
+      <div style={styles.listeUstBaslik}>
+        <button style={styles.geriButon} onClick={onGeri} aria-label="Geri">←</button>
+        <div>
+          <div className="baslik-font" style={styles.listeBaslikYazi}>İkram Listesi</div>
+          <div style={styles.ilerlemeYazi}>{user.hotelName} · {pencereMetin}</div>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 6, marginTop: 12, overflowX: "auto" }}>
+        {sekmeler.map(([k, ad]) => (
+          <button key={k} data-testid={`ikram-sekme-${k}`} onClick={() => setSekme(k)} style={{ flex: "1 0 auto", padding: "9px 10px", borderRadius: 10, border: "1.5px solid #9A3412", background: sekme === k ? "#9A3412" : "#fff", color: sekme === k ? "#fff" : "#9A3412", fontWeight: 800, fontSize: 14 }}>{ad}</button>
+        ))}
+      </div>
+      {hata && <div data-testid="ikram-hata" style={styles.hataKutusu}>{hata}</div>}
+      {!v && !hata && <div style={{ ...styles.ilerlemeYazi, marginTop: 12 }}>Yükleniyor…</div>}
+
+      {v && sekme === "liste" && (
+        <div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10 }}>
+            <input type="date" data-testid="ikram-gun" style={{ ...girdi, flex: 1 }} max={v.bugun} value={v.gun} onChange={(e) => setGun(e.target.value === v.bugun ? "" : e.target.value)} />
+            <button style={styles.ikincilButon} onClick={() => setGun("")}>Bugün</button>
+          </div>
+          {bugunMu && y.fb_yon && onayliSonrasi && !v.gorevli && v.ozet.onayli > 0 && (
+            <div data-testid="ikram-uyari-gorevli" style={{ marginTop: 10, background: "#FEE2E2", border: "2px solid #B91C1C", borderRadius: 12, padding: 10, color: "#7F1D1D", fontWeight: 800, fontSize: 13 }}>⚠️ Bugünün İkram Listesi için görevli atanmadı. Lütfen Yiyecek & İçecek ekibinden birini atayın.</div>
+          )}
+          {bugunMu && gecSaat && !v.bitti && v.ozet.bekleyen > 0 && (
+            <div data-testid="ikram-uyari-gecikme" style={{ marginTop: 10, background: "#FEF3C7", border: "2px solid #B45309", borderRadius: 12, padding: 10, color: "#78350F", fontWeight: 800, fontSize: 13 }}>⏰ {v.ozet.bekleyen} ikramın servis sonucu hâlâ girilmedi.</div>
+          )}
+          {v.bitti && v.ozet.onayli > 0 && <div style={{ marginTop: 10, background: "#DCFCE7", border: "1.5px solid #15803D", borderRadius: 12, padding: 10, color: "#14532D", fontWeight: 800, fontSize: 13 }}>✅ Gün tamamlandı. Tüm onaylı ikramların sonucu girildi.</div>}
+          <div style={{ ...kutu, borderTop: "4px solid #9A3412" }} data-testid="ikram-ozet">
+            <div style={{ display: "flex", gap: 6 }}>
+              {[["ONAYLI", v.ozet.onayli, "#15803D"], ["EDİLDİ", v.ozet.edildi, "#15803D"], ["EDİLMEDİ", v.ozet.edilmedi, "#B91C1C"], ["DND", v.ozet.dnd, "#B45309"], ["BEKLEYEN", v.ozet.bekleyen, "#6B7280"]].map(([ad, n, r]) => (
+                <div key={ad} style={{ flex: 1, textAlign: "center", background: `${r}14`, border: `1.5px solid ${r}`, borderRadius: 10, padding: "6px 0" }}>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: r }}>{n}</div>
+                  <div style={{ fontSize: 9, fontWeight: 800, color: "#374151" }}>{ad}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ fontSize: 12, color: "#4B5563", marginTop: 8 }}>
+              Toplam {v.ozet.toplam} kayıt{y.giris ? ` (${v.ozet.onaysiz} onaysız)` : ""} · Görevli: <b data-testid="ikram-gorevli-ad">{v.gorevli ? v.gorevli.ad : "atanmadı"}</b>
+            </div>
+          </div>
+          {y.fb_yon && bugunMu && (
+            <div style={kutu}>
+              <div style={styles.etiket}>GÖREVLİ ATAMA (Yiyecek & İçecek)</div>
+              <select data-testid="ikram-gorevli-sec" style={girdi} value={secGorevli} onChange={(e) => setSecGorevli(e.target.value)}>
+                <option value="">Görevli seçin…</option>
+                {adaylar.map((a) => <option key={a.kod} value={a.kod}>{a.ad} — {a.bolum}</option>)}
+              </select>
+              <button data-testid="ikram-gorevli-ata" disabled={!secGorevli || mesgul} style={{ ...styles.anaButon, marginTop: 8, width: "100%" }} onClick={gorevliAta}>Görevli Ata</button>
+            </div>
+          )}
+          {v.kayitlar.length === 0 && <div style={{ ...styles.ilerlemeYazi, marginTop: 14 }}>{y.giris ? "Bu gün için henüz kayıt yok." : "Bu gün için onaylı kayıt yok."}</div>}
+          {v.kayitlar.map(satir)}
+          <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+            <button data-testid="ikram-pdf" style={{ ...styles.ikincilButon, flex: 1 }} onClick={pdfAl}>📄 PDF (onaylılar)</button>
+            {(y.giris || y.fb_yon) && <button data-testid="ikram-log-ac" style={{ ...styles.ikincilButon, flex: 1 }} onClick={logAc}>{log ? "Kaydı Gizle" : "🕘 İşlem Kaydı"}</button>}
+          </div>
+          {pdfMesaj && <div style={{ ...styles.ilerlemeYazi, marginTop: 8 }}>{pdfMesaj}</div>}
+          {log && (
+            <div style={kutu} data-testid="ikram-log">
+              {log.length === 0 ? <div style={styles.ilerlemeYazi}>Kayıt yok.</div> : log.map((l, i) => (
+                <div key={i} style={{ fontSize: 12, padding: "4px 0", borderBottom: "1px solid #EEE8D8" }}>
+                  <b>{servisParca(Date.parse(l.zaman)).saat}</b> · {l.islem}{l.oda ? " · Oda " + l.oda : ""} · {l.kullanici_adi}{l.detay ? " · " + l.detay : ""}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {v && sekme === "yeni" && y.giris && (
+        <div style={kutu}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: v.pencere.giris ? "#15803D" : "#B91C1C" }} data-testid="ikram-pencere">
+            {v.pencere.giris ? "● Veri girişi açık (10:00'a kadar)" : y.ekip ? "● Veri girişi kapalı — yetkiniz gereği saat dışı kayıt eklenebilir (loglanır)" : "● Veri girişi kapalı (08:00–10:00)"}
+          </div>
+          <Etiket>ODA NO</Etiket>
+          <input data-testid="ik-oda" style={girdi} inputMode="numeric" maxLength={6} value={f.oda} onChange={(e) => setF({ ...f, oda: e.target.value })} />
+          <Etiket>İSİM SOYİSİM</Etiket>
+          <input data-testid="ik-misafir" style={girdi} maxLength={80} value={f.misafir} onChange={(e) => setF({ ...f, misafir: e.target.value })} />
+          <Etiket>KİŞİ SAYISI</Etiket>
+          <input data-testid="ik-kisi" style={girdi} inputMode="numeric" maxLength={2} value={f.kisi} onChange={(e) => setF({ ...f, kisi: e.target.value.replace(/\D/g, "") })} />
+          <Etiket>İKRAM</Etiket>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {IKRAM_SECENEKLER.map((s) => (
+              <button key={s} data-testid={`ik-ikram-${s}`} onClick={() => setF({ ...f, ikram: s })} style={{ textAlign: "left", padding: "11px 12px", borderRadius: 10, border: "1.5px solid #9A3412", background: f.ikram === s ? "#9A3412" : "#fff", color: f.ikram === s ? "#fff" : "#9A3412", fontWeight: 700, fontSize: 15 }}>{f.ikram === s ? "● " : "○ "}{s}</button>
+            ))}
+          </div>
+          <Etiket>AÇIKLAMA (en çok 50 karakter)</Etiket>
+          <input data-testid="ik-aciklama" style={girdi} maxLength={50} value={f.aciklama} onChange={(e) => setF({ ...f, aciklama: e.target.value })} />
+          <div style={{ fontSize: 11, color: "#6B7280", textAlign: "right" }}>{f.aciklama.length}/50</div>
+          {tekrarSor && (
+            <div data-testid="ik-tekrar" style={{ marginTop: 10, background: "#FEF3C7", border: "2px solid #B45309", borderRadius: 12, padding: 10, color: "#78350F", fontSize: 13, fontWeight: 700 }}>
+              {tekrarSor}
+              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                <button style={{ ...styles.ikincilButon, flex: 1 }} onClick={() => setTekrarSor("")}>Vazgeç</button>
+                <button data-testid="ik-yine-ekle" style={{ ...styles.anaButon, flex: 1 }} onClick={() => kaydetTikla(true)}>Yine de ekle</button>
+              </div>
+            </div>
+          )}
+          <button data-testid="ik-kaydet" disabled={mesgul || !f.oda || !f.misafir || !f.kisi || !f.ikram} style={{ ...styles.anaButon, marginTop: 12, width: "100%" }} onClick={() => kaydetTikla(false)}>{mesgul ? "Kaydediliyor…" : "Kaydet"}</button>
+        </div>
+      )}
+
+      {v && sekme === "gecmis" && (
+        <div style={kutu}>
+          <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ flex: 1 }}><Etiket>BAŞLANGIÇ</Etiket><input type="date" data-testid="ig-bas" style={girdi} value={g.bas} onChange={(e) => setG({ ...g, bas: e.target.value })} /></div>
+            <div style={{ flex: 1 }}><Etiket>BİTİŞ</Etiket><input type="date" data-testid="ig-bit" style={girdi} value={g.bit} onChange={(e) => setG({ ...g, bit: e.target.value })} /></div>
+          </div>
+          <Etiket>DURUM</Etiket>
+          <select data-testid="ig-durum" style={girdi} value={g.durum} onChange={(e) => setG({ ...g, durum: e.target.value })}>
+            <option value="">Hepsi</option>
+            {y.giris && <option value="onaysiz">Onaylanmayan</option>}
+            <option value="onayli">Onaylı</option>
+            <option value="bekleyen">Servis bekleyen</option>
+            <option value="edildi">Servis Edildi</option>
+            <option value="edilmedi">Servis Edilmedi</option>
+            <option value="dnd">DND Kapıda</option>
+          </select>
+          <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ flex: 1 }}><Etiket>ODA NO</Etiket><input data-testid="ig-oda" style={girdi} value={g.oda} onChange={(e) => setG({ ...g, oda: e.target.value })} /></div>
+            <div style={{ flex: 1 }}><Etiket>KAYDEDEN / MİSAFİR</Etiket><input data-testid="ig-alan" style={girdi} value={g.alan} onChange={(e) => setG({ ...g, alan: e.target.value })} /></div>
+          </div>
+          <button data-testid="ig-ara" style={{ ...styles.anaButon, marginTop: 12, width: "100%" }} onClick={gecmisAra}>Ara</button>
+          {gSonuc && (
+            <div data-testid="ig-sonuc">
+              <div style={{ ...styles.ilerlemeYazi, marginTop: 10 }}>{gSonuc.toplam} kayıt{gSonuc.kesildi ? " (ilk 200 gösteriliyor)" : ""}</div>
+              {gSonuc.satirlar.map((k) => (
+                <div key={k.id} style={{ borderTop: "1px solid #EEE8D8", padding: "8px 0", fontSize: 13, color: k.onay ? "#15803D" : "#000", textDecoration: k.onay ? "none" : "line-through" }}>
+                  <b>{k.gun.slice(8, 10)}.{k.gun.slice(5, 7)}</b> · Oda {k.oda} · {k.misafir} · {k.kisi} kişi · {k.ikram}
+                  <div style={{ fontSize: 12, color: "#4B5563", textDecoration: "none" }}>{k.olusturan_adi}{k.servis_durum ? " · " + ikramServisMetin(k) : ""}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function RevirEkrani({ user, onGeri, toastGoster }) {
