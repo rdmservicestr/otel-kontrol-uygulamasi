@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.41";
+window.UYGULAMA_SURUMU = "1.42";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -3945,6 +3945,7 @@ html[data-tema="gece"] .telefon-govde button.uyn-giris-btn{background:linear-gra
         ) : null}
 
         {currentUser && screen !== "login" && servisAliciMi(currentUser) && <ServisAlarmi onGit={() => setScreen("servis")} />}
+        {currentUser && screen !== "login" && revirAlarmMi(currentUser) && <RevirAlarmi onGit={() => setScreen("revir")} />}
 
         {uyandirmaGeciken.length > 0 && screen !== "uyandirma" && screen !== "login" && (
           <button style={styles.uynBanner} onClick={() => setScreen("uyandirma")}>
@@ -13035,6 +13036,120 @@ const REVIR_KARARLAR = [["Otelde", "Otelde müdahale"], ["Gozlem", "Revirde göz
 const REVIR_SEVK = [["Ambulans", "Ambulans"], ["KendiAraci", "Kendi aracı"], ["Taksi", "Taksi"], ["OtelAraci", "Otel aracı"]];
 const REVIR_SONUC = [["Iyilesti", "İyileşti"], ["OteldenAyrildi", "Otelden ayrıldı"], ["HastayaYatirildi", "Hastaneye yatırıldı"], ["TedaviReddedildi", "Tedavi reddedildi (ret formu)"], ["TakipDisi", "Takip dışı"]];
 const REVIR_TAKIP = [["Iyi", "İyi"], ["Ayni", "Aynı"], ["Kotu", "Kötüleşti"], ["Ulasilamadi", "Ulaşılamadı"]];
+const REVIR_ALARM_KODLARI = ["1301", "1101"];
+function revirAlarmMi(user) {
+  return !!user && REVIR_ALARM_KODLARI.includes(user.userCode) && revirKullanabilir(user);
+}
+function revirSusturOku() {
+  try {
+    return JSON.parse(window.localStorage.getItem("revir_sustur") || "{}") || {};
+  } catch (e) {
+    return {};
+  }
+}
+// "Sonraki takip" saati girilmiş ve saati gelmiş vakalar için tam ekran alarm (1301 ve 1101). Uygulama açıkken her ekranda çalışır.
+function RevirAlarmi({ onGit }) {
+  const [liste, setListe] = useState([]);
+  const [fark, setFark] = useState(0);
+  const [, yenile] = useState(0);
+  const oncekiRef = useRef("");
+  useEffect(() => {
+    let durdu = false;
+    const ac = () => servisSesAc();
+    document.addEventListener("pointerdown", ac);
+    async function cek() {
+      try {
+        const v = await window.OtelRpc.cagir("revir_alarm_getir");
+        if (durdu) return;
+        setFark(Date.parse(v.simdi) - Date.now());
+        setListe(v.liste || []);
+      } catch (e) {}
+    }
+    cek();
+    const t = setInterval(cek, 20000);
+    const g = () => {
+      if (document.visibilityState === "visible") cek();
+    };
+    document.addEventListener("visibilitychange", g);
+    const sn = setInterval(() => yenile((n) => n + 1), 5000);
+    return () => {
+      durdu = true;
+      clearInterval(t);
+      clearInterval(sn);
+      document.removeEventListener("visibilitychange", g);
+      document.removeEventListener("pointerdown", ac);
+    };
+  }, []);
+  const simdi = Date.now() + fark;
+  const sustur = revirSusturOku();
+  const caliyor = liste.filter((x) => !(sustur[x.id + "|" + x.sonraki_takip] && sustur[x.id + "|" + x.sonraki_takip] > simdi));
+  const imza = caliyor.map((x) => x.id).join(",");
+  useEffect(() => {
+    if (!caliyor.length) {
+      oncekiRef.current = "";
+      return undefined;
+    }
+    servisAlarmSesi();
+    const t = setInterval(servisAlarmSesi, 4000);
+    if (imza !== oncekiRef.current) {
+      oncekiRef.current = imza;
+      try {
+        const metin = `Takip zamanı geldi: ${caliyor.map((x) => `${revirNo(x.vaka_no)} Oda ${x.oda}`).join(", ")}`;
+        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+          if (navigator.serviceWorker && navigator.serviceWorker.ready) {
+            navigator.serviceWorker.ready.then((r) => r.showNotification("Revir Takip - Takip Alarmı", { body: metin, tag: "revir-alarm", requireInteraction: true })).catch(() => {});
+          } else new Notification("Revir Takip - Takip Alarmı", { body: metin });
+        }
+      } catch (e) {}
+    }
+    return () => clearInterval(t);
+  }, [imza]);
+  function sustur30() {
+    const o = revirSusturOku();
+    caliyor.forEach((x) => (o[x.id + "|" + x.sonraki_takip] = Date.now() + fark + 30 * 60000));
+    try {
+      window.localStorage.setItem("revir_sustur", JSON.stringify(o));
+    } catch (e) {}
+    yenile((n) => n + 1);
+  }
+  if (!caliyor.length) return null;
+  return (
+    <div data-testid="revir-alarm" style={{ position: "fixed", inset: 0, zIndex: 10000, background: "rgba(127,29,29,0.96)", color: "#fff", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 20, textAlign: "center" }}>
+      <div style={{ fontSize: 56 }}>🩺</div>
+      <div className="baslik-font" style={{ fontSize: 24, fontWeight: 800, marginTop: 8 }}>REVİR TAKİP ZAMANI GELDİ</div>
+      <div style={{ marginTop: 14, width: "100%", maxWidth: 420, maxHeight: "40vh", overflowY: "auto" }}>
+        {caliyor.map((x) => {
+          const dk = Math.max(0, Math.floor((simdi - Date.parse(x.sonraki_takip)) / 60000));
+          return (
+            <div key={x.id} style={{ background: "rgba(255,255,255,0.14)", borderRadius: 12, padding: "10px 12px", marginBottom: 8, fontSize: 16, fontWeight: 700 }}>
+              {revirNo(x.vaka_no)} · Oda {x.oda}
+              <div style={{ fontSize: 13, fontWeight: 500, opacity: 0.9 }}>
+                Takip saati {servisKisa(x.sonraki_takip)} · {dk > 0 ? `${dk} dk gecikmiş` : "şimdi"}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <button
+        data-testid="revir-alarm-git"
+        style={{ marginTop: 14, width: "100%", maxWidth: 420, padding: "14px 16px", borderRadius: 14, border: "none", background: "#fff", color: "#7F1D1D", fontSize: 16, fontWeight: 800 }}
+        onClick={() => {
+          onGit();
+          sustur30();
+        }}
+      >
+        Revir Takip'e git
+      </button>
+      <button
+        data-testid="revir-alarm-sustur"
+        style={{ marginTop: 10, width: "100%", maxWidth: 420, padding: "12px 16px", borderRadius: 14, border: "2px solid #fff", background: "transparent", color: "#fff", fontSize: 15, fontWeight: 700 }}
+        onClick={sustur30}
+      >
+        Sustur (30 dk sonra tekrar çalar)
+      </button>
+    </div>
+  );
+}
 function revirKullanabilir(user) {
   return modulAcik(user, "revir", (u) => REVIR_OTELLER.includes(u.hotelCode));
 }
