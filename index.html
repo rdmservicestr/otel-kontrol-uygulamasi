@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.44";
+window.UYGULAMA_SURUMU = "1.45";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -9047,7 +9047,7 @@ function ARZDetay({
 /* ------------------------------------------------------------------
    ODA SERVİSİ - depolama yardımcı fonksiyonları
 -------------------------------------------------------------------*/
-async function rsSiparisleriGetir(hotelCode) {
+async function rsSiparisleriGetir(hotelCode, hataFirlat) {
   try {
     const liste = await window.storage.list(`roomservice:${hotelCode}:`, true);
     const keys = (liste && liste.keys) || [];
@@ -9063,10 +9063,29 @@ async function rsSiparisleriGetir(hotelCode) {
     kayitlar.sort((a, b) => (a.olusturmaZamani < b.olusturmaZamani ? 1 : -1));
     return kayitlar;
   } catch (e) {
+    if (hataFirlat) throw e;
     return [];
   }
 }
 
+// Anlık çok kullanıcılı çalışma için: en güncel kaydı okuyup sürüm denetimiyle yazar. Başkası aradan değiştirmişse "CAKISMA" fırlatır.
+async function rsGuvenliGuncelle(siparis, degistir) {
+  const anahtar = `roomservice:${siparis.hotelCode}:${siparis.no}`;
+  if (!(window.storage && window.storage.getV && window.storage.setV)) {
+    const yeni = degistir(siparis);
+    if (!yeni) return null;
+    await rsSiparisKaydet(yeni);
+    return yeni;
+  }
+  const r = await window.storage.getV(anahtar);
+  const guncel = r ? JSON.parse(r.value) : siparis;
+  const ayniAsama = guncel.durum === siparis.durum || (guncel.durum === "Planlı" && siparis.durum === "Yeni" && guncel.planli);
+  if (!ayniAsama) throw new Error("CAKISMA");
+  const yeni = degistir(guncel);
+  if (!yeni) return null;
+  await window.storage.setV(anahtar, JSON.stringify(yeni), r ? r.version : null);
+  return yeni;
+}
 async function rsSiparisKaydet(siparis) {
   await window.storage.set(`roomservice:${siparis.hotelCode}:${siparis.no}`, JSON.stringify(siparis), true);
 }
@@ -9255,50 +9274,77 @@ function RoomServiceEkrani({ user, onGeri, toastGoster }) {
   const [yukleniyor, setYukleniyor] = useState(true);
   const [secilenNo, setSecilenNo] = useState(null);
   const [filtre, setFiltre] = useState("aktif");
+  const oncekiDurumlar = useRef(null);
 
   // Roller: mutfak = Mutfak Alt Birimleri; teslimat = Yiyecek & İçecek departmanı; kurtarma = F&B Müdürü/Asistanı ve 1100-1104 (her adımı ilerletebilir).
   const kurtarmaMi =
     ["1100", "1101", "1102", "1103", "1104"].includes(user.userCode) ||
     /^YİYECEK İÇECEK (MÜDÜRÜ|MÜDÜR YARDIMCISI)$/.test(String(user.bolum || "").toLocaleUpperCase("tr-TR"));
-  const mutfakMi = user.department === "Mutfak Alt Birimleri" || kurtarmaMi;
-  const roomServiceMi = String(user.department || "").startsWith("Yiyecek") || kurtarmaMi;
+  // Modülü açabilen her kullanıcı süreçteki tüm durum değişikliklerini yapabilir (işlemler denetim kaydına işlenir).
+  const mutfakMi = true;
+  const roomServiceMi = true;
   const yoneticiMi = LF_YONETICI_POZISYONLARI.includes(user.pozisyon);
 
   useEffect(() => {
     yukle();
-    const t = setInterval(() => yukle(true), 60000);
-    return () => clearInterval(t);
+    // Anlık takip: ~4 sn'de bir (yalnızca ekran görünürken); sekmeye dönünce hemen yenile
+    const t = setInterval(() => { if (!document.hidden) yukle(true); }, 4000);
+    const gorunur = () => { if (!document.hidden) yukle(true); };
+    document.addEventListener("visibilitychange", gorunur);
+    return () => { clearInterval(t); document.removeEventListener("visibilitychange", gorunur); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Planlı siparişin hazırlık zamanı (servis - 60 dk) geldiyse sipariş "Yeni" olarak görünür; ilk görende Telegram'a bildirilir.
   async function yukle(sessiz) {
     if (!sessiz) setYukleniyor(true);
-    const veri = await rsSiparisleriGetir(user.hotelCode);
+    let veri;
+    try {
+      veri = await rsSiparisleriGetir(user.hotelCode, true);
+    } catch (e) {
+      if (!sessiz) setYukleniyor(false);
+      return; // bağlantı sorunu: mevcut liste ekranda kalır
+    }
     const simdiMs = Date.now();
     const islenmis = [];
     for (const s of veri) {
       if (s.planli && s.durum === "Planlı" && rsAktifAn(s).getTime() <= simdiMs) {
         const yeni = { ...s, durum: "Yeni" };
         if (!s.aktifBildirildi) {
-          const k = { ...yeni, aktifBildirildi: true, auditLog: [...s.auditLog, { zaman: new Date().toISOString(), kullanici: "Sistem", islem: "Planlı sipariş hazırlık zamanı geldi" }] };
+          // yalnızca bayrağı ilk yazan istemci Telegram'a bildirir (çift mesaj olmasın)
+          let kazandi = false;
           try {
-            await rsSiparisKaydet({ ...k, durum: "Planlı" });
-            telegramMesajGonder(`⏰ PLANLI ODA SERVİSİ - HAZIRLIK ZAMANI GELDİ\n${s.hotelName}\n\nSipariş No: ${s.no}\nOda: ${s.odaNo}\nServis: ${rsServisYaz(s.servisZamani)}\n${s.kalemler.map((x) => `${x.ad} x${x.adet}`).join(", ")}`);
+            const yz = await rsGuvenliGuncelle(s, (g) => (g.aktifBildirildi ? null : { ...g, aktifBildirildi: true, auditLog: [...g.auditLog, { zaman: new Date().toISOString(), kullanici: "Sistem", islem: "Planlı sipariş hazırlık zamanı geldi" }] }));
+            kazandi = !!yz;
           } catch (e) {}
-          islenmis.push({ ...k, durum: "Yeni" });
+          if (kazandi) telegramMesajGonder(`⏰ PLANLI ODA SERVİSİ - HAZIRLIK ZAMANI GELDİ\n${s.hotelName}\n\nSipariş No: ${s.no}\nOda: ${s.odaNo}\nServis: ${rsServisYaz(s.servisZamani)}\n${s.kalemler.map((x) => `${x.ad} x${x.adet}`).join(", ")}`);
+          islenmis.push({ ...yeni, aktifBildirildi: true });
           continue;
         }
         islenmis.push(yeni);
       } else if (s.durum === "Hazır" && !s.hazirUyari && s.hazirZamani && simdiMs - new Date(s.hazirZamani).getTime() >= 10 * 60000) {
-        const k = { ...s, hazirUyari: true };
+        let kazandi = false;
         try {
-          await rsSiparisKaydet(k);
-          telegramMesajGonder(`⚠️ ODA SERVİSİ - TESLİMAT BEKLİYOR\n${s.hotelName}\n\nSipariş No: ${s.no}\nOda: ${s.odaNo}\nHazır olalı 10 dakikadan fazla oldu, teslimat alınmadı.`);
+          const yz = await rsGuvenliGuncelle(s, (g) => (g.hazirUyari ? null : { ...g, hazirUyari: true }));
+          kazandi = !!yz;
         } catch (e) {}
-        islenmis.push(k);
+        if (kazandi) telegramMesajGonder(`⚠️ ODA SERVİSİ - TESLİMAT BEKLİYOR\n${s.hotelName}\n\nSipariş No: ${s.no}\nOda: ${s.odaNo}\nHazır olalı 10 dakikadan fazla oldu, teslimat alınmadı.`);
+        islenmis.push({ ...s, hazirUyari: true });
       } else islenmis.push(s);
     }
+    // Başkasının yaptığı değişiklikleri anında bildir (ilk yüklemede değil)
+    const onceki = oncekiDurumlar.current;
+    if (sessiz && onceki) {
+      const degisen = islenmis.filter((x) => onceki[x.no] !== x.durum);
+      if (degisen.length) {
+        const d = degisen[0];
+        toastGoster(onceki[d.no] === undefined ? `🆕 Yeni sipariş: Oda ${d.odaNo}` : `Oda ${d.odaNo}: ${d.durum}${degisen.length > 1 ? ` (+${degisen.length - 1} değişiklik)` : ""}`);
+        uynBipSesi();
+      }
+    }
+    const harita = {};
+    islenmis.forEach((x) => (harita[x.no] = x.durum));
+    oncekiDurumlar.current = harita;
     setSiparisler(islenmis);
     setYukleniyor(false);
   }
@@ -9349,40 +9395,51 @@ function RoomServiceEkrani({ user, onGeri, toastGoster }) {
         .join(", ")}\n\nAlan: ${user.name}`
     );
 
+    if (oncekiDurumlar.current) oncekiDurumlar.current[no] = siparis.durum;
     toastGoster(`✓ Sipariş oluşturuldu: ${no}`);
-    await yukle();
+    await yukle(true);
     setGorunum("liste");
   }
 
+  async function cakismaBildir(e) {
+    if (e && e.message === "CAKISMA") {
+      toastGoster("⚠️ Sipariş başka bir kullanıcı tarafından az önce güncellendi. Liste yenilendi.");
+      await yukle(true);
+      return true;
+    }
+    return false;
+  }
+
   async function durumIlerlet(siparis, yeniDurum, ekAlanlar, islemMetni) {
-    const simdi = new Date();
-    const guncel = {
-      ...siparis,
-      durum: yeniDurum,
-      ...ekAlanlar,
-      auditLog: [...siparis.auditLog, await auditEkle(islemMetni)],
-    };
-    await rsSiparisKaydet(guncel);
+    const audit = await auditEkle(islemMetni);
+    let sonuc;
+    try {
+      sonuc = await rsGuvenliGuncelle(siparis, (g) => ({ ...g, durum: yeniDurum, ...ekAlanlar, auditLog: [...g.auditLog, audit] }));
+    } catch (e) {
+      if (await cakismaBildir(e)) return;
+      throw e;
+    }
     if (yeniDurum === "Hazır") {
       telegramMesajGonder(`✅ ODA SERVİSİ - SİPARİŞ HAZIR\n${siparis.hotelName}\n\nSipariş No: ${siparis.no}\nOda: ${siparis.odaNo}\n${siparis.kalemler.map((k) => `${k.ad} x${k.adet}`).join(", ")}\n\nTeslimat bekleniyor. Hazırlayan: ${user.name}`);
     }
+    if (oncekiDurumlar.current) oncekiDurumlar.current[siparis.no] = yeniDurum;
     toastGoster(`✓ ${islemMetni}`);
-    await yukle();
+    await yukle(true);
   }
 
   async function siparisIptalEt(siparis, neden, aciklama) {
     const simdi = new Date();
     const tamNeden = neden === "Diğer" ? `Diğer: ${aciklama}` : neden;
-    const guncel = {
-      ...siparis,
-      durum: "İptal",
-      iptalZamani: simdi.toISOString(),
-      iptalNedeni: tamNeden,
-      auditLog: [...siparis.auditLog, await auditEkle(`Sipariş iptal edildi: ${tamNeden}`)],
-    };
-    await rsSiparisKaydet(guncel);
+    const audit = await auditEkle(`Sipariş iptal edildi: ${tamNeden}`);
+    try {
+      await rsGuvenliGuncelle(siparis, (g) => ({ ...g, durum: "İptal", iptalZamani: simdi.toISOString(), iptalNedeni: tamNeden, auditLog: [...g.auditLog, audit] }));
+    } catch (e) {
+      if (await cakismaBildir(e)) return;
+      throw e;
+    }
+    if (oncekiDurumlar.current) oncekiDurumlar.current[siparis.no] = "İptal";
     toastGoster("✓ Sipariş iptal edildi");
-    await yukle();
+    await yukle(true);
   }
 
   const secilenSiparis = siparisler.find((s) => s.no === secilenNo);
