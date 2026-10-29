@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.43";
+window.UYGULAMA_SURUMU = "1.44";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -9090,6 +9090,80 @@ function rsGecenDakika(siparis) {
   const bitisAn = siparis.teslimZamani ? new Date(siparis.teslimZamani) : new Date();
   return Math.round((bitisAn - rsAktifAn(siparis)) / 60000);
 }
+const RS_ADIMLAR = ["Alındı", "Hazırlanıyor", "Hazır", "Yolda", "Teslim"];
+// Siparişin hangi adımda olduğu (0-4) ve şu an kimde olduğu.
+function rsAdimNo(s) {
+  return { Planlı: -1, Yeni: 0, Onaylandı: 0, Hazırlanıyor: 1, Hazır: 2, "Odaya Gönderildi": 3, "Teslim Edildi": 4, İptal: -2 }[s.durum];
+}
+function rsNerede(s) {
+  switch (s.durum) {
+    case "Planlı":
+      return { metin: `Planlı · mutfağa ${servisParca(rsAktifAn(s).getTime()).saat} saatinde düşer`, renk: "#3F6C8F" };
+    case "Yeni":
+    case "Onaylandı":
+      return { metin: "Mutfak bekleniyor", renk: "#B08D3E" };
+    case "Hazırlanıyor":
+      return { metin: "Mutfakta hazırlanıyor", renk: "#B08D3E" };
+    case "Hazır":
+      return { metin: "Teslimat bekleniyor", renk: "#B7472A" };
+    case "Odaya Gönderildi":
+      return { metin: `Yolda${s.sorumluTeslimEden ? " · " + s.sorumluTeslimEden.name : ""}`, renk: "#3F6C8F" };
+    case "Teslim Edildi":
+      return { metin: "Teslim edildi", renk: "#2F7D5C" };
+    default:
+      return { metin: "İptal edildi", renk: "#9CA3AF" };
+  }
+}
+function rsAdimZamanlari(s) {
+  return [s.olusturmaZamani, s.hazirlanmaBaslangic, s.hazirZamani, s.gonderilmeZamani, s.teslimZamani];
+}
+function RSSurecCubugu({ siparis }) {
+  const no = rsAdimNo(siparis);
+  if (no === -2) return null;
+  return (
+    <div data-testid="rs-surec" style={{ display: "flex", gap: 3, marginTop: 6 }}>
+      {RS_ADIMLAR.map((ad, i) => {
+        const bitti = no > i || (no === 4 && i === 4);
+        const suan = no === i;
+        const renk = bitti ? "#2F7D5C" : suan ? "#B08D3E" : "#D6CFBD";
+        return (
+          <div key={ad} style={{ flex: 1, textAlign: "center" }}>
+            <div style={{ height: 6, borderRadius: 3, background: renk }} />
+            <div style={{ fontSize: 9, fontWeight: suan ? 800 : 500, color: bitti || suan ? "#374151" : "#9CA3AF", marginTop: 2 }}>{ad}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+function RSSurecZamanCizelgesi({ siparis }) {
+  const z = rsAdimZamanlari(siparis);
+  const kim = [siparis.olusturanKullanici, siparis.hazirlayan, siparis.hazirEden, siparis.sorumluTeslimEden && siparis.sorumluTeslimEden.name, siparis.teslimEden || (siparis.sorumluTeslimEden && siparis.sorumluTeslimEden.name)];
+  const baslik = ["Sipariş alındı", "Hazırlamaya başlandı", "Hazır", "Teslimat aldı", "Teslim edildi"];
+  const no = rsAdimNo(siparis);
+  const n = rsNerede(siparis);
+  let onceki = null;
+  return (
+    <div data-testid="rs-zaman" style={styles.lfBilgiKarti}>
+      <div style={{ fontWeight: 800, color: n.renk, marginBottom: 6 }}>Şu an: {n.metin}</div>
+      {baslik.map((b, i) => {
+        const var_ = !!z[i];
+        const fark = var_ && onceki ? Math.round((new Date(z[i]) - new Date(onceki)) / 60000) : null;
+        if (var_) onceki = z[i];
+        const sira = no === i && siparis.durum !== "Teslim Edildi";
+        return (
+          <div key={b} style={{ display: "flex", gap: 8, fontSize: 13, padding: "3px 0", color: var_ ? "#14532D" : "#9CA3AF", fontWeight: sira ? 800 : 500 }}>
+            <span>{var_ ? "✓" : sira ? "●" : "○"}</span>
+            <span style={{ flex: 1 }}>
+              {b}
+              {var_ ? ` · ${lfZamanFormatla(z[i])}${kim[i] ? " · " + kim[i] : ""}${fark !== null && fark > 0 ? ` (+${fark} dk)` : ""}` : ""}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 function rsServisYaz(iso) {
   const p = servisParca(Date.parse(iso));
   return `${p.tarih.slice(8, 10)}.${p.tarih.slice(5, 7)}.${p.tarih.slice(0, 4)} ${p.saat}`;
@@ -9182,8 +9256,12 @@ function RoomServiceEkrani({ user, onGeri, toastGoster }) {
   const [secilenNo, setSecilenNo] = useState(null);
   const [filtre, setFiltre] = useState("aktif");
 
-  const mutfakMi = user.department === RS_FB_DEPARTMAN && ["Mutfak", "Executive Chef", "Sous Chef", "Ana Mutfak"].includes(user.bolum);
-  const roomServiceMi = user.department === RS_FB_DEPARTMAN && user.bolum === "Room Service";
+  // Roller: mutfak = Mutfak Alt Birimleri; teslimat = Yiyecek & İçecek departmanı; kurtarma = F&B Müdürü/Asistanı ve 1100-1104 (her adımı ilerletebilir).
+  const kurtarmaMi =
+    ["1100", "1101", "1102", "1103", "1104"].includes(user.userCode) ||
+    /^YİYECEK İÇECEK (MÜDÜRÜ|MÜDÜR YARDIMCISI)$/.test(String(user.bolum || "").toLocaleUpperCase("tr-TR"));
+  const mutfakMi = user.department === "Mutfak Alt Birimleri" || kurtarmaMi;
+  const roomServiceMi = String(user.department || "").startsWith("Yiyecek") || kurtarmaMi;
   const yoneticiMi = LF_YONETICI_POZISYONLARI.includes(user.pozisyon);
 
   useEffect(() => {
@@ -9212,6 +9290,13 @@ function RoomServiceEkrani({ user, onGeri, toastGoster }) {
           continue;
         }
         islenmis.push(yeni);
+      } else if (s.durum === "Hazır" && !s.hazirUyari && s.hazirZamani && simdiMs - new Date(s.hazirZamani).getTime() >= 10 * 60000) {
+        const k = { ...s, hazirUyari: true };
+        try {
+          await rsSiparisKaydet(k);
+          telegramMesajGonder(`⚠️ ODA SERVİSİ - TESLİMAT BEKLİYOR\n${s.hotelName}\n\nSipariş No: ${s.no}\nOda: ${s.odaNo}\nHazır olalı 10 dakikadan fazla oldu, teslimat alınmadı.`);
+        } catch (e) {}
+        islenmis.push(k);
       } else islenmis.push(s);
     }
     setSiparisler(islenmis);
@@ -9278,6 +9363,9 @@ function RoomServiceEkrani({ user, onGeri, toastGoster }) {
       auditLog: [...siparis.auditLog, await auditEkle(islemMetni)],
     };
     await rsSiparisKaydet(guncel);
+    if (yeniDurum === "Hazır") {
+      telegramMesajGonder(`✅ ODA SERVİSİ - SİPARİŞ HAZIR\n${siparis.hotelName}\n\nSipariş No: ${siparis.no}\nOda: ${siparis.odaNo}\n${siparis.kalemler.map((k) => `${k.ad} x${k.adet}`).join(", ")}\n\nTeslimat bekleniyor. Hazırlayan: ${user.name}`);
+    }
     toastGoster(`✓ ${islemMetni}`);
     await yukle();
   }
@@ -9350,6 +9438,7 @@ function RoomServiceEkrani({ user, onGeri, toastGoster }) {
         user={user}
         mutfakMi={mutfakMi}
         roomServiceMi={roomServiceMi}
+        kurtarmaMi={kurtarmaMi}
         yoneticiMi={yoneticiMi}
         onGeri={() => {
           const planliydi = secilenSiparis.planli && secilenSiparis.durum === "Planlı";
@@ -9445,6 +9534,8 @@ function RoomServiceEkrani({ user, onGeri, toastGoster }) {
                 <div style={styles.lfKayitAciklama}>
                   Oda {s.odaNo} — {s.kalemler.map((k) => `${k.ad} x${k.adet}`).join(", ")}
                 </div>
+                <div style={{ fontSize: 13, fontWeight: 800, color: rsNerede(s).renk, marginTop: 2 }}>{rsNerede(s).metin}</div>
+                <RSSurecCubugu siparis={s} />
                 <div style={styles.lfKayitAltBilgi}>
                   {s.olusturanKullanici} · {new Date(s.olusturmaZamani).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })} ·{" "}
                   {aktifMi(s) ? `${gecen} dk geçti` : `${gecen} dk sürdü`}
@@ -9478,8 +9569,9 @@ function RSYeniSiparis({ user, onIptal, onKaydet }) {
   const [sSaat, setSSaat] = useState("");
   const minTarih = servisParca(Date.now()).tarih;
   const maxTarih = servisParca(Date.now() + RS_PLANLI_MAX_GUN * 86400000).tarih;
+  const yarinTarih = servisParca(Date.now() + 86400000).tarih;
   const saatSecenekleri = [];
-  for (let h = 0; h < 24; h++) for (const m of [0, 15, 30, 45]) saatSecenekleri.push(`${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
+  for (let dk = 8 * 60 + 30; dk <= 11 * 60 + 30; dk += 15) saatSecenekleri.push(`${String(Math.floor(dk / 60)).padStart(2, "0")}:${String(dk % 60).padStart(2, "0")}`);
 
   const kategoriUrunleri = RS_MENU.filter((m) => m.kategori === kategori);
 
@@ -9509,7 +9601,7 @@ function RSYeniSiparis({ user, onIptal, onKaydet }) {
     }
     let servisZamani = null;
     if (ileri) {
-      if (!sTarih || !sSaat) {
+      if (!sTarih || !sSaat || !saatSecenekleri.includes(sSaat)) {
         setHata("İleri tarihli sipariş için servis tarihi ve saati zorunludur.");
         return;
       }
@@ -9546,7 +9638,7 @@ function RSYeniSiparis({ user, onIptal, onKaydet }) {
       <input style={styles.epostaInput} value={misafirAdi} onChange={(e) => setMisafirAdi(e.target.value)} />
 
       <label style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 14, fontWeight: 700, fontSize: 15 }}>
-        <input data-testid="rs-ileri-tarih" type="checkbox" checked={ileri} onChange={(e) => setIleri(e.target.checked)} style={{ width: 22, height: 22 }} />
+        <input data-testid="rs-ileri-tarih" type="checkbox" checked={ileri} onChange={(e) => { setIleri(e.target.checked); if (e.target.checked && !sTarih) setSTarih(yarinTarih); }} style={{ width: 22, height: 22 }} />
         İleri Tarih
       </label>
       {ileri && (
@@ -9570,11 +9662,10 @@ function RSYeniSiparis({ user, onIptal, onKaydet }) {
       )}
       {ileri && (
         <div style={{ ...styles.ilerlemeYazi, marginTop: 4 }}>
-          Sipariş, servis saatinden {RS_PLANLI_ONCE_DK} dakika önce mutfak listesine düşer. En fazla {RS_PLANLI_MAX_GUN} gün ilerisi seçilebilir.
+          Servis saati 08:30 - 11:30 arasında seçilebilir. Sipariş, servis saatinden {RS_PLANLI_ONCE_DK} dakika önce mutfak listesine düşer. En fazla {RS_PLANLI_MAX_GUN} gün ilerisi seçilebilir.
         </div>
       )}
 
-      <div style={{ ...styles.gmSabitDeger, marginTop: 14 }}>Ürün Ekle</div>
       <Etiket>KATEGORİ</Etiket>
       <select
         style={styles.gmSecim}
@@ -9754,7 +9845,7 @@ function RSPlanliListe({ user, planlilar, onGeri, onSec }) {
   );
 }
 
-function RSDetay({ siparis, user, mutfakMi, roomServiceMi, yoneticiMi, onGeri, onDurumIlerlet, onIptalEt }) {
+function RSDetay({ siparis, user, mutfakMi, roomServiceMi, kurtarmaMi, yoneticiMi, onGeri, onDurumIlerlet, onIptalEt }) {
   const [islem, setIslem] = useState(false);
   const [iptalAcik, setIptalAcik] = useState(false);
   const [iptalNeden, setIptalNeden] = useState(RS_IPTAL_NEDENLERI[0]);
@@ -9800,6 +9891,8 @@ function RSDetay({ siparis, user, mutfakMi, roomServiceMi, yoneticiMi, onGeri, o
           ? `📅 Planlı sipariş · servis ${rsServisYaz(siparis.servisZamani)} · mutfağa ${servisParca(rsAktifAn(siparis).getTime()).saat} saatinde düşer`
           : `${gecen} dk geçti · Hedef ${slaHedefi} dk ${gecen > slaHedefi ? "— SLA AŞILDI" : ""}`}
       </div>
+
+      <RSSurecZamanCizelgesi siparis={siparis} />
 
       <div style={styles.lfBilgiKarti}>
         <div style={styles.lfBilgiSatiri}>
@@ -9849,26 +9942,21 @@ function RSDetay({ siparis, user, mutfakMi, roomServiceMi, yoneticiMi, onGeri, o
       </div>
 
       {/* Durum bazlı işlem butonları */}
-      {siparis.durum === "Yeni" && (
-        <button style={{ ...styles.anaButon, marginTop: 14, opacity: islem ? 0.7 : 1 }} disabled={islem} onClick={() => ilerlet("Onaylandı", { onaylanmaZamani: new Date().toISOString() }, "Sipariş onaylandı")}>
-          Siparişi Onayla
-        </button>
-      )}
-
-      {siparis.durum === "Onaylandı" && mutfakMi && (
-        <button style={{ ...styles.anaButon, marginTop: 14, opacity: islem ? 0.7 : 1 }} disabled={islem} onClick={() => ilerlet("Hazırlanıyor", { hazirlanmaBaslangic: new Date().toISOString() }, "Hazırlamaya başlandı")}>
+      {(siparis.durum === "Yeni" || siparis.durum === "Onaylandı") && mutfakMi && (
+        <button data-testid="rs-basla" style={{ ...styles.anaButon, marginTop: 14, opacity: islem ? 0.7 : 1 }} disabled={islem} onClick={() => ilerlet("Hazırlanıyor", { hazirlanmaBaslangic: new Date().toISOString(), hazirlayan: user.name }, "Hazırlamaya başlandı")}>
           Hazırlamaya Başla
         </button>
       )}
 
       {siparis.durum === "Hazırlanıyor" && mutfakMi && (
-        <button style={{ ...styles.anaButon, marginTop: 14, opacity: islem ? 0.7 : 1 }} disabled={islem} onClick={() => ilerlet("Hazır", { hazirZamani: new Date().toISOString() }, "Sipariş hazır")}>
+        <button data-testid="rs-hazir" style={{ ...styles.anaButon, marginTop: 14, opacity: islem ? 0.7 : 1 }} disabled={islem} onClick={() => ilerlet("Hazır", { hazirZamani: new Date().toISOString(), hazirEden: user.name }, "Sipariş hazır")}>
           Hazır
         </button>
       )}
 
       {siparis.durum === "Hazır" && roomServiceMi && (
         <button
+          data-testid="rs-al"
           style={{ ...styles.anaButon, marginTop: 14, opacity: islem ? 0.7 : 1 }}
           disabled={islem}
           onClick={() => ilerlet("Odaya Gönderildi", { gonderilmeZamani: new Date().toISOString(), sorumluTeslimEden: { userCode: user.userCode, name: user.name } }, "Sipariş odaya gönderiliyor")}
@@ -9877,13 +9965,14 @@ function RSDetay({ siparis, user, mutfakMi, roomServiceMi, yoneticiMi, onGeri, o
         </button>
       )}
 
-      {siparis.durum === "Odaya Gönderildi" && siparis.sorumluTeslimEden && siparis.sorumluTeslimEden.userCode === user.userCode && (
+      {siparis.durum === "Odaya Gönderildi" && ((siparis.sorumluTeslimEden && siparis.sorumluTeslimEden.userCode === user.userCode) || kurtarmaMi) && (
         <button
+          data-testid="rs-teslim"
           style={{ ...styles.anaButon, marginTop: 14, opacity: islem ? 0.7 : 1 }}
           disabled={islem}
           onClick={() => {
             const simdi = new Date().toISOString();
-            ilerlet("Teslim Edildi", { teslimZamani: simdi, kapanisZamani: simdi }, "Teslim edildi");
+            ilerlet("Teslim Edildi", { teslimZamani: simdi, kapanisZamani: simdi, teslimEden: user.name }, "Teslim edildi");
           }}
         >
           Teslim Edildi
