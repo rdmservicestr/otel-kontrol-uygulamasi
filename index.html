@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.45";
+window.UYGULAMA_SURUMU = "1.46";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -1686,50 +1686,25 @@ const ODA_KODU_UZUNLUGU = 4;
 /* ------------------------------------------------------------------
    LOST & FOUND (Kayıp ve Buluntu Eşya) MODÜLÜ - sabit tanımlar
 -------------------------------------------------------------------*/
-// "Bulunduğu Alan" için alfabetik sıralı, seçmeli standart lokasyon listesi.
-// "Diğer" seçeneği bilerek en sona bırakıldı (serbest metin alanı açar).
-const LF_ALANLAR = [
-  "A La Carte Restoran", "Amfi Tiyatro", "Ana Giriş", "Ana Restaurant", "Animasyon Alanı",
-  "Aquapark", "Asansörler", "Bahçe", "Balkon / Seyir Alanı", "Bar", "Basketbol Sahası",
-  "Beach Bar", "Bellboy / Bagaj Alanı", "Buhar Odası", "Bulaşıkhane", "Cafe", "Concierge",
-  "Çamaşırhane", "Çocuk Havuzu", "Çocuk Kulübü", "Çöp / Atık Alanı", "Deniz Sporları Alanı",
-  "Depolar", "Disco / Gece Kulübü", "Doktor Odası", "Düğün / Organizasyon Alanı",
-  "Etkinlik Alanı", "Fitness", "Fotoğraf Alanı", "Futbol Sahası", "Genel Kullanım Alanı",
-  "Genel WC'ler", "Güvenlik Noktası", "Güvenlik Ofisi", "Güzellik Merkezi", "Hamam", "Havuz",
-  "Havuz Çevresi", "Hediyelik Eşya Mağazası", "Hemşire Odası", "Housekeeping Ofisi", "İskele",
-  "Kat Servis Alanları", "Konferans Salonu", "Koridorlar", "Kuaför", "Kuru Gıda Deposu",
-  "Lobby", "Lobby Bar", "Mal Kabul", "Market", "Masaj Odaları", "Merdivenler",
-  "Misafir İlişkileri", "Mutfak", "Odalar", "Otopark", "Oyun Alanı", "Oyun Salonu", "Pastane",
-  "Personel Dinlenme Alanı", "Personel Girişi", "Personel Servis Alanı",
-  "Personel Soyunma Odaları", "Personel WC", "Personel Yemekhanesi", "Peyzaj Alanları", "Plaj",
-  "Plaj Sporları Alanı", "Pool Bar", "Resepsiyon", "Restoran", "Sağlık / İlk Yardım Odası",
-  "Sahne Arkası", "Santral", "Sauna", "Servis Girişi", "Sigara İçme Alanı", "Snack Restaurant",
-  "Soğuk Hava Deposu", "Spa", "Spor Alanları", "Suit Odalar", "Teknik Atölye", "Teknik Servis",
-  "Tenis Kortu", "Teras", "Toplantı Salonu", "Transfer / Araç Karşılama Alanı", "Vale Alanı",
-  "Voleybol Sahası", "Diğer",
+// Kategori ve eşya listesi (yazılımda harf/numara gösterilmez; LOST_3110 dokümanına göre)
+const LF_KATALOG = [
+  { kategori: "Elektronik Eşyalar", esyalar: ["Cep telefonu", "Telefon şarj adaptörü", "Şarj kablosu", "Powerbank", "Bluetooth kulaklık", "Kablolu kulaklık", "Akıllı saat", "Tablet", "Dizüstü bilgisayar", "Fotoğraf makinesi", "Kamera", "Elektronik kitap okuyucu", "Taşınabilir hoparlör", "Oyun konsolu / oyun kumandası", "Elektronik tıraş makinesi"] },
+  { kategori: "Kişisel Aksesuarlar", esyalar: ["Güneş gözlüğü", "Numaralı gözlük", "Gözlük kılıfı", "Kol saati", "Bileklik", "Kolye", "Küpe", "Yüzük", "Takı kutusu", "Cüzdan", "Kartlık", "Anahtarlık", "Ev anahtarı", "Araç anahtarı", "Çanta aksesuarı"] },
+  { kategori: "Giyim Eşyaları", esyalar: ["Tişört", "Gömlek", "Pantolon", "Şort", "Elbise", "Etek", "Ceket", "Hırka", "Kazak", "Sweatshirt", "Mont", "İç çamaşırı", "Sütyen", "Çorap", "Pijama takımı"] },
+  { kategori: "Ayakkabı ve Plaj Eşyaları", esyalar: ["Spor ayakkabı", "Günlük ayakkabı", "Topuklu ayakkabı", "Terlik", "Sandalet", "Deniz ayakkabısı", "Plaj havlusu", "Bornoz", "Mayo", "Bikini", "Deniz şortu", "Şapka", "Güneşlik", "Plaj çantası", "Deniz gözlüğü"] },
+  { kategori: "Çanta ve Seyahat Eşyaları", esyalar: ["Sırt çantası", "El çantası", "Omuz çantası", "Valiz", "Valiz etiketi", "Pasaport", "Kimlik kartı", "Ehliyet", "Seyahat belgesi", "Seyahat boyun yastığı"] },
+  { kategori: "Kozmetik ve Kişisel Bakım", esyalar: ["Parfüm", "Deodorant", "Makyaj çantası", "Ruj", "Makyaj malzemesi", "Tarak", "Saç fırçası", "Saç düzleştirici", "Saç kurutma makinesi", "Diş fırçası / diş bakım seti"] },
+  { kategori: "Çocuk ve Bebek Eşyaları", esyalar: ["Çocuk oyuncağı", "Peluş oyuncak", "Bebek arabası", "Bebek battaniyesi", "Bebek kıyafeti", "Çocuk ayakkabısı", "Biberon", "Emzik", "Çocuk kitabı", "Çocuk güneş gözlüğü"] },
+  { kategori: "Diğer Eşyalar", esyalar: ["Kitap", "Dergi", "Defter", "Kalem", "Şemsiye", "Su matarası", "Termos", "Sigara tabakası / tütün aksesuarı", "Gözlük temizleme bezi", "Medikal destek ekipmanı (baston, dizlik vb.)"] },
 ];
-
-const LF_KATEGORILER = [
-  "Elektronik", "Telefon", "Tablet", "Bilgisayar", "Kamera", "Şarj Cihazı",
-  "Kulaklık", "Takı", "Saat", "Para", "Cüzdan", "Kredi/Banka Kartı",
-  "Pasaport", "Kimlik", "Evrak", "Giysi", "Ayakkabı", "Çanta", "Oyuncak",
-  "Gözlük", "Kozmetik", "Medikal Ürün", "Bebek Eşyası", "Spor Ekipmanı", "Diğer",
-];
-const LF_DEGERLI_KATEGORILER = ["Telefon", "Tablet", "Bilgisayar", "Kamera", "Takı", "Saat", "Cüzdan"];
-const LF_KRITIK_KATEGORILER = ["Pasaport", "Kimlik", "Evrak", "Kredi/Banka Kartı"];
-const LF_DURUMLAR = [
-  "Yeni Kayıt", "Teslim Bekliyor", "Teslim Alındı", "Araştırılıyor",
-  "Misafir Tespit Edildi", "Misafir İletişime Geçildi", "Misafir Onayı Bekleniyor",
-  "Teslimat Bekliyor", "Kargo Hazırlanıyor", "Kargoya Verildi", "Misafire Teslim Edildi",
-  "Misafir Teslim Almadı", "Süre Doldu", "Bağışlandı", "İmha Edildi",
-  "Yetkili Makama Teslim Edildi", "Kayıp / Akıbeti Belirsiz",
-];
-const LF_KAPANIS_DURUMLARI = [
-  "Misafire Teslim Edildi", "Bağışlandı", "İmha Edildi", "Yetkili Makama Teslim Edildi",
-];
-const LF_ONAY_GEREKTIREN_DURUMLAR = ["Bağışlandı", "İmha Edildi"];
-const LF_SAKLAMA_SURESI_GUN = 90;
-// Bu pozisyonlar durum değiştirme / imha-bağış onayı gibi yönetimsel işlemleri yapabilir.
+const LF_ESYA_DURUMLARI = ["İyi", "Kötü", "Kırık", "Yırtık", "Yıpranmış"];
+// Teslim Et / Depoya Kaldır / Arşivle yetkisi
+const LF_ISLEM_YETKILILERI = ["1101", "1102", "1103", "1104", "1122", "1132", "1162", "1163", "1164"];
+// Arşivdeki eşyayı sahiplendirme yetkisi
+const LF_SAHIPLENDIRME_YETKILILERI = ["1162", "1163", "1164", "1101", "1102", "1103", "1104"];
+const LF_ARSIV_BEKLEME_GUN = 7; // oluşturma tarihinden sonra Arşivle aktif
+const LF_SAHIPLENDIRME_BEKLEME_GUN = 30; // arşivde bekleme
+// Bu pozisyonlar başka modüllerde yönetimsel işlem yapabilir.
 const LF_YONETICI_POZISYONLARI = ["Müdür", "Supervisor", "Şef", "Vardiya Amiri"];
 
 /* ------------------------------------------------------------------
@@ -6654,9 +6629,14 @@ function GMSatirSekmesi({ onSatirEkle, onSatirDuzenle, onSatirSil, toastGoster }
 /* ------------------------------------------------------------------
    LOST & FOUND - depolama yardımcı fonksiyonları
 -------------------------------------------------------------------*/
-async function lfKayitlariGetir(hotelCode) {
+function lfZamanFormatla(iso) {
+  const d = new Date(iso);
+  return d.toLocaleString("tr-TR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+async function lfListeGetir(onek, hotelCode, hataFirlat) {
   try {
-    const liste = await window.storage.list(`lostfound:${hotelCode}:`, true);
+    const liste = await window.storage.list(`${onek}:${hotelCode}:`, true);
     const keys = (liste && liste.keys) || [];
     const kayitlar = [];
     for (const k of keys) {
@@ -6670,43 +6650,686 @@ async function lfKayitlariGetir(hotelCode) {
     kayitlar.sort((a, b) => (a.olusturmaZamani < b.olusturmaZamani ? 1 : -1));
     return kayitlar;
   } catch (e) {
+    if (hataFirlat) throw e;
     return [];
   }
 }
+const lfBulunanlariGetir = (otel, h) => lfListeGetir("lfbulunan", otel, h);
+const lfKayiplariGetir = (otel, h) => lfListeGetir("lfkayip", otel, h);
 
-async function lfKayitKaydet(kayit) {
-  await window.storage.set(`lostfound:${kayit.hotelCode}:${kayit.no}`, JSON.stringify(kayit), true);
+function lfBugun() {
+  return servisParca(Date.now()).tarih; // YYYY-MM-DD
+}
+function lfTarihYaz(t) {
+  return t ? formatTarihSadece(t) : "";
+}
+function lfGunEkle(tarih, gun) {
+  const d = new Date(tarih + "T12:00:00");
+  d.setDate(d.getDate() + gun);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function lfGecenGun(iso) {
+  return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+}
+function lfTr(s) {
+  return String(s || "").toLocaleLowerCase("tr-TR");
+}
+// Kayıt numarası: LF_GGAAYY_0001 (bulunan) / LK_GGAAYY_0001 (kayıp); sıra günlük ve otel bazlı.
+function lfNoOnek(onek, tarih) {
+  const [y, m, d] = tarih.split("-");
+  return `${onek}_${d}${m}${y.slice(2)}_`;
+}
+async function lfKayitOlustur(depoOnek, noOnek, hotelCode, tarih, kayitHazirla) {
+  const on = lfNoOnek(noOnek, tarih);
+  for (let deneme = 0; deneme < 8; deneme++) {
+    const liste = await window.storage.list(`${depoOnek}:${hotelCode}:${on}`, true);
+    let mx = 0;
+    ((liste && liste.keys) || []).forEach((k) => {
+      const n = parseInt(k.split("_").pop(), 10);
+      if (n > mx) mx = n;
+    });
+    const no = `${on}${String(mx + 1 + deneme).padStart(4, "0")}`;
+    const kayit = kayitHazirla(no);
+    const anahtar = `${depoOnek}:${hotelCode}:${no}`;
+    try {
+      if (window.storage.olustur) await window.storage.olustur(anahtar, JSON.stringify(kayit), true);
+      else await window.storage.set(anahtar, JSON.stringify(kayit), true);
+      return kayit;
+    } catch (e) {
+      if (e && e.message === "KAYIT_VAR") continue;
+      throw e;
+    }
+  }
+  throw new Error("Kayıt numarası alınamadı, tekrar deneyin.");
+}
+// Sürüm denetimli güncelleme: başkası aradan durumu değiştirdiyse CAKISMA fırlatır.
+async function lfGuvenliGuncelle(kayit, degistir) {
+  const anahtar = `lfbulunan:${kayit.hotelCode}:${kayit.no}`;
+  if (!(window.storage && window.storage.getV && window.storage.setV)) {
+    const yeni = degistir(kayit);
+    await window.storage.set(anahtar, JSON.stringify(yeni), true);
+    return yeni;
+  }
+  const r = await window.storage.getV(anahtar);
+  const guncel = r ? JSON.parse(r.value) : kayit;
+  if (guncel.durum !== kayit.durum) throw new Error("CAKISMA");
+  const yeni = degistir(guncel);
+  await window.storage.setV(anahtar, JSON.stringify(yeni), r ? r.version : null);
+  return yeni;
+}
+function lfArsivAktifMi(k) {
+  return (k.durum === "Bulundu" || k.durum === "Depoda") && lfGecenGun(k.olusturmaZamani) >= LF_ARSIV_BEKLEME_GUN;
+}
+function lfArsivKalanGun(k) {
+  return Math.max(0, LF_ARSIV_BEKLEME_GUN - lfGecenGun(k.olusturmaZamani));
+}
+function lfSahiplendirmeKalanGun(k) {
+  return Math.max(0, LF_SAHIPLENDIRME_BEKLEME_GUN - lfGecenGun(k.arsivZamani));
+}
+function lfFotografKucult(file, bitti) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, 900 / img.width);
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+      bitti(canvas.toDataURL("image/jpeg", 0.65));
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+async function lfResimVeri(src) {
+  if (src.indexOf("data:") === 0) return src;
+  const blob = await (await fetch(src)).blob();
+  return await new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(fr.result);
+    fr.onerror = rej;
+    fr.readAsDataURL(blob);
+  });
+}
+function lfResimBoyut(veri) {
+  return new Promise((res) => {
+    const im = new Image();
+    im.onload = () => res({ w: im.width, h: im.height });
+    im.onerror = () => res({ w: 4, h: 3 });
+    im.src = veri;
+  });
 }
 
-function lfSaklamaBitisTarihi(kayit) {
-  const baslangic = new Date(kayit.olusturmaZamani);
-  const bitis = new Date(baslangic);
-  bitis.setDate(bitis.getDate() + (kayit.saklamaSuresiGun || LF_SAKLAMA_SURESI_GUN));
-  return bitis;
+async function lfTeslimPdf(k) {
+  const { jsPDF } = window.jspdf;
+  const doc = kosPdf(new jsPDF({ unit: "pt", format: "a4" }));
+  const font = pavPdfFontYukle(doc);
+  const W = doc.internal.pageSize.getWidth();
+  const m = 40;
+  let y = m;
+  doc.setFont(font, "bold");
+  doc.setFontSize(16);
+  doc.setTextColor(22, 50, 58);
+  doc.text("Lost & Found - Teslim Tutanağı", m, y + 4);
+  doc.setDrawColor(176, 141, 62);
+  doc.setLineWidth(1.2);
+  doc.line(m, y + 12, W - m, y + 12);
+  y += 34;
+  doc.setFontSize(10);
+  doc.setTextColor(30, 30, 30);
+  const t = k.teslim || {};
+  const satirlar = [
+    ["Otel", k.hotelName],
+    ["Kayıt No", k.no],
+    ["Bulunma Tarihi", lfTarihYaz(k.tarih)],
+    ["Bulan", `${k.bulanKullanici} (${k.bulanDepartman || "-"})`],
+    ["Eşya", `${k.kategori} / ${k.esya}`],
+    ["Açıklama", k.aciklama || "-"],
+    ["Marka / Renk", `${k.marka || "-"} / ${k.renk || "-"}`],
+    ["Eşya Durumu", k.esyaDurumu || "-"],
+    ["Teslim Tarihi", lfTarihYaz(t.tarih)],
+    ["Oda No", t.odaNo || "-"],
+    ["Teslim Alan (Misafir)", t.misafir || "-"],
+    ["Teslim Eden", t.teslimEden || "-"],
+  ];
+  satirlar.forEach(([a, b]) => {
+    doc.setFont(font, "bold");
+    doc.text(`${a}:`, m, y);
+    doc.setFont(font, "normal");
+    const w = doc.splitTextToSize(String(b), W - 2 * m - 130);
+    doc.text(w, m + 130, y);
+    y += Math.max(1, w.length) * 13 + 3;
+  });
+  y += 8;
+  const foto = (k.fotograflar || [])[0];
+  if (foto) {
+    try {
+      const veri = await lfResimVeri(foto);
+      const b = await lfResimBoyut(veri);
+      const oran = Math.min(260 / b.w, 240 / b.h);
+      const w = b.w * oran, h = b.h * oran;
+      doc.addImage(veri, "JPEG", m, y, w, h);
+      y += h + 14;
+    } catch (e) {}
+  }
+  y = Math.max(y + 20, 640);
+  doc.setDrawColor(90, 90, 90);
+  doc.setLineWidth(0.6);
+  doc.line(m, y, m + 200, y);
+  doc.line(W - m - 200, y, W - m, y);
+  doc.setFontSize(9);
+  doc.text(`Teslim Eden: ${t.teslimEden || ""}`, m, y + 13);
+  doc.text(`Teslim Alan: ${t.misafir || ""}`, W - m - 200, y + 13);
+  doc.text("İmza", m, y + 26);
+  doc.text("İmza", W - m - 200, y + 26);
+  doc.save(`${k.no}-teslim.pdf`);
 }
 
-function lfKalanGun(kayit) {
-  const bitis = lfSaklamaBitisTarihi(kayit);
-  const simdi = new Date();
-  return Math.ceil((bitis - simdi) / (1000 * 60 * 60 * 24));
+/* Tam ekran fotoğraf: üstüne dokununca kapanır; sağa/sola kaydırınca listedeki diğer fotoğraflara geçer */
+function LFFotoGoruntule({ liste, baslangic, onKapat }) {
+  const [i, setI] = useState(baslangic || 0);
+  const x0 = useRef(null);
+  const n = liste.length;
+  if (!n) return null;
+  const git = (d) => setI((p) => Math.min(n - 1, Math.max(0, p + d)));
+  const f = liste[Math.min(i, n - 1)];
+  return (
+    <div
+      data-testid="lf-foto-tam"
+      style={{ position: "fixed", inset: 0, background: "#000", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", touchAction: "pan-y" }}
+      onTouchStart={(e) => { x0.current = e.touches[0].clientX; }}
+      onTouchEnd={(e) => {
+        if (x0.current === null) return;
+        const dx = e.changedTouches[0].clientX - x0.current;
+        x0.current = null;
+        if (Math.abs(dx) > 50) git(dx < 0 ? 1 : -1);
+      }}
+    >
+      <img src={f.src} alt="" data-testid="lf-foto-img" onClick={onKapat} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+      <div style={{ position: "absolute", top: 10, left: 0, right: 0, textAlign: "center", color: "#fff", fontSize: 13, pointerEvents: "none" }}>
+        {i + 1} / {n}{f.etiket ? ` · ${f.etiket}` : ""} <span style={{ opacity: 0.6 }}>(kapatmak için dokunun)</span>
+      </div>
+      {i > 0 && (
+        <button aria-label="Önceki" data-testid="lf-foto-onceki" onClick={() => git(-1)} style={{ position: "absolute", left: 6, top: "50%", background: "rgba(255,255,255,0.25)", color: "#fff", border: "none", borderRadius: 20, width: 40, height: 40, fontSize: 22 }}>‹</button>
+      )}
+      {i < n - 1 && (
+        <button aria-label="Sonraki" data-testid="lf-foto-sonraki" onClick={() => git(1)} style={{ position: "absolute", right: 6, top: "50%", background: "rgba(255,255,255,0.25)", color: "#fff", border: "none", borderRadius: 20, width: 40, height: 40, fontSize: 22 }}>›</button>
+      )}
+    </div>
+  );
 }
 
-function lfZamanFormatla(iso) {
-  const d = new Date(iso);
-  return d.toLocaleString("tr-TR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+function LFFotoSeridi({ kayit, galeri, onAc }) {
+  const fotolar = kayit.fotograflar || [];
+  if (!fotolar.length) return null;
+  return (
+    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+      {fotolar.map((f, idx) => (
+        <img key={idx} src={f} alt="" data-testid="lf-foto-kucuk" onClick={() => onAc(f)} style={{ width: 96, height: 96, objectFit: "cover", borderRadius: 8, border: "1px solid #ddd", cursor: "zoom-in" }} />
+      ))}
+    </div>
+  );
 }
 
-/* ------------------------------------------------------------------
-   LOST & FOUND - ana ekran (KPI + liste + gezinme)
--------------------------------------------------------------------*/
+function lfGaleriOlustur(kayitlar) {
+  const g = [];
+  kayitlar.forEach((k) => (k.fotograflar || []).forEach((f) => g.push({ src: f, etiket: k.no })));
+  return g;
+}
+
+/* Ortak: kategori + eşya seçimi */
+function LFEsyaSecimi({ kategori, esya, setKategori, setEsya }) {
+  const kat = LF_KATALOG.find((x) => x.kategori === kategori);
+  return (
+    <>
+      <Etiket>EŞYA KATEGORİSİ (zorunlu)</Etiket>
+      <select data-testid="lf-kategori" style={styles.gmSecim} value={kategori} onChange={(e) => { setKategori(e.target.value); setEsya(""); }}>
+        <option value="">Seçiniz</option>
+        {LF_KATALOG.map((k) => <option key={k.kategori} value={k.kategori}>{k.kategori}</option>)}
+      </select>
+      <Etiket>EŞYA (zorunlu)</Etiket>
+      <select data-testid="lf-esya" style={styles.gmSecim} value={esya} onChange={(e) => setEsya(e.target.value)} disabled={!kat}>
+        <option value="">{kat ? "Seçiniz" : "Önce kategori seçin"}</option>
+        {kat && kat.esyalar.map((x) => <option key={x} value={x}>{x}</option>)}
+      </select>
+    </>
+  );
+}
+
+function LFFotoEkleme({ fotograflar, setFotograflar, zorunlu }) {
+  const fileRef = useRef(null);
+  return (
+    <>
+      <Etiket>FOTOĞRAF {zorunlu ? "(zorunlu)" : "(varsa)"}</Etiket>
+      <input ref={fileRef} data-testid="lf-foto-input" type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={(e) => { const f = e.target.files && e.target.files[0]; if (f) lfFotografKucult(f, (d) => setFotograflar((p) => [...p, d])); e.target.value = ""; }} />
+      <button style={styles.ikincilButon} onClick={() => fileRef.current && fileRef.current.click()}>📷 Fotoğraf Ekle</button>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+        {fotograflar.map((f, idx) => (
+          <div key={idx} style={{ position: "relative" }}>
+            <img src={f} alt="" data-testid="lf-form-foto" style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 8 }} />
+            <button aria-label="Kaldır" onClick={() => setFotograflar((p) => p.filter((_, j) => j !== idx))} style={{ position: "absolute", top: -6, right: -6, background: "#b00", color: "#fff", border: "none", borderRadius: 12, width: 22, height: 22 }}>×</button>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function LFBulunanDetay({ kayit, user, salt, onGeri, onGuncelle, onFoto, toastGoster }) {
+  const islemYetkili = LF_ISLEM_YETKILILERI.includes(user.userCode);
+  const sahipYetkili = LF_SAHIPLENDIRME_YETKILILERI.includes(user.userCode);
+  const [form, setForm] = useState(null); // teslim | depo | sahip
+  const [teslimOda, setTeslimOda] = useState("");
+  const [teslimAd, setTeslimAd] = useState("");
+  const [teslimTarih, setTeslimTarih] = useState(lfBugun());
+  const [depoTarih, setDepoTarih] = useState(lfBugun());
+  const [sahipAd, setSahipAd] = useState("");
+  const [sahipDept, setSahipDept] = useState("");
+  const [hata, setHata] = useState("");
+  const [mesgul, setMesgul] = useState(false);
+  const durumKapali = kayit.durum === "Teslim Edildi" || kayit.durum === "Sahiplendirildi";
+  const aktifMi = kayit.durum === "Bulundu" || kayit.durum === "Depoda";
+  const arsivAktif = lfArsivAktifMi(kayit);
+  const sahipAktif = kayit.durum === "Arşivde" && lfSahiplendirmeKalanGun(kayit) === 0;
+
+  async function uygula(degistir, mesaj) {
+    setMesgul(true);
+    setHata("");
+    try {
+      await onGuncelle(kayit, degistir, mesaj);
+      setForm(null);
+    } catch (e) {
+      setHata(e && e.message === "CAKISMA" ? "Bu kayıt başka bir kullanıcı tarafından az önce güncellendi. Lütfen yenileyip tekrar deneyin." : (e && e.message) || "İşlem yapılamadı.");
+    }
+    setMesgul(false);
+  }
+  const audit = (islem) => ({ zaman: new Date().toISOString(), kullanici: user.name, islem });
+
+  function teslimEt() {
+    if (!teslimOda.trim() || !teslimAd.trim() || !teslimTarih) return setHata("Oda no, isim soyisim ve teslim tarihi zorunludur.");
+    uygula((g) => ({
+      ...g, durum: "Teslim Edildi",
+      teslim: { odaNo: teslimOda.trim(), misafir: teslimAd.trim(), tarih: teslimTarih, teslimEden: user.name, teslimEdenKod: user.userCode, zaman: new Date().toISOString() },
+      auditLog: [...g.auditLog, audit(`Teslim edildi: Oda ${teslimOda.trim()} - ${teslimAd.trim()} (${lfTarihYaz(teslimTarih)})`)],
+    }), "✓ Eşya teslim edildi ve kayıt kapatıldı");
+  }
+  function depoyaKaldir() {
+    if (!depoTarih) return setHata("Depoya gönderilme tarihi zorunludur.");
+    uygula((g) => ({ ...g, durum: "Depoda", depoTarihi: depoTarih, auditLog: [...g.auditLog, audit(`Depoya kaldırıldı (${lfTarihYaz(depoTarih)})`)] }), "✓ Eşya depoya kaldırıldı");
+  }
+  function arsivle() {
+    uygula((g) => ({ ...g, durum: "Arşivde", arsivZamani: new Date().toISOString(), arsivleyen: user.name, auditLog: [...g.auditLog, audit("Arşivlendi")] }), "✓ Eşya arşivlendi");
+  }
+  function sahiplendir() {
+    if (!sahipAd.trim() || !sahipDept.trim()) return setHata("İsim soyisim ve departman zorunludur.");
+    uygula((g) => ({
+      ...g, durum: "Sahiplendirildi",
+      sahiplenme: { tarih: lfBugun(), adSoyad: sahipAd.trim(), departman: sahipDept.trim(), islemYapan: user.name, zaman: new Date().toISOString() },
+      auditLog: [...g.auditLog, audit(`Sahiplendirildi: ${sahipAd.trim()} (${sahipDept.trim()})`)],
+    }), "✓ Eşya sahiplendirildi");
+  }
+
+  const satir = (a, b) => b ? (<div style={styles.lfBilgiSatiri}><span>{a}</span><strong>{b}</strong></div>) : null;
+  return (
+    <div style={styles.icerik}>
+      <div style={styles.listeUstBaslik}>
+        <button style={styles.geriButon} onClick={onGeri} aria-label="Geri">←</button>
+        <div>
+          <div className="baslik-font" style={styles.listeBaslikYazi}>{kayit.no}</div>
+          <div style={styles.ilerlemeYazi}>{lfTarihYaz(kayit.tarih)} · {kayit.bulanKullanici}</div>
+        </div>
+      </div>
+      <div style={styles.lfBilgiKarti} data-testid="lf-detay">
+        {satir("Durum", kayit.durum)}
+        {satir("Kategori", kayit.kategori)}
+        {satir("Eşya", kayit.esya)}
+        {satir("Açıklama", kayit.aciklama)}
+        {satir("Marka", kayit.marka)}
+        {satir("Renk", kayit.renk)}
+        {satir("Eşya durumu", kayit.esyaDurumu)}
+        {satir("Bulan", `${kayit.bulanKullanici}${kayit.bulanDepartman ? " · " + kayit.bulanDepartman : ""}`)}
+        {kayit.depoTarihi && satir("Depoya kaldırıldı", lfTarihYaz(kayit.depoTarihi))}
+        {kayit.arsivZamani && satir("Arşivlendi", lfTarihYaz(servisParca(Date.parse(kayit.arsivZamani)).tarih))}
+        {kayit.teslim && satir("Teslim", `Oda ${kayit.teslim.odaNo} · ${kayit.teslim.misafir} · ${lfTarihYaz(kayit.teslim.tarih)}`)}
+        {kayit.teslim && satir("Teslim eden", kayit.teslim.teslimEden)}
+        {kayit.sahiplenme && satir("Sahiplenen", `${kayit.sahiplenme.adSoyad} · ${kayit.sahiplenme.departman} · ${lfTarihYaz(kayit.sahiplenme.tarih)}`)}
+      </div>
+      <LFFotoSeridi kayit={kayit} onAc={(f) => onFoto(kayit, f)} />
+
+      {hata && <div style={styles.hataKutusu}>{hata}</div>}
+
+      {!salt && !durumKapali && (
+        islemYetkili || sahipYetkili ? (
+          <div style={{ marginTop: 16 }}>
+            {aktifMi && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {islemYetkili && <button data-testid="lf-teslim-et" style={styles.anaButon} onClick={() => { setHata(""); setForm("teslim"); }}>Teslim Et</button>}
+                {islemYetkili && kayit.durum === "Bulundu" && <button data-testid="lf-depoya" style={styles.ikincilButon} onClick={() => { setHata(""); setForm("depo"); }}>Depoya Kaldır</button>}
+                {islemYetkili && (
+                  <button data-testid="lf-arsivle" disabled={!arsivAktif || mesgul} style={{ ...styles.ikincilButon, opacity: arsivAktif ? 1 : 0.45 }} onClick={arsivle}>
+                    Arşivle{!arsivAktif ? ` (${lfArsivKalanGun(kayit)} gün sonra aktif)` : ""}
+                  </button>
+                )}
+              </div>
+            )}
+            {kayit.durum === "Arşivde" && sahipYetkili && (
+              <button data-testid="lf-sahiplendir" disabled={!sahipAktif} style={{ ...styles.anaButon, opacity: sahipAktif ? 1 : 0.45 }} onClick={() => { setHata(""); setForm("sahip"); }}>
+                Sahiplendir{!sahipAktif ? ` (${lfSahiplendirmeKalanGun(kayit)} gün sonra aktif)` : ""}
+              </button>
+            )}
+          </div>
+        ) : (
+          <div style={styles.bilgiKutusu}>Bu kayıt üzerinde işlem yapma yetkiniz yok.</div>
+        )
+      )}
+
+      {form === "teslim" && (
+        <div style={styles.gmMaddeSatiri}>
+          <Etiket>ODA NO (zorunlu)</Etiket>
+          <input data-testid="lf-t-oda" style={styles.epostaInput} value={teslimOda} onChange={(e) => setTeslimOda(e.target.value)} />
+          <Etiket>İSİM SOYİSİM (zorunlu)</Etiket>
+          <input data-testid="lf-t-ad" style={styles.epostaInput} value={teslimAd} onChange={(e) => setTeslimAd(e.target.value)} />
+          <Etiket>TESLİM TARİHİ</Etiket>
+          <input data-testid="lf-t-tarih" type="date" style={styles.epostaInput} value={teslimTarih} max={lfBugun()} onChange={(e) => setTeslimTarih(e.target.value)} />
+          <div style={styles.gmSabitDeger}>Teslim eden: {user.name}</div>
+          <button data-testid="lf-t-kaydet" style={{ ...styles.anaButon, marginTop: 10, opacity: mesgul ? 0.7 : 1 }} disabled={mesgul} onClick={teslimEt}>Teslim Et ve Kapat</button>
+        </div>
+      )}
+      {form === "depo" && (
+        <div style={styles.gmMaddeSatiri}>
+          <Etiket>DEPOYA GÖNDERİLME TARİHİ</Etiket>
+          <input data-testid="lf-d-tarih" type="date" style={styles.epostaInput} value={depoTarih} max={lfBugun()} onChange={(e) => setDepoTarih(e.target.value)} />
+          <button data-testid="lf-d-kaydet" style={{ ...styles.anaButon, marginTop: 10 }} disabled={mesgul} onClick={depoyaKaldir}>Depoya Kaldır</button>
+        </div>
+      )}
+      {form === "sahip" && (
+        <div style={styles.gmMaddeSatiri}>
+          <Etiket>TARİH</Etiket>
+          <div style={styles.gmSabitDeger}>{lfTarihYaz(lfBugun())}</div>
+          <Etiket>İSİM SOYİSİM (zorunlu)</Etiket>
+          <input data-testid="lf-s-ad" style={styles.epostaInput} value={sahipAd} onChange={(e) => setSahipAd(e.target.value)} />
+          <Etiket>DEPARTMAN (zorunlu)</Etiket>
+          <input data-testid="lf-s-dept" style={styles.epostaInput} value={sahipDept} onChange={(e) => setSahipDept(e.target.value)} />
+          <button data-testid="lf-s-kaydet" style={{ ...styles.anaButon, marginTop: 10 }} disabled={mesgul} onClick={sahiplendir}>Sahiplendir</button>
+        </div>
+      )}
+
+      {kayit.durum === "Teslim Edildi" && (
+        <button data-testid="lf-pdf" style={{ ...styles.ikincilButon, marginTop: 16 }} onClick={() => lfTeslimPdf(kayit)}>📄 Teslim Tutanağı (PDF)</button>
+      )}
+
+      <div style={{ ...styles.gmMaddeSatiri, marginTop: 14 }}>
+        <Etiket>İŞLEM GEÇMİŞİ</Etiket>
+        {kayit.auditLog.map((a, idx) => (
+          <div key={idx} style={styles.zamanNotu}>{lfZamanFormatla(a.zaman)} — {a.kullanici} — {a.islem}</div>
+        ))}
+      </div>
+      <div style={{ height: 24 }} />
+    </div>
+  );
+}
+
+function LFKayipDetay({ kayit, onGeri, onFoto }) {
+  const satir = (a, b) => b ? (<div style={styles.lfBilgiSatiri}><span>{a}</span><strong>{b}</strong></div>) : null;
+  return (
+    <div style={styles.icerik}>
+      <div style={styles.listeUstBaslik}>
+        <button style={styles.geriButon} onClick={onGeri} aria-label="Geri">←</button>
+        <div>
+          <div className="baslik-font" style={styles.listeBaslikYazi}>{kayit.no}</div>
+          <div style={styles.ilerlemeYazi}>{lfTarihYaz(kayit.tarih)} · {kayit.bildirenKullanici}</div>
+        </div>
+      </div>
+      <div style={styles.lfBilgiKarti} data-testid="lf-kayip-detay">
+        {satir("Oda No", kayit.odaNo)}
+        {satir("Misafir", kayit.misafirAdi)}
+        {satir("Kategori", kayit.kategori)}
+        {satir("Eşya", kayit.esya)}
+        {satir("Açıklama", kayit.aciklama)}
+        {satir("Marka", kayit.marka)}
+        {satir("Renk", kayit.renk)}
+        {satir("Eşya durumu", kayit.esyaDurumu)}
+        {satir("Bildiren", `${kayit.bildirenKullanici}${kayit.bildirenDepartman ? " · " + kayit.bildirenDepartman : ""}`)}
+      </div>
+      <LFFotoSeridi kayit={kayit} onAc={(f) => onFoto(kayit, f)} />
+      <div style={{ height: 24 }} />
+    </div>
+  );
+}
+
+function LFBulunduForm({ user, onGeri, onKaydet }) {
+  const [tarih, setTarih] = useState(lfBugun());
+  const [kategori, setKategori] = useState("");
+  const [esya, setEsya] = useState("");
+  const [aciklama, setAciklama] = useState("");
+  const [marka, setMarka] = useState("");
+  const [renk, setRenk] = useState("");
+  const [esyaDurumu, setEsyaDurumu] = useState("");
+  const [fotograflar, setFotograflar] = useState([]);
+  const [hata, setHata] = useState("");
+  const [mesgul, setMesgul] = useState(false);
+  async function kaydet() {
+    setHata("");
+    if (!tarih) return setHata("Bulunduğu tarihi girin.");
+    if (tarih > lfBugun()) return setHata("Bulunduğu tarih ileri bir tarih olamaz.");
+    if (!kategori) return setHata("Lütfen eşya kategorisini seçin.");
+    if (!esya) return setHata("Lütfen eşyayı seçin.");
+    if (!esyaDurumu) return setHata("Lütfen eşyanın durumunu seçin.");
+    if (!fotograflar.length) return setHata("Fotoğraf eklemek zorunludur.");
+    setMesgul(true);
+    try {
+      await onKaydet({ tarih, kategori, esya, aciklama: aciklama.trim(), marka: marka.trim(), renk: renk.trim(), esyaDurumu }, fotograflar);
+    } catch (e) {
+      setHata((e && e.message) || "Kaydedilemedi.");
+    }
+    setMesgul(false);
+  }
+  return (
+    <div style={styles.icerik}>
+      <div style={styles.listeUstBaslik}>
+        <button style={styles.geriButon} onClick={onGeri} aria-label="Geri">←</button>
+        <div className="baslik-font" style={styles.listeBaslikYazi}>Eşya Buldum</div>
+      </div>
+      <Etiket>BULUNDUĞU TARİH</Etiket>
+      <input data-testid="lf-tarih" type="date" style={styles.epostaInput} value={tarih} max={lfBugun()} onChange={(e) => setTarih(e.target.value)} />
+      <Etiket>BULAN</Etiket>
+      <div style={styles.gmSabitDeger}>{user.name} · {user.department}</div>
+      <LFEsyaSecimi kategori={kategori} esya={esya} setKategori={setKategori} setEsya={setEsya} />
+      <Etiket>EŞYA AÇIKLAMASI</Etiket>
+      <textarea data-testid="lf-aciklama" style={{ ...styles.epostaInput, minHeight: 70 }} value={aciklama} onChange={(e) => setAciklama(e.target.value)} />
+      <Etiket>MARKA</Etiket>
+      <input data-testid="lf-marka" style={styles.epostaInput} value={marka} onChange={(e) => setMarka(e.target.value)} />
+      <Etiket>RENK</Etiket>
+      <input data-testid="lf-renk" style={styles.epostaInput} value={renk} onChange={(e) => setRenk(e.target.value)} />
+      <Etiket>DURUMU (zorunlu)</Etiket>
+      <select data-testid="lf-durum" style={styles.gmSecim} value={esyaDurumu} onChange={(e) => setEsyaDurumu(e.target.value)}>
+        <option value="">Seçiniz</option>
+        {LF_ESYA_DURUMLARI.map((d) => <option key={d} value={d}>{d}</option>)}
+      </select>
+      <LFFotoEkleme fotograflar={fotograflar} setFotograflar={setFotograflar} zorunlu />
+      {hata && <div style={styles.hataKutusu} data-testid="lf-hata">{hata}</div>}
+      <button data-testid="lf-kaydet" style={{ ...styles.anaButon, marginTop: 16, marginBottom: 24, opacity: mesgul ? 0.7 : 1 }} disabled={mesgul} onClick={kaydet}>
+        {mesgul ? "Kaydediliyor…" : "Kaydet"}
+      </button>
+    </div>
+  );
+}
+
+function LFSatir({ k, onTikla, bulunanMi }) {
+  const baslik = bulunanMi ? `${k.esya}` : `${k.esya}`;
+  const sag = bulunanMi ? k.durum : (k.odaNo ? `Oda ${k.odaNo}` : "");
+  return (
+    <button data-testid="lf-sonuc" style={{ ...styles.lfKayitKarti, padding: "8px 10px" }} onClick={onTikla}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontSize: 13 }}>
+        <span style={{ fontWeight: 700 }}>{k.no}</span>
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{baslik}{k.renk ? ` · ${k.renk}` : ""}{k.marka ? ` · ${k.marka}` : ""}</span>
+        <span style={{ marginLeft: "auto", opacity: 0.7, fontSize: 12 }}>{lfTarihYaz(k.tarih)}{sag ? ` · ${sag}` : ""}</span>
+      </div>
+    </button>
+  );
+}
+
+function lfMetinEslesir(k, metin, alanlar) {
+  const parcalar = lfTr(metin).split(/\s+/).filter(Boolean);
+  if (!parcalar.length) return true;
+  const saman = lfTr(alanlar.map((a) => k[a] || "").join(" "));
+  return parcalar.every((p) => saman.indexOf(p) >= 0);
+}
+
+function LFKayipBildirForm({ user, bulunanlar, onGeri, onKaydet, onFotoAc, onBulunanAc }) {
+  const [tarih, setTarih] = useState(lfBugun());
+  const [odaNo, setOdaNo] = useState("");
+  const [misafirAdi, setMisafirAdi] = useState("");
+  const [kategori, setKategori] = useState("");
+  const [esya, setEsya] = useState("");
+  const [aciklama, setAciklama] = useState("");
+  const [marka, setMarka] = useState("");
+  const [renk, setRenk] = useState("");
+  const [esyaDurumu, setEsyaDurumu] = useState("");
+  const [fotograflar, setFotograflar] = useState([]);
+  const [hata, setHata] = useState("");
+  const [mesgul, setMesgul] = useState(false);
+
+  // Bulunan eşyalar içinde olası eşleşmeler (yalnızca aktif: Bulundu / Depoda)
+  const adaylar = !kategori ? [] : bulunanlar
+    .filter((b) => (b.durum === "Bulundu" || b.durum === "Depoda") && b.kategori === kategori && (!esya || b.esya === esya))
+    .sort((a, b) => (lfTr(b.renk) === lfTr(renk) && renk ? 1 : 0) - (lfTr(a.renk) === lfTr(renk) && renk ? 1 : 0));
+
+  async function kaydet() {
+    setHata("");
+    if (!tarih) return setHata("Tarihi girin.");
+    if (!odaNo.trim()) return setHata("Oda no zorunludur.");
+    if (!misafirAdi.trim()) return setHata("İsim soyisim zorunludur.");
+    if (!kategori) return setHata("Lütfen eşya kategorisini seçin.");
+    if (!esya) return setHata("Lütfen eşyayı seçin.");
+    if (!esyaDurumu) return setHata("Lütfen eşyanın durumunu seçin.");
+    setMesgul(true);
+    try {
+      await onKaydet({ tarih, odaNo: odaNo.trim(), misafirAdi: misafirAdi.trim(), kategori, esya, aciklama: aciklama.trim(), marka: marka.trim(), renk: renk.trim(), esyaDurumu }, fotograflar);
+    } catch (e) {
+      setHata((e && e.message) || "Kaydedilemedi.");
+    }
+    setMesgul(false);
+  }
+  return (
+    <div style={styles.icerik}>
+      <div style={styles.listeUstBaslik}>
+        <button style={styles.geriButon} onClick={onGeri} aria-label="Geri">←</button>
+        <div className="baslik-font" style={styles.listeBaslikYazi}>Kayıp Eşya Bildir</div>
+      </div>
+      <Etiket>TARİH</Etiket>
+      <input data-testid="lfk-tarih" type="date" style={styles.epostaInput} value={tarih} max={lfBugun()} onChange={(e) => setTarih(e.target.value)} />
+      <Etiket>BİLDİREN</Etiket>
+      <div style={styles.gmSabitDeger}>{user.name} · {user.department}</div>
+      <Etiket>ODA NO (zorunlu)</Etiket>
+      <input data-testid="lfk-oda" style={styles.epostaInput} value={odaNo} onChange={(e) => setOdaNo(e.target.value)} />
+      <Etiket>İSİM SOYİSİM (zorunlu)</Etiket>
+      <input data-testid="lfk-ad" style={styles.epostaInput} value={misafirAdi} onChange={(e) => setMisafirAdi(e.target.value)} />
+      <LFEsyaSecimi kategori={kategori} esya={esya} setKategori={setKategori} setEsya={setEsya} />
+      <Etiket>EŞYA AÇIKLAMASI</Etiket>
+      <textarea data-testid="lfk-aciklama" style={{ ...styles.epostaInput, minHeight: 70 }} value={aciklama} onChange={(e) => setAciklama(e.target.value)} />
+      <Etiket>MARKA</Etiket>
+      <input data-testid="lfk-marka" style={styles.epostaInput} value={marka} onChange={(e) => setMarka(e.target.value)} />
+      <Etiket>RENK</Etiket>
+      <input data-testid="lfk-renk" style={styles.epostaInput} value={renk} onChange={(e) => setRenk(e.target.value)} />
+      <Etiket>DURUMU (zorunlu)</Etiket>
+      <select data-testid="lfk-durum" style={styles.gmSecim} value={esyaDurumu} onChange={(e) => setEsyaDurumu(e.target.value)}>
+        <option value="">Seçiniz</option>
+        {LF_ESYA_DURUMLARI.map((d) => <option key={d} value={d}>{d}</option>)}
+      </select>
+      <LFFotoEkleme fotograflar={fotograflar} setFotograflar={setFotograflar} zorunlu={false} />
+
+      {kategori && (
+        <div style={{ marginTop: 16 }} data-testid="lfk-adaylar">
+          <Etiket>BULUNAN EŞYALARDA OLASI EŞLEŞMELER ({adaylar.length})</Etiket>
+          {adaylar.length === 0 ? (
+            <div style={styles.bilgiKutusu}>Bu eşyayla eşleşen bulunmuş kayıt yok.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {adaylar.map((b) => <LFSatir key={b.no} k={b} bulunanMi onTikla={() => onBulunanAc(b, adaylar)} />)}
+            </div>
+          )}
+        </div>
+      )}
+
+      {hata && <div style={styles.hataKutusu} data-testid="lfk-hata">{hata}</div>}
+      <button data-testid="lfk-kaydet" style={{ ...styles.anaButon, marginTop: 16, marginBottom: 24, opacity: mesgul ? 0.7 : 1 }} disabled={mesgul} onClick={kaydet}>
+        {mesgul ? "Kaydediliyor…" : "Kayıp Bildirimini Kaydet"}
+      </button>
+    </div>
+  );
+}
+
+/* Arama ekranı: önce tarih aralığı, sonra serbest metin. mod: bulunan | kayip | arsiv | sahip */
+function LFAra({ mod, bulunanlar, kayiplar, onGeri, onSec }) {
+  const baslik = { bulunan: "Bulunan ARA", kayip: "Kayıp ARA", arsiv: "Arşiv ARA", sahip: "Sahiplendir ARA" }[mod];
+  const [bas, setBas] = useState(lfGunEkle(lfBugun(), mod === "bulunan" || mod === "kayip" ? -30 : -365));
+  const [bit, setBit] = useState(lfBugun());
+  const [metin, setMetin] = useState("");
+  const [sonuc, setSonuc] = useState(null);
+  const [hata, setHata] = useState("");
+  function ara() {
+    setHata("");
+    if (!bas || !bit) return setHata("Önce tarih aralığını girin.");
+    if (bas > bit) return setHata("Başlangıç tarihi bitişten sonra olamaz.");
+    let kaynak;
+    let alanlar;
+    if (mod === "kayip") {
+      kaynak = kayiplar;
+      alanlar = ["no", "kategori", "esya", "aciklama", "marka", "renk", "misafirAdi", "odaNo", "esyaDurumu"];
+    } else {
+      alanlar = ["no", "kategori", "esya", "aciklama", "marka", "renk", "esyaDurumu"];
+      if (mod === "bulunan") kaynak = bulunanlar.filter((k) => k.durum === "Bulundu" || k.durum === "Depoda");
+      else if (mod === "arsiv") kaynak = bulunanlar.filter((k) => k.durum === "Arşivde");
+      else kaynak = bulunanlar.filter((k) => k.durum === "Sahiplendirildi");
+    }
+    const r = kaynak.filter((k) => k.tarih >= bas && k.tarih <= bit && lfMetinEslesir(k, metin, alanlar));
+    r.sort((a, b) => (a.tarih < b.tarih ? 1 : a.tarih > b.tarih ? -1 : a.no < b.no ? 1 : -1));
+    setSonuc(r);
+  }
+  return (
+    <div style={styles.icerik}>
+      <div style={styles.listeUstBaslik}>
+        <button style={styles.geriButon} onClick={onGeri} aria-label="Geri">←</button>
+        <div className="baslik-font" style={styles.listeBaslikYazi}>{baslik}</div>
+      </div>
+      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+        <div style={{ flex: 1 }}>
+          <Etiket>BAŞLANGIÇ</Etiket>
+          <input data-testid="lfa-bas" type="date" style={styles.epostaInput} value={bas} onChange={(e) => setBas(e.target.value)} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <Etiket>BİTİŞ</Etiket>
+          <input data-testid="lfa-bit" type="date" style={styles.epostaInput} value={bit} onChange={(e) => setBit(e.target.value)} />
+        </div>
+      </div>
+      <Etiket>ARAMA (kategori, eşya, marka, renk, açıklama…)</Etiket>
+      <input data-testid="lfa-metin" style={styles.epostaInput} value={metin} onChange={(e) => setMetin(e.target.value)} onKeyDown={(e) => e.key === "Enter" && ara()} placeholder="Boş bırakılırsa tarih aralığındaki tüm kayıtlar" />
+      <button data-testid="lfa-ara" style={{ ...styles.anaButon, marginTop: 12 }} onClick={ara}>Ara</button>
+      {hata && <div style={styles.hataKutusu}>{hata}</div>}
+      {sonuc && (
+        <div style={{ marginTop: 14 }}>
+          <div style={styles.ilerlemeYazi} data-testid="lfa-adet">{sonuc.length} sonuç</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
+            {sonuc.length === 0 ? <div style={styles.bilgiKutusu}>Kayıt bulunamadı.</div> : sonuc.map((k) => <LFSatir key={k.no} k={k} bulunanMi={mod !== "kayip"} onTikla={() => onSec(k, sonuc)} />)}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function LostFoundEkrani({ user, onGeri, toastGoster }) {
-  const [gorunum, setGorunum] = useState("liste"); // liste | yeni | detay
-  const [kayitlar, setKayitlar] = useState([]);
+  const [gorunum, setGorunum] = useState("menu"); // menu | buldum | kayipBildir | ara | detay | kayipDetay
+  const [araMod, setAraMod] = useState("bulunan");
+  const [bulunanlar, setBulunanlar] = useState([]);
+  const [kayiplar, setKayiplar] = useState([]);
   const [yukleniyor, setYukleniyor] = useState(true);
-  const [secilenNo, setSecilenNo] = useState(null);
-  const [filtre, setFiltre] = useState("hepsi");
-
-  const yoneticiMi = LF_YONETICI_POZISYONLARI.includes(user.pozisyon);
+  const [secili, setSecili] = useState(null); // {tip, no}
+  const [geriGorunum, setGeriGorunum] = useState("menu");
+  const [galeriKaynak, setGaleriKaynak] = useState([]); // fotoğraf gezinmesi için kayıtlar
+  const [foto, setFoto] = useState(null); // {liste, indeks}
 
   useEffect(() => {
     yukle();
@@ -6715,724 +7338,118 @@ function LostFoundEkrani({ user, onGeri, toastGoster }) {
 
   async function yukle() {
     setYukleniyor(true);
-    const veri = await lfKayitlariGetir(user.hotelCode);
-    setKayitlar(veri);
+    const [b, k] = await Promise.all([lfBulunanlariGetir(user.hotelCode), lfKayiplariGetir(user.hotelCode)]);
+    setBulunanlar(b);
+    setKayiplar(k);
     setYukleniyor(false);
   }
 
-  async function kayitOlustur(form, fotograflar) {
-    const simdi = new Date();
-    const no = `LF-${String(kayitlar.length + 1).padStart(4, "0")}`;
-    const degerliMi = LF_DEGERLI_KATEGORILER.includes(form.kategori);
-    const kritikMi = LF_KRITIK_KATEGORILER.includes(form.kategori);
-    const kayit = {
-      no,
-      hotelCode: user.hotelCode,
-      hotelName: user.hotelName,
-      tarih: simdi.toLocaleDateString("tr-TR"),
-      saat: simdi.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }),
-      olusturmaZamani: simdi.toISOString(),
-      bulanKullanici: user.name,
-      bulanUserCode: user.userCode,
-      bulanDepartman: user.department,
-      alan: form.alan,
-      odaNo: form.odaNo,
-      kategori: form.kategori,
-      aciklama: form.aciklama,
-      marka: form.marka,
-      renk: form.renk,
-      adet: form.adet || 1,
-      tahminiDeger: form.tahminiDeger,
-      esyaDurumu: form.esyaDurumu,
-      ekAciklama: form.ekAciklama,
-      fotograflar: fotograflar || [],
-      durum: "Yeni Kayıt",
-      degerliMi,
-      kritikMi,
-      saklamaSuresiGun: LF_SAKLAMA_SURESI_GUN,
-      misafir: { ad: "", telefon: "", email: "", checkIn: "", checkOut: "", rezervasyonNo: "" },
-      iletisimGecmisi: [],
-      auditLog: [{ zaman: simdi.toISOString(), kullanici: user.name, islem: "Kayıt oluşturuldu" }],
-    };
-    await lfKayitKaydet(kayit);
+  async function bulunduKaydet(f, fotograflar) {
+    const kayit = await lfKayitOlustur("lfbulunan", "LF", user.hotelCode, f.tarih, (no) => ({
+      no, hotelCode: user.hotelCode, hotelName: user.hotelName, tarih: f.tarih, olusturmaZamani: new Date().toISOString(),
+      bulanKullanici: user.name, bulanUserCode: user.userCode, bulanDepartman: user.department,
+      kategori: f.kategori, esya: f.esya, aciklama: f.aciklama, marka: f.marka, renk: f.renk, esyaDurumu: f.esyaDurumu,
+      fotograflar, durum: "Bulundu",
+      auditLog: [{ zaman: new Date().toISOString(), kullanici: user.name, islem: "Bulundu olarak kaydedildi" }],
+    }));
+    toastGoster(`✓ Kayıt oluşturuldu: ${kayit.no}`);
+    await yukle();
+    setGorunum("menu");
+  }
+  async function kayipKaydet(f, fotograflar) {
+    const kayit = await lfKayitOlustur("lfkayip", "LK", user.hotelCode, f.tarih, (no) => ({
+      no, hotelCode: user.hotelCode, hotelName: user.hotelName, tarih: f.tarih, olusturmaZamani: new Date().toISOString(),
+      bildirenKullanici: user.name, bildirenUserCode: user.userCode, bildirenDepartman: user.department,
+      odaNo: f.odaNo, misafirAdi: f.misafirAdi, kategori: f.kategori, esya: f.esya, aciklama: f.aciklama, marka: f.marka, renk: f.renk, esyaDurumu: f.esyaDurumu,
+      fotograflar,
+    }));
+    toastGoster(`✓ Kayıp bildirimi alındı: ${kayit.no}`);
+    await yukle();
+    setGorunum("menu");
+  }
+  async function guncelle(kayit, degistir, mesaj) {
+    const yeni = await lfGuvenliGuncelle(kayit, degistir);
+    setBulunanlar((l) => l.map((x) => (x.no === yeni.no ? yeni : x)));
+    toastGoster(mesaj);
+    return yeni;
+  }
+  function fotoAc(kayit, f) {
+    const kaynak = galeriKaynak.length && galeriKaynak.some((x) => x.no === kayit.no) ? galeriKaynak : [kayit];
+    const liste = lfGaleriOlustur(kaynak);
+    const idx = Math.max(0, liste.findIndex((x) => x.etiket === kayit.no && x.src === f));
+    setFoto({ liste, indeks: idx });
+  }
 
-    if (degerliMi || kritikMi) {
-      const etiket = kritikMi ? "🔴 KRİTİK EŞYA BULUNDU" : "💎 DEĞERLİ EŞYA BULUNDU";
-      telegramMesajGonder(
-        `${etiket}\n${kayit.hotelName}\n\nKayıt No: ${no}\nKategori: ${form.kategori}\nBulunduğu Alan: ${form.alan}${
-          form.odaNo ? ` (Oda ${form.odaNo})` : ""
-        }\nBulan: ${user.name} (${user.department})\n\n${
-          kritikMi ? "Özel prosedür gerekli — yönetici/güvenlik bilgilendirilmelidir." : "Yönetici bilgilendirmesi gerekiyor."
-        }`
+  const fotoKatman = foto ? <LFFotoGoruntule liste={foto.liste} baslangic={foto.indeks} onKapat={() => setFoto(null)} /> : null;
+
+  if (gorunum === "buldum") return <LFBulunduForm user={user} onGeri={() => setGorunum("menu")} onKaydet={bulunduKaydet} />;
+  if (gorunum === "kayipBildir")
+    return (
+      <LFKayipBildirForm
+        user={user} bulunanlar={bulunanlar} onGeri={() => setGorunum("menu")} onKaydet={kayipKaydet}
+        onBulunanAc={(b, liste) => { setGaleriKaynak(liste); setSecili({ tip: "bulunan", no: b.no }); setGeriGorunum("kayipBildir"); setGorunum("detay"); }}
+      />
+    );
+  if (gorunum === "ara")
+    return (
+      <LFAra
+        key={araMod} mod={araMod} bulunanlar={bulunanlar} kayiplar={kayiplar} onGeri={() => setGorunum("menu")}
+        onSec={(k, liste) => { setGaleriKaynak(liste); setSecili({ tip: araMod === "kayip" ? "kayip" : "bulunan", no: k.no }); setGeriGorunum("ara"); setGorunum(araMod === "kayip" ? "kayipDetay" : "detay"); }}
+      />
+    );
+  if (gorunum === "detay" && secili) {
+    const k = bulunanlar.find((x) => x.no === secili.no);
+    if (k)
+      return (
+        <>
+          <LFBulunanDetay kayit={k} user={user} salt={geriGorunum === "kayipBildir"} onGeri={() => setGorunum(geriGorunum)} onGuncelle={guncelle} onFoto={fotoAc} toastGoster={toastGoster} />
+          {fotoKatman}
+        </>
       );
-    }
-
-    toastGoster(`✓ Kayıt oluşturuldu: ${no}`);
-    await yukle();
-    setGorunum("liste");
+  }
+  if (gorunum === "kayipDetay" && secili) {
+    const k = kayiplar.find((x) => x.no === secili.no);
+    if (k)
+      return (
+        <>
+          <LFKayipDetay kayit={k} onGeri={() => setGorunum("ara")} onFoto={fotoAc} />
+          {fotoKatman}
+        </>
+      );
   }
 
-  async function durumGuncelle(kayit, yeniDurum) {
-    const simdi = new Date();
-    const guncel = {
-      ...kayit,
-      durum: yeniDurum,
-      auditLog: [...kayit.auditLog, { zaman: simdi.toISOString(), kullanici: user.name, islem: `Durum güncellendi: ${yeniDurum}` }],
-    };
-    await lfKayitKaydet(guncel);
-    toastGoster(`✓ Durum güncellendi: ${yeniDurum}`);
-    await yukle();
-  }
-
-  async function iletisimEkle(kayit, kanal, not) {
-    const simdi = new Date();
-    const guncel = {
-      ...kayit,
-      iletisimGecmisi: [...kayit.iletisimGecmisi, { zaman: simdi.toISOString(), kanal, not, kullanici: user.name }],
-      auditLog: [...kayit.auditLog, { zaman: simdi.toISOString(), kullanici: user.name, islem: `İletişim kaydı eklendi (${kanal})` }],
-    };
-    await lfKayitKaydet(guncel);
-    toastGoster("✓ İletişim kaydı eklendi");
-    await yukle();
-  }
-
-  async function misafirGuncelle(kayit, misafir) {
-    const simdi = new Date();
-    const guncel = {
-      ...kayit,
-      misafir,
-      auditLog: [...kayit.auditLog, { zaman: simdi.toISOString(), kullanici: user.name, islem: "Misafir bilgisi güncellendi" }],
-    };
-    await lfKayitKaydet(guncel);
-    toastGoster("✓ Misafir bilgisi kaydedildi");
-    await yukle();
-  }
-
-  async function fotografEkle(kayit, dataUrl) {
-    const guncel = { ...kayit, fotograflar: [...(kayit.fotograflar || []), dataUrl] };
-    await lfKayitKaydet(guncel);
-    await yukle();
-  }
-
-  const secilenKayit = kayitlar.find((k) => k.no === secilenNo);
-
-  const kapatilmisMi = (k) => LF_KAPANIS_DURUMLARI.includes(k.durum) || k.durum === "Kayıp / Akıbeti Belirsiz";
-  const toplam = kayitlar.length;
-  const aktif = kayitlar.filter((k) => !kapatilmisMi(k) && k.durum !== "Süre Doldu").length;
-  const teslimBekleyen = kayitlar.filter((k) => k.durum === "Teslim Bekliyor").length;
-  const degerli = kayitlar.filter((k) => k.degerliMi).length;
-  const kritik = kayitlar.filter((k) => k.kritikMi).length;
-  const suresiYaklasan = kayitlar.filter((k) => !kapatilmisMi(k) && lfKalanGun(k) <= 15 && lfKalanGun(k) > 0).length;
-  const suresiDolan = kayitlar.filter((k) => !kapatilmisMi(k) && lfKalanGun(k) <= 0).length;
-
-  let gosterilecekler = kayitlar;
-  if (filtre === "aktif") gosterilecekler = kayitlar.filter((k) => !kapatilmisMi(k));
-  if (filtre === "teslimBekleyen") gosterilecekler = kayitlar.filter((k) => k.durum === "Teslim Bekliyor");
-  if (filtre === "degerli") gosterilecekler = kayitlar.filter((k) => k.degerliMi);
-  if (filtre === "kritik") gosterilecekler = kayitlar.filter((k) => k.kritikMi);
-  if (filtre === "suresiYaklasan") gosterilecekler = kayitlar.filter((k) => !kapatilmisMi(k) && lfKalanGun(k) <= 15);
-
-  if (gorunum === "yeni") {
-    return (
-      <LFYeniKayit
-        user={user}
-        onIptal={() => setGorunum("liste")}
-        onKaydet={kayitOlustur}
-      />
-    );
-  }
-
-  if (gorunum === "detay" && secilenKayit) {
-    return (
-      <LFDetay
-        kayit={secilenKayit}
-        yoneticiMi={yoneticiMi}
-        onGeri={() => {
-          setGorunum("liste");
-          setSecilenNo(null);
-        }}
-        onDurumGuncelle={durumGuncelle}
-        onIletisimEkle={iletisimEkle}
-        onMisafirGuncelle={misafirGuncelle}
-        onFotografEkle={fotografEkle}
-      />
-    );
-  }
-
+  const aktif = bulunanlar.filter((k) => k.durum === "Bulundu").length;
+  const depoda = bulunanlar.filter((k) => k.durum === "Depoda").length;
+  const arsivde = bulunanlar.filter((k) => k.durum === "Arşivde").length;
+  const butonlar = [
+    ["buldum", "+ Eşya Buldum", null, "lf-m-buldum"],
+    ["kayipBildir", "+ Kayıp Eşya Bildir", null, "lf-m-kayip"],
+    ["ara", "🔎 Bulunan ARA", "bulunan", "lf-m-bulunan-ara"],
+    ["ara", "🔎 Kayıp ARA", "kayip", "lf-m-kayip-ara"],
+    ["ara", "🗄️ Arşiv ARA", "arsiv", "lf-m-arsiv-ara"],
+    ["ara", "🤝 Sahiplendir ARA", "sahip", "lf-m-sahip-ara"],
+  ];
   return (
     <div style={styles.icerik}>
       <div style={styles.listeUstBaslik}>
-        <button style={styles.geriButon} onClick={onGeri} aria-label="Geri">
-          ←
-        </button>
+        <button style={styles.geriButon} onClick={onGeri} aria-label="Geri">←</button>
         <div>
-          <div className="baslik-font" style={styles.listeBaslikYazi}>
-            Lost & Found
-          </div>
+          <div className="baslik-font" style={styles.listeBaslikYazi}>Lost & Found</div>
           <div style={styles.ilerlemeYazi}>{user.hotelName}</div>
         </div>
       </div>
-
-      <button style={{ ...styles.anaButon, marginTop: 14 }} onClick={() => setGorunum("yeni")}>
-        + Yeni Eşya Buldum
-      </button>
-
-      <div style={styles.lfKpiIzgara}>
-        {[
-          ["Toplam", toplam, "hepsi"],
-          ["Aktif", aktif, "aktif"],
-          ["Teslim Bekleyen", teslimBekleyen, "teslimBekleyen"],
-          ["Değerli", degerli, "degerli"],
-          ["Kritik", kritik, "kritik"],
-          ["Süresi Yaklaşan", suresiYaklasan, "suresiYaklasan"],
-        ].map(([etiket, sayi, key]) => (
-          <button
-            key={key}
-            style={{ ...styles.lfKpiKart, ...(filtre === key ? styles.lfKpiKartAktif : {}) }}
-            onClick={() => setFiltre(key)}
-          >
-            <div style={styles.lfKpiSayi}>{sayi}</div>
-            <div style={styles.lfKpiEtiket}>{etiket}</div>
-          </button>
-        ))}
-      </div>
-
-      {suresiDolan > 0 && (
-        <div style={styles.gecikmeBanner}>⚠ {suresiDolan} kaydın saklama süresi doldu, işlem bekliyor.</div>
+      {yukleniyor ? (
+        <div style={styles.merkezYukleniyor}>Yükleniyor…</div>
+      ) : (
+        <div style={styles.ilerlemeYazi} data-testid="lf-ozet">Bulunan: {aktif} · Depoda: {depoda} · Arşivde: {arsivde}</div>
       )}
-
       <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 14 }}>
-        {yukleniyor ? (
-          <div style={styles.merkezYukleniyor}>Yükleniyor…</div>
-        ) : gosterilecekler.length === 0 ? (
-          <div style={styles.bilgiKutusu}>Kayıt bulunamadı.</div>
-        ) : (
-          gosterilecekler.map((k) => (
-            <button
-              key={k.no}
-              style={styles.lfKayitKarti}
-              onClick={() => {
-                setSecilenNo(k.no);
-                setGorunum("detay");
-              }}
-            >
-              <div style={styles.lfKayitUst}>
-                <span style={styles.lfKayitNo}>{k.no}</span>
-                <span style={{ ...styles.lfDurumRozeti, ...(kapatilmisMi(k) ? styles.lfDurumRozetiTamam : {}) }}>
-                  {k.durum}
-                </span>
-              </div>
-              <div style={styles.lfKayitAciklama}>
-                {k.kategori}
-                {k.marka ? ` · ${k.marka}` : ""}
-                {k.renk ? ` · ${k.renk}` : ""}
-              </div>
-              <div style={styles.lfKayitAltBilgi}>
-                {k.alan}
-                {k.odaNo ? ` · Oda ${k.odaNo}` : ""} · {k.tarih} {k.saat}
-                {k.degerliMi && "  💎"}
-                {k.kritikMi && "  🔴"}
-              </div>
-            </button>
-          ))
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------
-   LOST & FOUND - yeni kayıt formu
--------------------------------------------------------------------*/
-function LFYeniKayit({ user, onIptal, onKaydet }) {
-  const [alan, setAlan] = useState("");
-  const [alanDiger, setAlanDiger] = useState("");
-  const [odaNo, setOdaNo] = useState("");
-  const [kategori, setKategori] = useState("");
-  const [aciklama, setAciklama] = useState("");
-  const [marka, setMarka] = useState("");
-  const [renk, setRenk] = useState("");
-  const [adet, setAdet] = useState("1");
-  const [tahminiDeger, setTahminiDeger] = useState("");
-  const [esyaDurumu, setEsyaDurumu] = useState("");
-  const [ekAciklama, setEkAciklama] = useState("");
-  const [fotograflar, setFotograflar] = useState([]);
-  const [hata, setHata] = useState("");
-  const [kaydediliyor, setKaydediliyor] = useState(false);
-  const fileRef = useRef(null);
-
-  function fotoSecildi(file) {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const img = new Image();
-      img.onload = () => {
-        const maxW = 700;
-        const scale = Math.min(1, maxW / img.width);
-        const canvas = document.createElement("canvas");
-        canvas.width = Math.round(img.width * scale);
-        canvas.height = Math.round(img.height * scale);
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        setFotograflar((prev) => [...prev, canvas.toDataURL("image/jpeg", 0.6)]);
-      };
-      img.src = e.target.result;
-    };
-    reader.readAsDataURL(file);
-  }
-
-  async function kaydet() {
-    setHata("");
-    if (!alan) {
-      setHata("Lütfen bulunduğu alanı seçin.");
-      return;
-    }
-    if (alan === "Diğer" && !alanDiger.trim()) {
-      setHata("Lütfen 'Diğer' için alanı yazın.");
-      return;
-    }
-    if (!kategori) {
-      setHata("Lütfen bir kategori seçin.");
-      return;
-    }
-    if (!aciklama.trim()) {
-      setHata("Eşya açıklaması zorunludur.");
-      return;
-    }
-    setKaydediliyor(true);
-    const nihaiAlan = alan === "Diğer" ? alanDiger.trim() : alan;
-    await onKaydet(
-      { alan: nihaiAlan, odaNo, kategori, aciklama, marka, renk, adet: Number(adet) || 1, tahminiDeger, esyaDurumu, ekAciklama },
-      fotograflar
-    );
-    setKaydediliyor(false);
-  }
-
-  return (
-    <div style={styles.icerik}>
-      <div style={styles.listeUstBaslik}>
-        <button style={styles.geriButon} onClick={onIptal} aria-label="Geri">
-          ←
-        </button>
-        <div className="baslik-font" style={styles.listeBaslikYazi}>
-          Yeni Eşya Buldum
-        </div>
-      </div>
-
-      <div style={{ ...styles.gmSabitDeger, marginTop: 14 }}>
-        Bulan: {user.name} · {user.department} · {new Date().toLocaleDateString("tr-TR")}{" "}
-        {new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}
-      </div>
-
-      <Etiket>BULUNDUĞU ALAN (zorunlu)</Etiket>
-      <select style={styles.gmSecim} value={alan} onChange={(e) => setAlan(e.target.value)}>
-        <option value="">Seçiniz</option>
-        {LF_ALANLAR.map((a) => (
-          <option key={a} value={a}>
-            {a}
-          </option>
-        ))}
-      </select>
-      {alan === "Diğer" && (
-        <input
-          style={{ ...styles.epostaInput, marginTop: 8 }}
-          value={alanDiger}
-          onChange={(e) => setAlanDiger(e.target.value)}
-          placeholder="Alanı yazın"
-        />
-      )}
-
-      <Etiket>ODA NUMARASI (varsa)</Etiket>
-      <input style={styles.epostaInput} value={odaNo} onChange={(e) => setOdaNo(e.target.value)} placeholder="örn. 1024" />
-
-      <Etiket>EŞYA KATEGORİSİ (zorunlu)</Etiket>
-      <select style={styles.gmSecim} value={kategori} onChange={(e) => setKategori(e.target.value)}>
-        <option value="">Seçiniz</option>
-        {LF_KATEGORILER.map((k) => (
-          <option key={k} value={k}>
-            {k}
-          </option>
-        ))}
-      </select>
-      {(LF_DEGERLI_KATEGORILER.includes(kategori) || LF_KRITIK_KATEGORILER.includes(kategori)) && (
-        <div style={styles.lfUyariKutusu}>
-          {LF_KRITIK_KATEGORILER.includes(kategori)
-            ? "🔴 Kritik eşya — kayıt oluşturulunca yönetici/güvenlik otomatik bilgilendirilecek."
-            : "💎 Değerli eşya — kayıt oluşturulunca yönetici otomatik bilgilendirilecek."}
-        </div>
-      )}
-
-      <Etiket>EŞYA AÇIKLAMASI (zorunlu)</Etiket>
-      <textarea
-        style={styles.aciklamaAlani}
-        rows={2}
-        value={aciklama}
-        onChange={(e) => setAciklama(e.target.value)}
-        placeholder="Eşyayı tarif edin"
-      />
-
-      <Etiket>MARKA (varsa)</Etiket>
-      <input style={styles.epostaInput} value={marka} onChange={(e) => setMarka(e.target.value)} />
-
-      <Etiket>RENK</Etiket>
-      <input style={styles.epostaInput} value={renk} onChange={(e) => setRenk(e.target.value)} />
-
-      <Etiket>ADET</Etiket>
-      <input
-        style={styles.epostaInput}
-        inputMode="numeric"
-        value={adet}
-        onChange={(e) => setAdet(e.target.value.replace(/\D/g, ""))}
-      />
-
-      <Etiket>TAHMİNİ DEĞER</Etiket>
-      <input
-        style={styles.epostaInput}
-        value={tahminiDeger}
-        onChange={(e) => setTahminiDeger(e.target.value)}
-        placeholder="örn. 5000 TL"
-      />
-
-      <Etiket>EŞYANIN DURUMU</Etiket>
-      <input
-        style={styles.epostaInput}
-        value={esyaDurumu}
-        onChange={(e) => setEsyaDurumu(e.target.value)}
-        placeholder="örn. Yeni, hasarlı, çalışır durumda"
-      />
-
-      <Etiket>FOTOĞRAF</Etiket>
-      <input
-        ref={fileRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        style={{ display: "none" }}
-        onChange={(e) => fotoSecildi(e.target.files[0])}
-      />
-      <button style={styles.fotoButon} onClick={() => fileRef.current && fileRef.current.click()}>
-        📷 Fotoğraf Ekle
-      </button>
-      {fotograflar.length > 0 && (
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
-          {fotograflar.map((f, i) => (
-            <div key={i} style={styles.fotoOnizlemeSarmalayici}>
-              <img src={f} alt="" style={styles.fotoOnizleme} />
-              <button
-                style={styles.fotoSilButon}
-                onClick={() => setFotograflar((prev) => prev.filter((_, idx) => idx !== i))}
-              >
-                ✕
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <Etiket>EK AÇIKLAMA</Etiket>
-      <textarea style={styles.aciklamaAlani} rows={2} value={ekAciklama} onChange={(e) => setEkAciklama(e.target.value)} />
-
-      {hata && <div style={styles.hataKutusu}>{hata}</div>}
-
-      <button
-        style={{ ...styles.anaButon, marginTop: 16, marginBottom: 24, opacity: kaydediliyor ? 0.7 : 1 }}
-        onClick={kaydet}
-        disabled={kaydediliyor}
-      >
-        {kaydediliyor ? "Kaydediliyor…" : "Kaydı Oluştur"}
-      </button>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------
-   LOST & FOUND - kayıt detay ekranı
--------------------------------------------------------------------*/
-function LFDetay({ kayit, yoneticiMi, onGeri, onDurumGuncelle, onIletisimEkle, onMisafirGuncelle, onFotografEkle }) {
-  const [yeniDurum, setYeniDurum] = useState(kayit.durum);
-  const [durumMesaj, setDurumMesaj] = useState("");
-  const [durumKaydediliyor, setDurumKaydediliyor] = useState(false);
-
-  const [misafirAcik, setMisafirAcik] = useState(false);
-  const [misafirForm, setMisafirForm] = useState(kayit.misafir || {});
-  const [misafirKaydediliyor, setMisafirKaydediliyor] = useState(false);
-
-  const [iletisimAcik, setIletisimAcik] = useState(false);
-  const [iletisimKanal, setIletisimKanal] = useState("E-mail");
-  const [iletisimNot, setIletisimNot] = useState("");
-
-  const [auditAcik, setAuditAcik] = useState(false);
-  const fileRef = useRef(null);
-
-  const kalanGun = lfKalanGun(kayit);
-
-  async function durumKaydet() {
-    setDurumMesaj("");
-    if (LF_ONAY_GEREKTIREN_DURUMLAR.includes(yeniDurum) && !yoneticiMi) {
-      setDurumMesaj("Bu işlem (imha/bağış) yönetici onayı (Müdür/Supervisor/Şef/Vardiya Amiri) gerektirir.");
-      return;
-    }
-    setDurumKaydediliyor(true);
-    await onDurumGuncelle(kayit, yeniDurum);
-    setDurumKaydediliyor(false);
-  }
-
-  async function misafirKaydet() {
-    setMisafirKaydediliyor(true);
-    await onMisafirGuncelle(kayit, misafirForm);
-    setMisafirKaydediliyor(false);
-    setMisafirAcik(false);
-  }
-
-  async function iletisimKaydet() {
-    if (!iletisimNot.trim()) return;
-    await onIletisimEkle(kayit, iletisimKanal, iletisimNot.trim());
-    setIletisimNot("");
-  }
-
-  function fotoSecildi(file) {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const img = new Image();
-      img.onload = () => {
-        const maxW = 700;
-        const scale = Math.min(1, maxW / img.width);
-        const canvas = document.createElement("canvas");
-        canvas.width = Math.round(img.width * scale);
-        canvas.height = Math.round(img.height * scale);
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        onFotografEkle(kayit, canvas.toDataURL("image/jpeg", 0.6));
-      };
-      img.src = e.target.result;
-    };
-    reader.readAsDataURL(file);
-  }
-
-  function pdfOlustur() {
-    if (!window.jspdf || !window.jspdf.jsPDF) return;
-    const { jsPDF } = window.jspdf;
-    const doc = kosPdf(new jsPDF({ unit: "pt", format: "a4" }));
-    const margin = 40;
-    let y = margin;
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(16);
-    doc.text(`Lost & Found Kaydı - ${kayit.no}`, margin, y);
-    y += 24;
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    const satirlar = [
-      `Otel: ${kayit.hotelName}`,
-      `Durum: ${kayit.durum}`,
-      `Bulunma: ${kayit.tarih} ${kayit.saat}`,
-      `Bulan: ${kayit.bulanKullanici} (${kayit.bulanDepartman})`,
-      `Alan: ${kayit.alan}${kayit.odaNo ? `  Oda: ${kayit.odaNo}` : ""}`,
-      `Kategori: ${kayit.kategori}${kayit.degerliMi ? "  [DEĞERLİ]" : ""}${kayit.kritikMi ? "  [KRİTİK]" : ""}`,
-      `Açıklama: ${kayit.aciklama}`,
-      `Marka: ${kayit.marka || "-"}   Renk: ${kayit.renk || "-"}   Adet: ${kayit.adet}`,
-      `Tahmini Değer: ${kayit.tahminiDeger || "-"}`,
-      `Eşya Durumu: ${kayit.esyaDurumu || "-"}`,
-      `Ek Açıklama: ${kayit.ekAciklama || "-"}`,
-    ];
-    satirlar.forEach((s) => {
-      const wrapped = doc.splitTextToSize(s, 515);
-      doc.text(wrapped, margin, y);
-      y += wrapped.length * 13;
-    });
-    y += 10;
-    doc.setFont("helvetica", "bold");
-    doc.text("İşlem Geçmişi:", margin, y);
-    y += 14;
-    doc.setFont("helvetica", "normal");
-    kayit.auditLog.forEach((a) => {
-      const s = `${lfZamanFormatla(a.zaman)} — ${a.kullanici} — ${a.islem}`;
-      const wrapped = doc.splitTextToSize(s, 515);
-      doc.text(wrapped, margin, y);
-      y += wrapped.length * 12;
-    });
-    doc.save(`${kayit.no}.pdf`);
-  }
-
-  return (
-    <div style={styles.icerik}>
-      <div style={styles.listeUstBaslik}>
-        <button style={styles.geriButon} onClick={onGeri} aria-label="Geri">
-          ←
-        </button>
-        <div>
-          <div className="baslik-font" style={styles.listeBaslikYazi}>
-            {kayit.no}
-          </div>
-          <div style={styles.ilerlemeYazi}>
-            {kayit.tarih} {kayit.saat} · {kayit.bulanKullanici}
-          </div>
-        </div>
-      </div>
-
-      {(kayit.degerliMi || kayit.kritikMi) && (
-        <div style={styles.lfUyariKutusu}>
-          {kayit.kritikMi ? "🔴 Kritik eşya — özel prosedür uygulanmalı." : "💎 Değerli eşya."}
-        </div>
-      )}
-
-      <div style={styles.lfBilgiKarti}>
-        <div style={styles.lfBilgiSatiri}>
-          <span>Kategori</span>
-          <strong>{kayit.kategori}</strong>
-        </div>
-        <div style={styles.lfBilgiSatiri}>
-          <span>Açıklama</span>
-          <strong>{kayit.aciklama}</strong>
-        </div>
-        <div style={styles.lfBilgiSatiri}>
-          <span>Marka / Renk / Adet</span>
-          <strong>
-            {kayit.marka || "-"} / {kayit.renk || "-"} / {kayit.adet}
-          </strong>
-        </div>
-        <div style={styles.lfBilgiSatiri}>
-          <span>Tahmini Değer</span>
-          <strong>{kayit.tahminiDeger || "-"}</strong>
-        </div>
-        <div style={styles.lfBilgiSatiri}>
-          <span>Bulunduğu Alan</span>
-          <strong>
-            {kayit.alan}
-            {kayit.odaNo ? ` (Oda ${kayit.odaNo})` : ""}
-          </strong>
-        </div>
-        <div style={styles.lfBilgiSatiri}>
-          <span>Saklama Süresi</span>
-          <strong style={{ color: kalanGun <= 0 ? "#B7472A" : kalanGun <= 15 ? "#8A6A22" : "#2F7D5C" }}>
-            {kalanGun <= 0 ? "Süre doldu" : `${kalanGun} gün kaldı`}
-          </strong>
-        </div>
-        {kayit.ekAciklama && (
-          <div style={styles.lfBilgiSatiri}>
-            <span>Ek Açıklama</span>
-            <strong>{kayit.ekAciklama}</strong>
-          </div>
-        )}
-      </div>
-
-      {kayit.fotograflar && kayit.fotograflar.length > 0 && (
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
-          {kayit.fotograflar.map((f, i) => (
-            <img key={i} src={f} alt="" style={styles.fotoOnizleme} />
-          ))}
-        </div>
-      )}
-      <input
-        ref={fileRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        style={{ display: "none" }}
-        onChange={(e) => fotoSecildi(e.target.files[0])}
-      />
-      <button style={{ ...styles.fotoButon, marginTop: 10 }} onClick={() => fileRef.current && fileRef.current.click()}>
-        📷 Fotoğraf Ekle
-      </button>
-
-      <Etiket>DURUM GÜNCELLE</Etiket>
-      <select style={styles.gmSecim} value={yeniDurum} onChange={(e) => setYeniDurum(e.target.value)}>
-        {LF_DURUMLAR.map((d) => (
-          <option key={d} value={d}>
-            {d}
-          </option>
-        ))}
-      </select>
-      {durumMesaj && <div style={styles.hataKutusu}>{durumMesaj}</div>}
-      <button
-        style={{ ...styles.ikincilButon, marginTop: 8, opacity: durumKaydediliyor ? 0.7 : 1 }}
-        onClick={durumKaydet}
-        disabled={durumKaydediliyor || yeniDurum === kayit.durum}
-      >
-        {durumKaydediliyor ? "Kaydediliyor…" : "Durumu Kaydet"}
-      </button>
-
-      <button style={{ ...styles.adminDuzenleButon, marginTop: 14 }} onClick={() => setMisafirAcik((a) => !a)}>
-        👤 Misafir Bilgisi {misafirAcik ? "▲" : "▼"}
-      </button>
-      {misafirAcik && (
-        <div style={styles.gmMaddeSatiri}>
-          <Etiket>MİSAFİR ADI</Etiket>
-          <input
-            style={styles.epostaInput}
-            value={misafirForm.ad || ""}
-            onChange={(e) => setMisafirForm((f) => ({ ...f, ad: e.target.value }))}
-          />
-          <Etiket>TELEFON</Etiket>
-          <input
-            style={styles.epostaInput}
-            value={misafirForm.telefon || ""}
-            onChange={(e) => setMisafirForm((f) => ({ ...f, telefon: e.target.value }))}
-          />
-          <Etiket>E-POSTA</Etiket>
-          <input
-            style={styles.epostaInput}
-            value={misafirForm.email || ""}
-            onChange={(e) => setMisafirForm((f) => ({ ...f, email: e.target.value }))}
-          />
-          <Etiket>REZERVASYON NO</Etiket>
-          <input
-            style={styles.epostaInput}
-            value={misafirForm.rezervasyonNo || ""}
-            onChange={(e) => setMisafirForm((f) => ({ ...f, rezervasyonNo: e.target.value }))}
-          />
-          <button
-            style={{ ...styles.gmKucukButon, marginTop: 10, opacity: misafirKaydediliyor ? 0.7 : 1 }}
-            onClick={misafirKaydet}
-            disabled={misafirKaydediliyor}
-          >
-            Kaydet
+        {butonlar.map(([g, ad, mod, tid], i) => (
+          <button key={tid} data-testid={tid} style={i < 2 ? styles.anaButon : styles.ikincilButon} onClick={() => { if (mod) setAraMod(mod); setGorunum(g); }}>
+            {ad}
           </button>
-        </div>
-      )}
-
-      <button style={{ ...styles.adminDuzenleButon, marginTop: 10 }} onClick={() => setIletisimAcik((a) => !a)}>
-        💬 İletişim Geçmişi ({kayit.iletisimGecmisi.length}) {iletisimAcik ? "▲" : "▼"}
-      </button>
-      {iletisimAcik && (
-        <div style={styles.gmMaddeSatiri}>
-          {kayit.iletisimGecmisi.map((i, idx) => (
-            <div key={idx} style={styles.zamanNotu}>
-              {lfZamanFormatla(i.zaman)} — {i.kanal} — {i.not} ({i.kullanici})
-            </div>
-          ))}
-          <Etiket>KANAL</Etiket>
-          <select style={styles.gmSecim} value={iletisimKanal} onChange={(e) => setIletisimKanal(e.target.value)}>
-            {["E-mail", "Telefon", "SMS", "WhatsApp"].map((k) => (
-              <option key={k} value={k}>
-                {k}
-              </option>
-            ))}
-          </select>
-          <Etiket>NOT</Etiket>
-          <input style={styles.epostaInput} value={iletisimNot} onChange={(e) => setIletisimNot(e.target.value)} placeholder="örn. E-mail gönderildi" />
-          <button style={{ ...styles.gmKucukButon, marginTop: 10 }} onClick={iletisimKaydet}>
-            Ekle
-          </button>
-        </div>
-      )}
-
-      <button style={{ ...styles.adminDuzenleButon, marginTop: 10 }} onClick={() => setAuditAcik((a) => !a)}>
-        📜 İşlem Geçmişi (Audit Log) {auditAcik ? "▲" : "▼"}
-      </button>
-      {auditAcik && (
-        <div style={styles.gmMaddeSatiri}>
-          {kayit.auditLog.map((a, idx) => (
-            <div key={idx} style={styles.zamanNotu}>
-              {lfZamanFormatla(a.zaman)} — {a.kullanici} — {a.islem}
-            </div>
-          ))}
-        </div>
-      )}
-
-      <button style={{ ...styles.ikincilButon, marginTop: 16, marginBottom: 24 }} onClick={pdfOlustur}>
-        📄 PDF Oluştur
-      </button>
+        ))}
+      </div>
     </div>
   );
 }
