@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.50";
+window.UYGULAMA_SURUMU = "1.51";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -1697,6 +1697,7 @@ const LF_KATALOG = [
   { kategori: "Çocuk ve Bebek Eşyaları", esyalar: ["Çocuk oyuncağı", "Peluş oyuncak", "Bebek arabası", "Bebek battaniyesi", "Bebek kıyafeti", "Çocuk ayakkabısı", "Biberon", "Emzik", "Çocuk kitabı", "Çocuk güneş gözlüğü"] },
   { kategori: "Diğer Eşyalar", esyalar: ["Kitap", "Dergi", "Defter", "Kalem", "Şemsiye", "Su matarası", "Termos", "Sigara tabakası / tütün aksesuarı", "Gözlük temizleme bezi", "Medikal destek ekipmanı (baston, dizlik vb.)"] },
 ];
+const LF_YERLER = ["Aqvarium Bar", "Vitamin Bar", "Health Center", "Wave Bar", "Food Court", "Aqua Bar", "Restaurant", "Spa Desk", "Resepsiyon", "GR Desk", "Lobby Bar", "More Restaurant", "Lalezar Restaurant", "Taco Restaurant", "Shenzen Restaurant", "Fangri Restaurant"];
 const LF_ESYA_DURUMLARI = ["İyi", "Kötü", "Kırık", "Yırtık", "Yıpranmış"];
 // Teslim Et / Depoya Kaldır / Arşivle yetkisi
 const LF_ISLEM_YETKILILERI = ["1101", "1102", "1103", "1104", "1122", "1132", "1162", "1163", "1164"];
@@ -6788,6 +6789,8 @@ async function lfTeslimPdf(k) {
     ["Açıklama", k.aciklama || "-"],
     ["Marka / Renk", `${k.marka || "-"} / ${k.renk || "-"}`],
     ["Eşya Durumu", k.esyaDurumu || "-"],
+    ["Bulunan Yer", k.bulunanYer || "-"],
+    ["Tutulduğu Yer", k.tutulduguYer || "-"],
     ["Teslim Tarihi", lfTarihYaz(t.tarih)],
     ["Oda No", t.odaNo || "-"],
     ["Teslim Alan (Misafir)", t.misafir || "-"],
@@ -6947,6 +6950,41 @@ function LFEsyaSecimi({ kategori, esya, setKategori, setEsya, kategoriGizle }) {
   );
 }
 
+/* Açılır liste + yazarak arama (Bulunan Yer / Tutulduğu Yer) */
+function LFYerSecimi({ etiket, deger, setDeger, tid }) {
+  const [q, setQ] = useState(deger || "");
+  const [acik, setAcik] = useState(false);
+  const adaylar = LF_YERLER.filter((y) => !q.trim() || lfTr(y).indexOf(lfTr(q.trim())) >= 0);
+  return (
+    <>
+      <Etiket>{etiket} (zorunlu)</Etiket>
+      <div style={{ position: "relative" }}>
+        <input
+          data-testid={tid}
+          style={{ ...styles.epostaInput, paddingRight: 36 }}
+          value={q}
+          placeholder="Seçin veya yazarak arayın"
+          onFocus={() => setAcik(true)}
+          onChange={(e) => { setQ(e.target.value); setAcik(true); if (deger) setDeger(""); }}
+        />
+        <button aria-label="Listeyi aç/kapat" onClick={() => setAcik((a) => !a)} style={{ position: "absolute", right: 6, top: 6, background: "transparent", border: "none", fontSize: 18 }}>{acik ? "▲" : "▼"}</button>
+      </div>
+      {deger && <div style={{ ...styles.ilerlemeYazi, marginTop: 4 }} data-testid={tid + "-secili"}>✓ {deger}</div>}
+      {acik && !deger && (
+        <div style={{ border: "1px solid #ddd", borderRadius: 8, maxHeight: 220, overflowY: "auto", marginTop: 4, background: "#fff" }}>
+          {adaylar.length === 0 ? (
+            <div style={{ padding: 10, fontSize: 13, opacity: 0.7 }}>Listede eşleşen yer yok.</div>
+          ) : (
+            adaylar.map((y) => (
+              <button key={y} data-testid={tid + "-oneri"} onClick={() => { setDeger(y); setQ(y); setAcik(false); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", border: "none", borderBottom: "1px solid #eee", background: "transparent", fontSize: 14 }}>{y}</button>
+            ))
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
 function LFFotoEkleme({ fotograflar, setFotograflar, zorunlu }) {
   const fileRef = useRef(null);
   return (
@@ -7038,6 +7076,8 @@ function LFBulunanDetay({ kayit, user, salt, onGeri, onGuncelle, onFoto, toastGo
         {satir("Marka", kayit.marka)}
         {satir("Renk", kayit.renk)}
         {satir("Eşya durumu", kayit.esyaDurumu)}
+        {satir("Bulunan yer", kayit.bulunanYer)}
+        {satir("Tutulduğu yer", kayit.tutulduguYer)}
         {satir("Bulan", `${kayit.bulanKullanici}${kayit.bulanDepartman ? " · " + kayit.bulanDepartman : ""}`)}
         {kayit.grup && satir("Toplu giriş", `${kayit.grup.ad} · ${(kardesler || []).length + 1} eşya`)}
         {kayit.depoTarihi && satir("Depoya kaldırıldı", lfTarihYaz(kayit.depoTarihi))}
@@ -7166,6 +7206,8 @@ function LFBulunduForm({ user, onGeri, onKaydet }) {
   const [marka, setMarka] = useState("");
   const [renk, setRenk] = useState("");
   const [esyaDurumu, setEsyaDurumu] = useState("");
+  const [bulunanYer, setBulunanYer] = useState("");
+  const [tutulduguYer, setTutulduguYer] = useState("");
   const [fotograflar, setFotograflar] = useState([]);
   const [hata, setHata] = useState("");
   const [mesgul, setMesgul] = useState(false);
@@ -7173,12 +7215,14 @@ function LFBulunduForm({ user, onGeri, onKaydet }) {
     setHata("");
     if (!tarih) return setHata("Bulunduğu tarihi girin.");
     if (tarih > lfBugun()) return setHata("Bulunduğu tarih ileri bir tarih olamaz.");
+    if (!bulunanYer) return setHata("Lütfen bulunan yeri listeden seçin.");
     if (!esya || !kategori) return setHata("Lütfen listeden bir eşya seçin.");
     if (!esyaDurumu) return setHata("Lütfen eşyanın durumunu seçin.");
     if (!fotograflar.length) return setHata("Fotoğraf eklemek zorunludur.");
+    if (!tutulduguYer) return setHata("Lütfen tutulduğu yeri listeden seçin.");
     setMesgul(true);
     try {
-      await onKaydet({ tarih, kategori, esya, aciklama: aciklama.trim(), marka: marka.trim(), renk: renk.trim(), esyaDurumu }, fotograflar);
+      await onKaydet({ tarih, bulunanYer, tutulduguYer, kategori, esya, aciklama: aciklama.trim(), marka: marka.trim(), renk: renk.trim(), esyaDurumu }, fotograflar);
     } catch (e) {
       setHata((e && e.message) || "Kaydedilemedi.");
     }
@@ -7194,6 +7238,7 @@ function LFBulunduForm({ user, onGeri, onKaydet }) {
       <input data-testid="lf-tarih" type="date" style={styles.epostaInput} value={tarih} max={lfBugun()} onChange={(e) => setTarih(e.target.value)} />
       <Etiket>BULAN</Etiket>
       <div style={styles.gmSabitDeger}>{user.name} · {user.department}</div>
+      <LFYerSecimi etiket="BULUNAN YER" deger={bulunanYer} setDeger={setBulunanYer} tid="lf-bulunan-yer" />
       <LFEsyaSecimi kategori={kategori} esya={esya} setKategori={setKategori} setEsya={setEsya} kategoriGizle />
       <Etiket>MARKA</Etiket>
       <input data-testid="lf-marka" style={styles.epostaInput} value={marka} onChange={(e) => setMarka(e.target.value)} />
@@ -7205,6 +7250,7 @@ function LFBulunduForm({ user, onGeri, onKaydet }) {
         {LF_ESYA_DURUMLARI.map((d) => <option key={d} value={d}>{d}</option>)}
       </select>
       <LFFotoEkleme fotograflar={fotograflar} setFotograflar={setFotograflar} zorunlu />
+      <LFYerSecimi etiket="TUTULDUĞU YER" deger={tutulduguYer} setDeger={setTutulduguYer} tid="lf-tutuldugu-yer" />
       <Etiket>EŞYA AÇIKLAMASI</Etiket>
       <textarea data-testid="lf-aciklama" style={{ ...styles.epostaInput, minHeight: 70 }} value={aciklama} onChange={(e) => setAciklama(e.target.value)} />
       {hata && <div style={styles.hataKutusu} data-testid="lf-hata">{hata}</div>}
@@ -7219,6 +7265,8 @@ function LFTopluForm({ user, onGeri, onKaydet }) {
   const bos = () => ({ id: Math.random().toString(36).slice(2), kategori: "", esya: "", marka: "", renk: "", esyaDurumu: "İyi", aciklama: "", fotograflar: [] });
   const [tarih, setTarih] = useState(lfBugun());
   const [grupAd, setGrupAd] = useState("");
+  const [bulunanYer, setBulunanYer] = useState("");
+  const [tutulduguYer, setTutulduguYer] = useState("");
   const [ortak, setOrtak] = useState([]);
   const [satirlar, setSatirlar] = useState([bos(), bos()]);
   const [hata, setHata] = useState("");
@@ -7228,14 +7276,16 @@ function LFTopluForm({ user, onGeri, onKaydet }) {
     setHata("");
     if (!tarih) return setHata("Bulunduğu tarihi girin.");
     if (tarih > lfBugun()) return setHata("Bulunduğu tarih ileri bir tarih olamaz.");
+    if (!bulunanYer) return setHata("Lütfen bulunan yeri listeden seçin.");
     if (!ortak.length) return setHata("Ortak fotoğraf eklemek zorunludur.");
+    if (!tutulduguYer) return setHata("Lütfen tutulduğu yeri listeden seçin.");
     for (let i = 0; i < satirlar.length; i++) {
       if (!satirlar[i].esya || !satirlar[i].kategori) return setHata(`${i + 1}. satırda listeden bir eşya seçin.`);
       if (!satirlar[i].esyaDurumu) return setHata(`${i + 1}. satırda eşya durumunu seçin.`);
     }
     setMesgul(true);
     try {
-      await onKaydet({ tarih, grupAd: grupAd.trim() }, ortak, satirlar);
+      await onKaydet({ tarih, grupAd: grupAd.trim(), bulunanYer, tutulduguYer }, ortak, satirlar);
     } catch (e) {
       setHata((e && e.message) || "Kaydedilemedi.");
     }
@@ -7253,7 +7303,9 @@ function LFTopluForm({ user, onGeri, onKaydet }) {
       <div style={styles.gmSabitDeger}>{user.name} · {user.department}</div>
       <Etiket>TOPLU GİRİŞ ADI (isteğe bağlı, örn. Plaj temizliği)</Etiket>
       <input data-testid="lft-grup" style={styles.epostaInput} value={grupAd} onChange={(e) => setGrupAd(e.target.value)} />
+      <LFYerSecimi etiket="BULUNAN YER" deger={bulunanYer} setDeger={setBulunanYer} tid="lft-bulunan-yer" />
       <LFFotoEkleme fotograflar={ortak} setFotograflar={setOrtak} zorunlu />
+      <LFYerSecimi etiket="TUTULDUĞU YER" deger={tutulduguYer} setDeger={setTutulduguYer} tid="lft-tutuldugu-yer" />
       <div style={styles.ilerlemeYazi}>Ortak fotoğraf, kendi fotoğrafı olmayan eşyalara uygulanır.</div>
       {satirlar.map((r, idx) => (
         <div key={r.id} data-testid="lft-satir" style={{ ...styles.lfBilgiKarti, marginTop: 14 }}>
@@ -7406,7 +7458,7 @@ function LFAra({ mod, bulunanlar, kayiplar, onGeri, onSec }) {
       kaynak = kayiplar;
       alanlar = ["no", "kategori", "esya", "aciklama", "marka", "renk", "misafirAdi", "odaNo", "esyaDurumu"];
     } else {
-      alanlar = ["no", "kategori", "esya", "aciklama", "marka", "renk", "esyaDurumu", "grupAd"];
+      alanlar = ["no", "kategori", "esya", "aciklama", "marka", "renk", "esyaDurumu", "grupAd", "bulunanYer", "tutulduguYer"];
       if (mod === "bulunan") kaynak = bulunanlar.filter((k) => k.durum === "Bulundu" || k.durum === "Depoda");
       else if (mod === "arsiv") kaynak = bulunanlar.filter((k) => k.durum === "Arşivde");
       else kaynak = bulunanlar.filter((k) => k.durum === "Sahiplendirildi");
@@ -7475,7 +7527,7 @@ function LostFoundEkrani({ user, onGeri, toastGoster }) {
     const kayit = await lfKayitOlustur("lfbulunan", "LF", user.hotelCode, f.tarih, (no) => ({
       no, hotelCode: user.hotelCode, hotelName: user.hotelName, tarih: f.tarih, olusturmaZamani: new Date().toISOString(),
       bulanKullanici: user.name, bulanUserCode: user.userCode, bulanDepartman: user.department,
-      kategori: f.kategori, esya: f.esya, aciklama: f.aciklama, marka: f.marka, renk: f.renk, esyaDurumu: f.esyaDurumu,
+      bulunanYer: f.bulunanYer, tutulduguYer: f.tutulduguYer, kategori: f.kategori, esya: f.esya, aciklama: f.aciklama, marka: f.marka, renk: f.renk, esyaDurumu: f.esyaDurumu,
       fotograflar, durum: "Bulundu",
       auditLog: [{ zaman: new Date().toISOString(), kullanici: user.name, islem: "Bulundu olarak kaydedildi" }],
     }));
@@ -7491,7 +7543,7 @@ function LostFoundEkrani({ user, onGeri, toastGoster }) {
         await lfKayitOlustur("lfbulunan", "LF", user.hotelCode, f.tarih, (no) => ({
           no, hotelCode: user.hotelCode, hotelName: user.hotelName, tarih: f.tarih, olusturmaZamani: new Date().toISOString(),
           bulanKullanici: user.name, bulanUserCode: user.userCode, bulanDepartman: user.department,
-          kategori: r.kategori, esya: r.esya, aciklama: r.aciklama.trim(), marka: r.marka.trim(), renk: r.renk.trim(), esyaDurumu: r.esyaDurumu,
+          bulunanYer: f.bulunanYer, tutulduguYer: f.tutulduguYer, kategori: r.kategori, esya: r.esya, aciklama: r.aciklama.trim(), marka: r.marka.trim(), renk: r.renk.trim(), esyaDurumu: r.esyaDurumu,
           fotograflar: r.fotograflar.length ? r.fotograflar : ortak, durum: "Bulundu", grup, grupAd: grup.ad,
           auditLog: [{ zaman: new Date().toISOString(), kullanici: user.name, islem: `Toplu girişle bulundu olarak kaydedildi (${grup.ad})` }],
         }));
