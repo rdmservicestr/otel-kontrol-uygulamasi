@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.53";
+window.UYGULAMA_SURUMU = "1.54";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -11871,7 +11871,7 @@ function AlacarteEkrani({ user, onGeri, toastGoster }) {
   function pdfKutusu(restoranlar, baslik) {
     return (
       <div style={{ ...kutu, marginTop: 14 }}>
-        <div style={styles.etiket}>{baslik}</div>
+        <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>{baslik}</div>
         <input style={girdi} type="email" inputMode="email" placeholder="Alıcı e-posta (isteğe bağlı)" value={eposta} onChange={(e) => setEposta(e.target.value)} />
         <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
           <button style={{ ...styles.ikincilButon, flex: 1 }} onClick={() => pdfOlustur(restoranlar, false)}>📄 PDF indir</button>
@@ -12134,7 +12134,7 @@ function AlacarteEkrani({ user, onGeri, toastGoster }) {
 
           {iptaller.length > 0 && (
             <div style={{ marginTop: 14 }}>
-              <div style={styles.etiket}>İPTAL EDİLENLER</div>
+              <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>İPTAL EDİLENLER</div>
               {iptaller.map((x) => (
                 <div key={x.id} style={{ background: "#FEF2F2", border: "1px solid #FCA5A5", borderRadius: 10, padding: "8px 10px", fontSize: 12, marginBottom: 6, color: "#7F1D1D" }}>
                   ✖ {x.restoran} Masa {x.masa_no} · Oda {x.oda} · {x.misafir} · {x.kisi} kişi · {x.saat} — iptal eden: <b>{x.iptal_eden_adi}</b> ({alacarteZamanYaz(x.iptal_zamani)})
@@ -12788,7 +12788,7 @@ function ServisTakipEkrani({ user, onGeri, toastGoster }) {
                 <div style={styles.hataKutusu}>Atanabilecek boş ve hazır cihaz yok (cihazlar misafirde ya da OOServis).</div>
               ) : (
                 <>
-                  <div style={styles.etiket}>CİHAZ SEÇ ({bos.length} boş)</div>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>CİHAZ SEÇ ({bos.length} boş)</div>
                   <select data-testid="ata-secim" style={girdi} value={secili} onChange={(ev) => setAtamaNo({ ...atamaNo, [r.id]: Number(ev.target.value) })}>
                     {bos.map((b) => (<option key={b.no} value={b.no}>{servisNo(r.urun, b.no)}</option>))}
                   </select>
@@ -12860,13 +12860,13 @@ function ServisTakipEkrani({ user, onGeri, toastGoster }) {
             return (
               <div key={u.kod} style={{ ...kutu, borderTop: `4px solid ${u.renk}` }} data-testid={`pano-${u.kod}`}>
                 <div style={{ fontWeight: 800, fontSize: 16 }}>{u.ikon} {u.ad} <span style={{ fontWeight: 500, fontSize: 12, color: "#6B7280" }}>({e.toplam} adet)</span></div>
-                <div style={styles.etiket}>ENVANTER</div>
+                <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>ENVANTER</div>
                 <div style={{ display: "flex", gap: 6 }}>
                   {kutuSayi(e.dolu, "DOLU", "#B91C1C")}
                   {kutuSayi(e.bos, "BOŞ", "#15803D")}
                   {kutuSayi(e.oos, "OOSERVİS", "#6B7280")}
                 </div>
-                <div style={styles.etiket}>BUGÜN</div>
+                <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>BUGÜN</div>
                 <div style={{ display: "flex", gap: 6 }}>
                   {kutuSayi(s.teslim, "TESLİM EDİLECEK", "#2563EB", () => { setUrunFiltre(u.kod); setFiltre("rezerve"); setSekme("liste"); })}
                   {kutuSayi(s.geri, "GERİ ALINACAK", "#0369A1", () => { setUrunFiltre(u.kod); setFiltre("misafirde"); setSekme("liste"); })}
@@ -12877,7 +12877,7 @@ function ServisTakipEkrani({ user, onGeri, toastGoster }) {
             );
           })}
           <div style={{ ...kutu, marginTop: 14 }}>
-            <div style={styles.etiket}>LİSTE (PDF / E-POSTA)</div>
+            <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>LİSTE (PDF / E-POSTA)</div>
             <input style={girdi} type="email" inputMode="email" placeholder="Alıcı e-posta (isteğe bağlı)" value={eposta} onChange={(e) => setEposta(e.target.value)} />
             {SERVIS_URUNLER.map((u) => (
               <div key={u.kod} style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center" }}>
@@ -13364,6 +13364,262 @@ function hkRaporPdf(r, periyot, hotelName, kullaniciAdi) {
   doc.save(`hk-rapor-${periyot}-${r.bas}.pdf`);
 }
 
+/* HK GEÇMİŞ: tarih aralığına göre geçmiş Oda / Talep kayıtları (rapor yetkisi olanlar) */
+function hkGTarih(iso) {
+  if (!iso) return "–";
+  return new Date(iso).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+function hkGDk(a, b) {
+  if (!a || !b) return null;
+  const d = Math.round((new Date(b) - new Date(a)) / 60000);
+  return d >= 0 ? d : null;
+}
+function hkGTablo(tur, satirlar) {
+  if (tur === "oda") {
+    return {
+      kolonlar: ["Oda", "Açılış", "Durum", "Öncelik", "Temizleyen", "Temizlik (dk)", "Çıkış→Hazır (dk)", "Kontrol", "Eksik"],
+      genislik: [34, 80, 54, 50, 90, 50, 58, 70, 34],
+      satirlar: satirlar.map((o) => [
+        o.oda, hkGTarih(o.olusturma_zamani), (HK_ODA_DURUM[o.durum] || [o.durum])[0],
+        (HK_ODA_ONCELIK.find((x) => x[0] === o.oncelik) || [0, o.oncelik])[1], o.atanan_adi || "–",
+        hkGDk(o.temizlik_baslama, o.temizlik_bitis) ?? "–", hkGDk(o.cikis_zamani || o.olusturma_zamani, o.hazir_zamani) ?? "–",
+        o.kontrol_sonucu ? `${o.kontrol_sonucu}${o.kontrol_eden ? " (" + o.kontrol_eden + ")" : ""}` : "–", o.eksik_sayisi || 0,
+      ]),
+    };
+  }
+  return {
+    kolonlar: ["No", "Oda", "Açılış", "Tür", "Öncelik", "Durum", "Açan", "Atanan", "Kabul (dk)", "Tamam (dk)", "Onay"],
+    genislik: [28, 34, 78, 50, 40, 50, 80, 70, 36, 38, 52],
+    satirlar: satirlar.map((t) => [
+      t.no, t.oda, hkGTarih(t.olusturma_zamani), hkTur(t.tur), t.oncelik, (HK_DURUM[t.durum] || [t.durum])[0],
+      `${t.acan_adi || "–"}${t.acan_dept ? " (" + t.acan_dept + ")" : ""}`, t.atanan_adi || "–",
+      hkGDk(t.olusturma_zamani, t.kabul_zamani) ?? "–", hkGDk(t.olusturma_zamani, t.tamam_zamani) ?? "–",
+      t.onay_sonucu ? `${t.onay_sonucu}${t.yeniden_acma ? " ×" + t.yeniden_acma : ""}` : "–",
+    ]),
+  };
+}
+function hkGecmisCsv(tur, satirlar, bas, bit) {
+  const esc = (v) => '"' + String(v ?? "").replace(/"/g, '""') + '"';
+  const t = hkGTablo(tur, satirlar);
+  const csv = "﻿" + [t.kolonlar, ...t.satirlar].map((s) => s.map(esc).join(";")).join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `hk-gecmis-${tur}-${bas}-${bit}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+}
+function hkGecmisPdf(tur, satirlar, bas, bit, hotelName, kullaniciAdi) {
+  const { jsPDF } = window.jspdf;
+  const doc = kosPdf(new jsPDF({ unit: "pt", format: "a4", orientation: "landscape" }));
+  const font = pavPdfFontYukle(doc);
+  const W = doc.internal.pageSize.getWidth();
+  const H = doc.internal.pageSize.getHeight();
+  const m = 28;
+  const t = hkGTablo(tur, satirlar);
+  const toplamG = t.genislik.reduce((a, b) => a + b, 0);
+  const g = t.genislik.map((x) => (x / toplamG) * (W - 2 * m));
+  let y = m;
+  function baslik() {
+    doc.setFont(font, "bold"); doc.setFontSize(9); doc.setFillColor(22, 50, 58); doc.rect(m, y - 9, W - 2 * m, 14, "F"); doc.setTextColor(255, 255, 255);
+    let x = m + 2;
+    t.kolonlar.forEach((k, i) => { doc.text(doc.splitTextToSize(k, g[i] - 4)[0], x, y); x += g[i]; });
+    y += 14; doc.setFont(font, "normal"); doc.setTextColor(30, 30, 30);
+  }
+  doc.setFont(font, "bold"); doc.setFontSize(14); doc.setTextColor(22, 50, 58);
+  doc.text(`HK İş Takibi – Geçmiş ${tur === "oda" ? "Oda" : "Talep"} Kayıtları`, m, y + 2);
+  y += 16; doc.setFont(font, "normal"); doc.setFontSize(9); doc.setTextColor(90, 90, 90);
+  doc.text(`${hotelName}  |  ${lfTarihYaz(bas)} – ${lfTarihYaz(bit)}  |  Hazırlayan: ${kullaniciAdi}  |  ${new Date().toLocaleString("tr-TR")}  |  Toplam: ${satirlar.length}`, m, y);
+  y += 18; baslik(); doc.setFontSize(7.5);
+  t.satirlar.forEach((s, ri) => {
+    const hucre = s.map((v, i) => doc.splitTextToSize(String(v), g[i] - 4));
+    const yuk = Math.max(...hucre.map((h) => h.length)) * 9 + 4;
+    if (y + yuk > H - m) { doc.addPage(); y = m + 8; baslik(); doc.setFontSize(7.5); }
+    if (ri % 2 === 0) { doc.setFillColor(246, 243, 235); doc.rect(m, y - 8, W - 2 * m, yuk, "F"); }
+    let x = m + 2;
+    hucre.forEach((h, i) => { doc.text(h, x, y); x += g[i]; });
+    y += yuk;
+  });
+  if (!t.satirlar.length) doc.text("Bu aralıkta kayıt yok.", m, y);
+  doc.save(`hk-gecmis-${tur}-${bas}-${bit}.pdf`);
+}
+
+function HKGecmis({ user, toastGoster, btn, kutu, girdi, RENK }) {
+  const bugun = servisParca(Date.now()).tarih;
+  const [tur, setTur] = useState("talep");
+  const [bas, setBas] = useState(lfGunEkle(bugun, -6));
+  const [bit, setBit] = useState(bugun);
+  const [veri, setVeri] = useState(null);
+  const [yukleniyor, setYukleniyor] = useState(false);
+  const [hata, setHata] = useState("");
+  const [ara, setAra] = useState("");
+  const [durumF, setDurumF] = useState("hepsi");
+  const [acikId, setAcikId] = useState(null);
+  const [olaylar, setOlaylar] = useState({});
+
+  useEffect(() => {
+    if (!bas || !bit || bas > bit) return;
+    let iptal = false;
+    (async () => {
+      setYukleniyor(true);
+      setHata("");
+      try {
+        const r = await window.OtelRpc.cagir("hk_gecmis", { p_tur: tur, p_bas: bas, p_bit: bit });
+        if (!iptal) { setVeri(r); setAcikId(null); }
+      } catch (e) {
+        if (!iptal) { setVeri(null); setHata(e.message); }
+      }
+      if (!iptal) setYukleniyor(false);
+    })();
+    return () => { iptal = true; };
+  }, [tur, bas, bit]);
+
+  function kisayol(k) {
+    const b = servisParca(Date.now()).tarih;
+    if (k === "dun") { const d = lfGunEkle(b, -1); setBas(d); setBit(d); }
+    if (k === "7") { setBas(lfGunEkle(b, -6)); setBit(b); }
+    if (k === "ay") { setBas(b.slice(0, 8) + "01"); setBit(b); }
+    if (k === "gecenay") {
+      const ilk = b.slice(0, 8) + "01";
+      const son = lfGunEkle(ilk, -1);
+      setBas(son.slice(0, 8) + "01"); setBit(son);
+    }
+  }
+  async function olayAc(id) {
+    if (acikId === id) return setAcikId(null);
+    setAcikId(id);
+    if (!olaylar[id]) {
+      try {
+        const o = await window.OtelRpc.cagir("hk_gecmis_olaylar", { p_id: id });
+        setOlaylar((p) => ({ ...p, [id]: o }));
+      } catch (e) {
+        toastGoster(e.message);
+      }
+    }
+  }
+  const tumu = (veri && veri.satirlar) || [];
+  const f = lfTr(ara.trim());
+  const satirlar = tumu.filter((x) => {
+    if (tur === "talep" && durumF !== "hepsi" && x.durum !== durumF) return false;
+    if (tur === "oda" && durumF !== "hepsi" && x.durum !== durumF) return false;
+    if (!f) return true;
+    const saman = lfTr([x.oda, x.no, x.olusturan_adi, x.atanan_adi, x.acan_adi, x.acan_dept, x.kontrol_eden, x.notu, x.tur ? hkTur(x.tur) : ""].join(" "));
+    return f.split(/\s+/).every((p) => saman.indexOf(p) >= 0);
+  });
+  const ort = (l) => (l.length ? Math.round(l.reduce((a, b) => a + b, 0) / l.length) : "–");
+  const ozetKutular = tur === "oda"
+    ? [
+        [satirlar.length, "ODA KAYDI"],
+        [satirlar.filter((o) => o.durum === "Hazir").length, "HAZIR"],
+        [ort(satirlar.map((o) => hkGDk(o.temizlik_baslama, o.temizlik_bitis)).filter((x) => x !== null)), "ORT. TEMİZLİK (DK)"],
+        [ort(satirlar.map((o) => hkGDk(o.cikis_zamani || o.olusturma_zamani, o.hazir_zamani)).filter((x) => x !== null)), "ÇIKIŞ→HAZIR (DK)"],
+        [satirlar.filter((o) => o.kontrol_sonucu === "Eksik").length, "EKSİK ÇIKAN"],
+      ]
+    : [
+        [satirlar.length, "TALEP"],
+        [satirlar.filter((t) => ["Kapandi", "Tamam"].includes(t.durum)).length, "TAMAMLANAN"],
+        [ort(satirlar.map((t) => hkGDk(t.olusturma_zamani, t.kabul_zamani)).filter((x) => x !== null)), "ORT. KABUL (DK)"],
+        [ort(satirlar.map((t) => hkGDk(t.olusturma_zamani, t.tamam_zamani)).filter((x) => x !== null)), "ORT. TAMAM (DK)"],
+        [satirlar.filter((t) => t.onay_sonucu === "Olmadi" || t.yeniden_acma > 0).length, "OLMADI / YENİDEN"],
+      ];
+  const durumSecenekleri = tur === "oda" ? Object.entries(HK_ODA_DURUM).concat([["Iptal", ["İptal"]]]) : Object.entries(HK_DURUM);
+
+  return (
+    <div data-testid="hk-gecmis">
+      <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+        {[["talep", "Talepler"], ["oda", "Odalar"]].map(([k, a]) => (
+          <button key={k} data-testid={`hkg-tur-${k}`} style={{ ...btn(RENK, tur === k), flex: 1 }} onClick={() => { setTur(k); setDurumF("hepsi"); setAcikId(null); }}>{a}</button>
+        ))}
+      </div>
+      <div style={kutu}>
+        <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>BAŞLANGIÇ</div>
+            <input data-testid="hkg-bas" type="date" style={girdi} value={bas} max={bit} onChange={(e) => setBas(e.target.value)} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>BİTİŞ</div>
+            <input data-testid="hkg-bit" type="date" style={girdi} value={bit} min={bas} max={bugun} onChange={(e) => setBit(e.target.value)} />
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+          {[["dun", "Dün"], ["7", "Son 7 gün"], ["ay", "Bu ay"], ["gecenay", "Geçen ay"]].map(([k, a]) => (
+            <button key={k} data-testid={`hkg-k-${k}`} style={btn(RENK)} onClick={() => kisayol(k)}>{a}</button>
+          ))}
+        </div>
+        <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>ARA (oda no, kişi, tür, not…)</div>
+        <input data-testid="hkg-ara" style={girdi} value={ara} onChange={(e) => setAra(e.target.value)} />
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+          <button style={btn(RENK, durumF === "hepsi")} onClick={() => setDurumF("hepsi")}>Tümü</button>
+          {durumSecenekleri.map(([k, d]) => (
+            <button key={k} style={btn(RENK, durumF === k)} onClick={() => setDurumF(k)}>{d[0]}</button>
+          ))}
+        </div>
+      </div>
+      {hata && <div style={styles.hataKutusu}>{hata}</div>}
+      {yukleniyor && <div style={styles.merkezYukleniyor}>Yükleniyor…</div>}
+      {veri && !yukleniyor && (
+        <div>
+          <div style={kutu}>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {ozetKutular.map(([sayi, etiket]) => (
+                <div key={etiket} style={{ flex: "1 1 30%", textAlign: "center", background: `${RENK}14`, border: `1.5px solid ${RENK}`, borderRadius: 12, padding: "8px 2px" }}>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: RENK }} data-testid="hkg-ozet">{sayi}</div>
+                  <div style={{ fontSize: 11, color: "#374151", fontWeight: 700 }}>{etiket}</div>
+                </div>
+              ))}
+            </div>
+            {veri.kesildi && <div style={styles.notMetni}>Bu aralıkta {veri.toplam} kayıt var; en yeni 3000 tanesi gösteriliyor. Aralığı daraltın.</div>}
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <button data-testid="hkg-pdf" style={{ ...btn(RENK, true), flex: 1 }} onClick={() => {
+              if (!(window.jspdf && window.jspdf.jsPDF)) return toastGoster("PDF oluşturucu hazırlanıyor, birkaç saniye sonra deneyin.");
+              try { hkGecmisPdf(tur, satirlar, bas, bit, user.hotelName, user.name); } catch (e) { toastGoster("PDF oluşturulamadı: " + e.message); }
+            }}>PDF indir</button>
+            <button data-testid="hkg-csv" style={{ ...btn(RENK), flex: 1 }} onClick={() => hkGecmisCsv(tur, satirlar, bas, bit)}>Excel (CSV) indir</button>
+          </div>
+          {satirlar.length === 0 ? (
+            <div style={styles.bilgiKutusu}>Bu aralıkta kayıt bulunamadı.</div>
+          ) : (
+            satirlar.map((x) => {
+              const acik = acikId === x.id;
+              const d = tur === "oda" ? HK_ODA_DURUM[x.durum] || [x.durum === "Iptal" ? "İptal" : x.durum, "#6B7280"] : HK_DURUM[x.durum] || [x.durum, "#6B7280"];
+              const t = hkGTablo(tur, [x]);
+              return (
+                <div key={x.id} data-testid="hkg-satir" style={{ ...kutu, borderLeft: `5px solid ${d[1]}` }}>
+                  <div onClick={() => olayAc(x.id)} style={{ cursor: "pointer" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                      <div style={{ fontWeight: 800, fontSize: 15 }}>{tur === "talep" ? `#${x.no} · ` : ""}Oda {x.oda}{tur === "talep" ? ` · ${hkTur(x.tur)}` : ` · ${(HK_ODA_ONCELIK.find((z) => z[0] === x.oncelik) || [0, x.oncelik])[1]}`}</div>
+                      <div style={{ background: d[1], color: "#fff", borderRadius: 8, fontSize: 11, fontWeight: 800, padding: "3px 8px", whiteSpace: "nowrap", alignSelf: "flex-start" }}>{d[0]}</div>
+                    </div>
+                    <div style={{ fontSize: 12, color: "#4B5563", marginTop: 4 }}>
+                      {hkGTarih(x.olusturma_zamani)} · {tur === "talep" ? `açan: ${x.acan_adi || "–"}${x.atanan_adi ? " · yapan: " + x.atanan_adi : ""}` : `temizleyen: ${x.atanan_adi || "–"}`}
+                    </div>
+                  </div>
+                  {acik && (
+                    <div style={{ marginTop: 8, fontSize: 13 }} data-testid="hkg-detay">
+                      {t.kolonlar.map((k, i) => (
+                        <div key={k} style={{ display: "flex", justifyContent: "space-between", gap: 8, borderBottom: "1px solid #EEE", padding: "3px 0" }}><span style={{ color: "#6B7280" }}>{k}</span><b style={{ textAlign: "right" }}>{String(t.satirlar[0][i])}</b></div>
+                      ))}
+                      {x.notu && <div style={{ marginTop: 6 }}>Not: {x.notu}</div>}
+                      {(x.kontrol_notu || x.tamam_notu) && <div style={{ marginTop: 4 }}>{x.kontrol_notu ? `Kontrol notu: ${x.kontrol_notu}` : `Tamamlama notu: ${x.tamam_notu}`}</div>}
+                      <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>İŞLEM GEÇMİŞİ</div>
+                      {!olaylar[x.id] ? <div>Yükleniyor…</div> : olaylar[x.id].length === 0 ? <div>Kayıt yok.</div> : olaylar[x.id].map((o, i) => (
+                        <div key={i} style={{ fontSize: 12, padding: "2px 0" }}>{hkGTarih(o.zaman)} — {o.kim || "Sistem"}{o.poz ? ` (${o.poz})` : ""} — {o.tur}{o.metin ? `: ${o.metin}` : ""}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function HKEkrani({ user, onGeri, toastGoster }) {
   const [sekme, setSekme] = useState("pano");
   const [pano, setPano] = useState(null);
@@ -13540,7 +13796,7 @@ function HKEkrani({ user, onGeri, toastGoster }) {
     );
   }
 
-  const sekmeler = [["pano", "Pano"], ["talep", "Talepler"], ["oda", "Odalar"], ...(rol.rapor ? [["rapor", "Raporlar"]] : [])];
+  const sekmeler = [["pano", "Pano"], ["talep", "Talepler"], ["oda", "Odalar"], ...(rol.rapor ? [["rapor", "Raporlar"], ["gecmis", "Geçmiş"]] : [])];
   const filtreler = [["acik", "Açık"], ["bekleyen", "Bekleyen"], ["bana", "Bende"], ["onay", "Onay bekleyen"], ["geciken", "Geciken"], ["kapali", "Kapalı (7 gün)"]];
   const talepAcabilir = rol.acan || rol.dispatch || rol.yonetim;
   const r = rapor;
@@ -13593,7 +13849,7 @@ function HKEkrani({ user, onGeri, toastGoster }) {
       {pano && sekme === "pano" && (
         <div>
           <div style={{ ...kutu, borderTop: `4px solid ${RENK}` }}>
-            <div style={styles.etiket}>HİZMET TALEPLERİ · ŞU AN</div>
+            <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>HİZMET TALEPLERİ · ŞU AN</div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               {kutuSayi(pano.talep.acik, "AÇIK", "#0369A1", () => git("acik"), "hp-acik")}
               {kutuSayi(pano.talep.bekleyen, "KABUL BEKLEYEN", pano.talep.bekleyen ? "#B45309" : "#6B7280", () => git("bekleyen"), "hp-bekleyen")}
@@ -13602,7 +13858,7 @@ function HKEkrani({ user, onGeri, toastGoster }) {
               {kutuSayi(pano.ben.benim_gorev, "BENDEKİ İŞ", "#6D28D9", () => git("bana"), "hp-bende")}
               {kutuSayi(pano.ben.benim_onay, "ONAYIMI BEKLEYEN", pano.ben.benim_onay ? "#0F766E" : "#6B7280", () => git("onay"), "hp-onayim")}
             </div>
-            <div style={styles.etiket}>ODALAR</div>
+            <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>ODALAR</div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               {kutuSayi(pano.oda.kirli, "KİRLİ", "#B91C1C", () => setSekme("oda"), "hp-kirli")}
               {kutuSayi(pano.oda.temizleniyor, "TEMİZLENİYOR", "#6D28D9", () => setSekme("oda"))}
@@ -13610,7 +13866,7 @@ function HKEkrani({ user, onGeri, toastGoster }) {
               {kutuSayi(pano.oda.hazir_bugun, "BUGÜN HAZIR", "#15803D", () => setSekme("oda"))}
               {kutuSayi(pano.oda.bekle, "BEKLE (R/C)", "#6B7280", () => setSekme("oda"))}
             </div>
-            <div style={styles.etiket}>BUGÜN</div>
+            <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>BUGÜN</div>
             <div style={{ fontSize: 13 }}>
               {pano.talep.bugun} talep açıldı · {pano.talep.bugun_kapanan} kapandı · ortalama tamamlama {pano.talep.ort_tamam_dk ?? "–"} dk
             </div>
@@ -13652,7 +13908,7 @@ function HKEkrani({ user, onGeri, toastGoster }) {
         <div>
           {(rol.acan || rol.dispatch) && (
             <div style={kutu}>
-              <div style={styles.etiket}>ÇIKAN ODALAR (birden fazla: boşluk veya virgülle)</div>
+              <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>ÇIKAN ODALAR (birden fazla: boşluk veya virgülle)</div>
               <input data-testid="hk-c-odalar" placeholder="1101 1102 1205" value={cikis.odalar} onChange={(e) => setCikis({ ...cikis, odalar: e.target.value })} style={girdi} />
               <select data-testid="hk-c-oncelik" value={cikis.oncelik} onChange={(e) => setCikis({ ...cikis, oncelik: e.target.value })} style={girdi}>
                 {HK_ODA_ONCELIK.filter((x) => x[0] !== "RC").map(([k, a]) => <option key={k} value={k}>{a}</option>)}
@@ -13691,6 +13947,7 @@ function HKEkrani({ user, onGeri, toastGoster }) {
         </div>
       )}
 
+      {pano && sekme === "gecmis" && rol.rapor && <HKGecmis user={user} toastGoster={toastGoster} btn={btn} kutu={kutu} girdi={girdi} RENK={RENK} />}
       {pano && sekme === "rapor" && rol.rapor && (
         <div data-testid="hk-rapor">
           <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
@@ -13716,7 +13973,7 @@ function HKEkrani({ user, onGeri, toastGoster }) {
                 </div>
               </div>
               <div style={kutu}>
-                <div style={styles.etiket}>TÜRE GÖRE</div>
+                <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>TÜRE GÖRE</div>
                 {(r.turler || []).map((t) => (
                   <div key={t.tur} style={{ marginTop: 6, fontSize: 13 }}>
                     <div style={{ display: "flex", justifyContent: "space-between" }}><span>{hkTur(t.tur)}</span><b>{t.adet}</b></div>
@@ -13724,9 +13981,9 @@ function HKEkrani({ user, onGeri, toastGoster }) {
                   </div>
                 ))}
                 {!(r.turler || []).length && <div style={{ fontSize: 13 }}>Bu dönemde talep yok.</div>}
-                <div style={styles.etiket}>TALEBİ AÇAN DEPARTMAN</div>
+                <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>TALEBİ AÇAN DEPARTMAN</div>
                 {(r.departmanlar || []).map((d) => <div key={d.dept} style={{ fontSize: 13 }}>{d.dept}: <b>{d.adet}</b></div>)}
-                {!!(r.tekrar_odalar || []).length && <div style={styles.etiket}>TEKRAR EDEN ODALAR</div>}
+                {!!(r.tekrar_odalar || []).length && <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>TEKRAR EDEN ODALAR</div>}
                 {(r.tekrar_odalar || []).map((d) => <div key={d.oda} style={{ fontSize: 13 }}>Oda {d.oda}: <b>{d.adet}</b> talep</div>)}
               </div>
               <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
@@ -14283,7 +14540,7 @@ function IkramEkrani({ user, onGeri, toastGoster }) {
           </div>
           {y.fb_yon && bugunMu && (
             <div style={kutu}>
-              <div style={styles.etiket}>GÖREVLİ ATAMA (Yiyecek & İçecek)</div>
+              <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>GÖREVLİ ATAMA (Yiyecek & İçecek)</div>
               <select data-testid="ikram-gorevli-sec" style={girdi} value={secGorevli} onChange={(e) => setSecGorevli(e.target.value)}>
                 <option value="">Görevli seçin…</option>
                 {adaylar.map((a) => <option key={a.kod} value={a.kod}>{a.ad} — {a.bolum}</option>)}
@@ -14540,7 +14797,7 @@ function RevirEkrani({ user, onGeri, toastGoster }) {
             </div>
           )}
           <div style={{ ...kutu, borderTop: "4px solid #B91C1C" }}>
-            <div style={styles.etiket}>ŞU AN</div>
+            <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>ŞU AN</div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               {kutuSayi(pano.acik, "AÇIK VAKA", "#0369A1", () => git("acik"), "p-acik")}
               {kutuSayi(pano.bekleyen, "DEĞERLENDİRME BEKLEYEN", pano.bekleyen ? "#B45309" : "#6B7280", () => git("bekleyen"), "p-bekleyen")}
@@ -14548,19 +14805,19 @@ function RevirEkrani({ user, onGeri, toastGoster }) {
               {kutuSayi(pano.takip_gecikmis, "TAKİP GECİKMİŞ", pano.takip_gecikmis ? "#B91C1C" : "#6B7280", () => git("takip"), "p-takip")}
               {kutuSayi(pano.yuksek_risk, "YÜKSEK RİSK", pano.yuksek_risk ? "#B91C1C" : "#6B7280", () => git("acik"), "p-risk")}
             </div>
-            <div style={styles.etiket}>BUGÜN</div>
+            <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>BUGÜN</div>
             <div style={{ display: "flex", gap: 6 }}>
               {kutuSayi(pano.bugun_toplam, "TOPLAM", "#15803D", () => git("gun"), "p-bugun")}
               {kutuSayi(pano.bugun_hastane, "HASTANE SEVKİ", "#B45309")}
               {kutuSayi(pano.bugun_ambulans, "AMBULANS", "#B91C1C")}
             </div>
-            <div style={styles.etiket}>SON 24 SAAT (TÜRE GÖRE)</div>
+            <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>SON 24 SAAT (TÜRE GÖRE)</div>
             <div style={{ fontSize: 13 }}>
               {Object.keys(pano.kategori_24s).length === 0 ? "Vaka yok" : Object.entries(pano.kategori_24s).sort((a, b) => b[1] - a[1]).map(([k, n]) => (
                 <span key={k} style={{ display: "inline-block", marginRight: 10 }}>{revirKat(k).ikon} {revirKat(k).ad.split(" /")[0]}: <b>{n}</b></span>
               ))}
             </div>
-            <div style={styles.etiket}>SON 7 GÜN (TOPLAM / KUSMA-İSHAL)</div>
+            <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>SON 7 GÜN (TOPLAM / KUSMA-İSHAL)</div>
             <div style={{ display: "flex", gap: 4, alignItems: "flex-end", height: 70 }}>
               {pano.son7.map((g) => {
                 const mx = Math.max(1, ...pano.son7.map((x) => x.toplam));
@@ -14577,7 +14834,7 @@ function RevirEkrani({ user, onGeri, toastGoster }) {
             </div>
           </div>
           <div style={{ ...kutu, marginTop: 14 }}>
-            <div style={styles.etiket}>GÜNLÜK ÖZET (PDF / E-POSTA, kişisel veri içermez)</div>
+            <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>GÜNLÜK ÖZET (PDF / E-POSTA, kişisel veri içermez)</div>
             <input style={girdi} type="email" inputMode="email" placeholder="Alıcı e-posta (isteğe bağlı)" value={eposta} onChange={(e) => setEposta(e.target.value)} />
             <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
               <button style={{ ...styles.ikincilButon, flex: 1 }} onClick={() => pdfGunluk(false)}>📄 PDF</button>
@@ -14636,9 +14893,9 @@ function RevirBildirForm({ kutu, girdi, gor, onBitti }) {
   return (
     <div style={kutu}>
       {hata && <div style={styles.hataKutusu}>{hata}</div>}
-      <div style={styles.etiket}>ODA NUMARASI</div>
+      <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>ODA NUMARASI</div>
       <input style={girdi} inputMode="numeric" maxLength={4} placeholder="Örn. 1204" value={f.oda} onChange={(e) => ayar("oda", e.target.value.replace(/\D/g, ""))} />
-      <div style={styles.etiket}>ŞİKÂYET TÜRÜ (birden fazla seçilebilir)</div>
+      <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>ŞİKÂYET TÜRÜ (birden fazla seçilebilir)</div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
         {REVIR_KATEGORILER.map((k) => (
           <button key={k.k} data-testid={`kat-${k.k}`} type="button" style={chip(f.kat.includes(k.k), "#B91C1C")} onClick={() => ayar("kat", f.kat.includes(k.k) ? f.kat.filter((x) => x !== k.k) : [...f.kat, k.k])}>
@@ -14648,11 +14905,11 @@ function RevirBildirForm({ kutu, girdi, gor, onBitti }) {
       </div>
       <div style={{ display: "flex", gap: 8 }}>
         <div style={{ flex: 1 }}>
-          <div style={styles.etiket}>KİŞİ SAYISI</div>
+          <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>KİŞİ SAYISI</div>
           <input style={girdi} inputMode="numeric" value={f.kisi} onChange={(e) => ayar("kisi", e.target.value.replace(/\D/g, "").slice(0, 2))} />
         </div>
         <div style={{ flex: 2 }}>
-          <div style={styles.etiket}>YAŞ GRUBU</div>
+          <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>YAŞ GRUBU</div>
           <select style={girdi} value={f.yas} onChange={(e) => ayar("yas", e.target.value)}>
             {REVIR_YAS.map(([k, ad]) => (<option key={k} value={k}>{ad}</option>))}
           </select>
@@ -14660,31 +14917,31 @@ function RevirBildirForm({ kutu, girdi, gor, onBitti }) {
       </div>
       <div style={{ display: "flex", gap: 8 }}>
         <div style={{ flex: 1 }}>
-          <div style={styles.etiket}>CİNSİYET</div>
+          <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>CİNSİYET</div>
           <select style={girdi} value={f.cins} onChange={(e) => ayar("cins", e.target.value)}>
             <option value="">—</option><option value="K">Kadın</option><option value="E">Erkek</option>
           </select>
         </div>
         <div style={{ flex: 1 }}>
-          <div style={styles.etiket}>UYRUK</div>
+          <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>UYRUK</div>
           <select style={girdi} value={f.uyruk} onChange={(e) => ayar("uyruk", e.target.value)}>
             {REVIR_UYRUK.map(([k, ad]) => (<option key={k} value={k}>{ad}</option>))}
           </select>
         </div>
         <div style={{ flex: 1 }}>
-          <div style={styles.etiket}>OLAY YERİ</div>
+          <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>OLAY YERİ</div>
           <select style={girdi} value={f.yer} onChange={(e) => ayar("yer", e.target.value)}>
             {REVIR_YERLER.map(([k, ad]) => (<option key={k} value={k}>{ad}</option>))}
           </select>
         </div>
       </div>
-      <div style={styles.etiket}>KISA NOT</div>
+      <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>KISA NOT</div>
       <textarea style={{ ...girdi, minHeight: 64 }} maxLength={500} placeholder="Ne oldu, misafir ne istiyor?" value={f.sikayet} onChange={(e) => ayar("sikayet", e.target.value)} />
-      <div style={styles.etiket}>MİSAFİRİN ŞÜPHELENDİĞİ KAYNAK (isteğe bağlı)</div>
+      <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>MİSAFİRİN ŞÜPHELENDİĞİ KAYNAK (isteğe bağlı)</div>
       <input style={girdi} maxLength={200} placeholder="Örn. dün akşam restoranda yediği yemek, havuz suyu" value={f.supheli} onChange={(e) => ayar("supheli", e.target.value)} />
       {gor && (
         <>
-          <div style={styles.etiket}>MİSAFİR ADI (zorunlu değil)</div>
+          <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>MİSAFİR ADI (zorunlu değil)</div>
           <input style={girdi} maxLength={80} value={f.ad} onChange={(e) => ayar("ad", e.target.value)} />
         </>
       )}
@@ -14782,19 +15039,19 @@ function RevirDetay({ id, yetki, simdi, kutu, girdi, toastGoster, onGeri }) {
 
           {panel === "degerlendir" && (
             <div style={kutu} data-testid="p-degerlendir">
-              <div style={styles.etiket}>KARAR</div>
+              <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>KARAR</div>
               <select style={girdi} value={f.karar} onChange={(e) => ayar("karar", e.target.value)}>
                 <option value="">Seçin…</option>
                 {REVIR_KARARLAR.map(([k, ad]) => (<option key={k} value={k}>{ad}</option>))}
               </select>
               {f.karar === "Hastane" && (
                 <>
-                  <div style={styles.etiket}>SEVK ŞEKLİ</div>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>SEVK ŞEKLİ</div>
                   <select style={girdi} value={f.sevk} onChange={(e) => ayar("sevk", e.target.value)}>
                     <option value="">Seçin…</option>
                     {REVIR_SEVK.map(([k, ad]) => (<option key={k} value={k}>{ad}</option>))}
                   </select>
-                  <div style={styles.etiket}>HASTANE</div>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>HASTANE</div>
                   <input style={girdi} maxLength={80} value={f.hastane} onChange={(e) => ayar("hastane", e.target.value)} />
                 </>
               )}
@@ -14803,21 +15060,21 @@ function RevirDetay({ id, yetki, simdi, kutu, girdi, toastGoster, onGeri }) {
                   <input type="checkbox" checked={f.ret} onChange={(e) => ayar("ret", e.target.checked)} /> İmzalı tedavi ret formu alındı
                 </label>
               )}
-              <div style={styles.etiket}>TANI / DEĞERLENDİRME</div>
+              <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>TANI / DEĞERLENDİRME</div>
               <textarea style={{ ...girdi, minHeight: 56 }} maxLength={600} value={f.tani} onChange={(e) => ayar("tani", e.target.value)} />
-              <div style={styles.etiket}>UYGULANAN TEDAVİ</div>
+              <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>UYGULANAN TEDAVİ</div>
               <textarea style={{ ...girdi, minHeight: 56 }} maxLength={600} value={f.tedavi} onChange={(e) => ayar("tedavi", e.target.value)} />
-              <div style={styles.etiket}>VİTAL BULGULAR</div>
+              <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>VİTAL BULGULAR</div>
               <input style={girdi} maxLength={300} placeholder="Ateş, tansiyon, nabız…" value={f.vital} onChange={(e) => ayar("vital", e.target.value)} />
               <div style={{ display: "flex", gap: 8 }}>
                 <div style={{ flex: 1 }}>
-                  <div style={styles.etiket}>ÜCRET</div>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>ÜCRET</div>
                   <select style={girdi} value={f.ucret} onChange={(e) => ayar("ucret", e.target.value)}>
                     <option value="">—</option><option value="Ucretsiz">Ücretsiz</option><option value="Ucretli">Ücretli</option>
                   </select>
                 </div>
                 <div style={{ flex: 1 }}>
-                  <div style={styles.etiket}>SONRAKİ TAKİP (saat)</div>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>SONRAKİ TAKİP (saat)</div>
                   <input style={girdi} inputMode="numeric" placeholder="otomatik" value={f.saat} onChange={(e) => ayar("saat", e.target.value.replace(/\D/g, "").slice(0, 2))} />
                 </div>
               </div>
@@ -14826,29 +15083,29 @@ function RevirDetay({ id, yetki, simdi, kutu, girdi, toastGoster, onGeri }) {
           )}
           {panel === "takip" && (
             <div style={kutu} data-testid="p-takip">
-              <div style={styles.etiket}>MİSAFİRİN DURUMU</div>
+              <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>MİSAFİRİN DURUMU</div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                 {REVIR_TAKIP.map(([k, ad]) => (<button key={k} data-testid={`t-${k}`} type="button" style={chip(f.durum === k, k === "Kotu" ? "#B91C1C" : "#0369A1")} onClick={() => ayar("durum", k)}>{ad}</button>))}
               </div>
-              <div style={styles.etiket}>NOT</div>
+              <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>NOT</div>
               <input style={girdi} maxLength={200} value={f.not} onChange={(e) => ayar("not", e.target.value)} />
               <button data-testid="p-takip-kaydet" style={{ ...styles.anaButon, marginTop: 12 }} disabled={mesgul || !f.durum} onClick={() => islem("revir_takip_ekle", { p_id: v.id, p_durum: f.durum, p_not: f.not || null }, "✓ Takip kaydedildi")}>Kaydet</button>
             </div>
           )}
           {panel === "kapat" && (
             <div style={kutu} data-testid="p-kapat">
-              <div style={styles.etiket}>KAPANIŞ SONUCU</div>
+              <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>KAPANIŞ SONUCU</div>
               <select style={girdi} value={f.sonuc} onChange={(e) => ayar("sonuc", e.target.value)}>
                 <option value="">Seçin…</option>
                 {REVIR_SONUC.map(([k, ad]) => (<option key={k} value={k}>{ad}</option>))}
               </select>
-              <div style={styles.etiket}>NOT</div>
+              <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>NOT</div>
               <input style={girdi} maxLength={300} value={f.not} onChange={(e) => ayar("not", e.target.value)} />
               <button data-testid="p-kapat-kaydet" style={{ ...styles.anaButon, marginTop: 12, background: "#15803D" }} disabled={mesgul || !f.sonuc} onClick={() => islem("revir_kapat", { p_id: v.id, p_sonuc: f.sonuc, p_not: f.not || null }, "✓ Vaka kapatıldı")}>Vakayı Kapat</button>
             </div>
           )}
           <div style={kutu}>
-            <div style={styles.etiket}>ZAMAN ÇİZELGESİ</div>
+            <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>ZAMAN ÇİZELGESİ</div>
             {v.olaylar.map((o, i) => (
               <div key={i} style={{ borderLeft: "3px solid #B91C1C", paddingLeft: 8, marginTop: 8 }}>
                 <div style={{ fontSize: 13, fontWeight: 800 }}>{o.tur}</div>
@@ -16270,7 +16527,7 @@ function GecmisEkrani({ kayitlar, yukleniyor, onGeri, onPdf, jsPdfHazirMi }) {
 }
 
 function Etiket({ children }) {
-  return <div style={styles.etiket}>{children}</div>;
+  return <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 8 }}>{children}</div>;
 }
 
 /* ------------------------------------------------------------------
