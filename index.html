@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.52";
+window.UYGULAMA_SURUMU = "1.53";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -1826,6 +1826,12 @@ function modulAcik(user, modul, eskiKural) {
   if (!user) return false;
   if (Array.isArray(user.moduller)) return user.moduller.includes(modul);
   return eskiKural ? !!eskiKural(user) : true;
+}
+// Departman müdürü: pozisyonu Müdür veya Asistan olan (Genel Müdürlük hariç; onların kendi paneli var)
+function deptMudurMu(user) {
+  if (!user || !user.department || user.department === "Genel Müdürlük" || user.department === "Admin") return false;
+  const poz = String(user.pozisyon || "").toLocaleUpperCase("tr-TR");
+  return poz === "MÜDÜR" || poz === "ASİSTAN";
 }
 function arizaKullanabilir(user) { return modulAcik(user, "ariza"); }
 function lostfoundKullanabilir(user) { return modulAcik(user, "lostfound"); }
@@ -3825,6 +3831,7 @@ html[data-tema="gece"] .telefon-govde button.uyn-giris-btn{background:linear-gra
             onRevir={() => setScreen("revir")}
             onHK={() => setScreen("hk")}
             onGMYonetim={() => setScreen("gmYonetim")}
+            onDeptPanel={() => setScreen("deptPanel")}
             bekleyenGorevler={bekleyenGorevler}
             onGorevKabul={gorevKabulEt}
             modulSira={modulSira}
@@ -3889,6 +3896,8 @@ html[data-tema="gece"] .telefon-govde button.uyn-giris-btn{background:linear-gra
           <AdminEkrani onCikis={handleLogout} onPinDegistir={pinEkraniAc} />
         ) : screen === "gorevAta" ? (
           <GorevAtaEkrani user={currentUser} onGeri={() => setScreen("home")} toastGoster={toastGoster} />
+        ) : screen === "deptPanel" && deptMudurMu(currentUser) ? (
+          <DepartmanYonetimEkrani user={currentUser} onGeri={() => setScreen("home")} />
         ) : screen === "gmYonetim" ? (
           <GMYonetimEkrani
             user={currentUser}
@@ -4179,6 +4188,7 @@ function AnaSayfa({
   onTema,
   onGorevAta,
   onGMYonetim,
+  onDeptPanel,
   onLostFound,
   onArizaBildir,
   onRoomService,
@@ -4226,6 +4236,7 @@ function AnaSayfa({
     { id: "alacarte", goster: alacarteKullanabilir(user), ikon: "🍷", baslik: "Alacarte Rezervasyon", tid: "alacarte-btn", renk: "#9A3412", tikla: onAlacarte },
     { id: "hk", goster: hkKullanabilir(user), ikon: "🧹", baslik: "HK İş Takibi", tid: "hk-is-takibi", renk: "#0F766E", tikla: onHK },
     { id: "gorevata", goster: user.department === "Genel Müdürlük" && GOREV_ATAMA_IZINLI_OTELLER.includes(user.hotelCode), ikon: "📋", baslik: "Kat Hizmetlerine Görev Ata", tid: "gorevata-btn", renk: "#16323A", tikla: onGorevAta },
+    { id: "deptpanel", goster: deptMudurMu(user), ikon: "👥", baslik: "Departman Yönetim Paneli", tid: "dept-panel-btn", renk: "#16323A", tikla: onDeptPanel },
     { id: "gm", goster: user.department === "Genel Müdürlük" || !!user.modulYonetici, ikon: "🏨", baslik: "Otel Yönetim Paneli", tid: "gm-yonetim-btn", renk: "#16323A", tikla: onGMYonetim },
   ].filter((m) => m.goster);
   const sirala = (liste, sira) => {
@@ -6034,12 +6045,12 @@ function GMModulSekmesi({ user, toastGoster }) {
 // kontrol listesi ilerlemesi) gösterir. Yalnızca user.hotelCode'a ait
 // kullanıcılar listelenir. Bir kullanıcıya dokununca canlı ilerleme paneli
 // açılır (15 saniyede bir otomatik yenilenir): "7/70 - %10" gibi.
-function GMOzetSekmesi({ user }) {
+function GMOzetSekmesi({ user, departman }) {
   const [yukleniyor, setYukleniyor] = useState(true);
   const [kullanicilar, setKullanicilar] = useState([]);
   const [acikKullanici, setAcikKullanici] = useState(null);
   const [ilerlemeVerisi, setIlerlemeVerisi] = useState({});
-  const [acikDept, setAcikDept] = useState(null);
+  const [acikDept, setAcikDept] = useState(departman || null);
   const [acikBolum, setAcikBolum] = useState(null);
 
   useEffect(() => {
@@ -6067,7 +6078,7 @@ function GMOzetSekmesi({ user }) {
         if (r) {
           try {
             const veri = JSON.parse(r.value);
-            if (veri.hotelCode === user.hotelCode && veri.department !== "Admin") kayitlar.push(veri);
+            if (veri.hotelCode === user.hotelCode && veri.department !== "Admin" && (!departman || veri.department === departman)) kayitlar.push(veri);
           } catch (e) {}
         }
       }
@@ -6236,6 +6247,21 @@ function GMOzetSekmesi({ user }) {
           })()}
         </div>
       )}
+    </div>
+  );
+}
+
+function DepartmanYonetimEkrani({ user, onGeri }) {
+  return (
+    <div style={styles.icerik}>
+      <div style={styles.listeUstBaslik}>
+        <button style={styles.geriButon} onClick={onGeri} aria-label="Geri">←</button>
+        <div>
+          <div className="baslik-font" style={styles.listeBaslikYazi}>Departman Yönetim Paneli</div>
+          <div style={styles.ilerlemeYazi}>{user.department} · {user.hotelName}</div>
+        </div>
+      </div>
+      <GMOzetSekmesi user={user} departman={user.department} />
     </div>
   );
 }
