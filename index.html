@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.51";
+window.UYGULAMA_SURUMU = "1.52";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -1586,7 +1586,6 @@ const STANDART_DEPARTMAN_YAPISI = [
     harf: "S",
     departman: "Misafir Deneyimi & Kalite",
     bolumler: [
-      "Guest Experience",
       "Guest Relations",
       "Quality Management",
       "Quality Assurance",
@@ -6040,6 +6039,8 @@ function GMOzetSekmesi({ user }) {
   const [kullanicilar, setKullanicilar] = useState([]);
   const [acikKullanici, setAcikKullanici] = useState(null);
   const [ilerlemeVerisi, setIlerlemeVerisi] = useState({});
+  const [acikDept, setAcikDept] = useState(null);
+  const [acikBolum, setAcikBolum] = useState(null);
 
   useEffect(() => {
     yukle();
@@ -6118,61 +6119,121 @@ function GMOzetSekmesi({ user }) {
       ) : kullanicilar.length === 0 ? (
         <div style={styles.bilgiKutusu}>Bu otelde henüz kullanıcı bulunmuyor.</div>
       ) : (
-        <div style={styles.adminTablo}>
-          <div style={{ ...styles.adminSatir, ...styles.adminSatirBaslik }}>
-            <div style={styles.adminHucreKod}>Kod</div>
-            <div style={styles.adminHucreIsim}>İsim</div>
-            <div style={styles.adminHucreDepartman}>Departman</div>
-          </div>
-          {kullanicilar.map((k) => {
-            const acik = acikKullanici === k.userCode;
-            const il = ilerlemeVerisi[k.userCode];
-            return (
-              <div key={k.userCode}>
-                <button style={{ ...styles.adminSatir, ...styles.adminSatirButon }} onClick={() => tikla(k)}>
-                  <div style={styles.adminHucreKod}>{k.userCode}</div>
-                  <div style={styles.adminHucreIsim}>{k.name}</div>
-                  <div style={styles.adminHucreDepartman}>{k.department}</div>
-                  <div style={styles.adminOkIsareti}>{acik ? "▲" : "▼"}</div>
-                </button>
-
-                {acik && (
-                  <div style={styles.adminIlerlemePaneli}>
-                    {!il || il.yukleniyor ? (
-                      <div style={styles.adminIlerlemeYukleniyor}>Yükleniyor…</div>
-                    ) : il.hata ? (
-                      <div style={styles.adminIlerlemeHata}>İlerleme bilgisi alınamadı.</div>
-                    ) : il.bulunamadi ? (
-                      <div style={styles.adminIlerlemeBos}>
-                        Bugün için "{k.department}" departmanında henüz bir kontrol listesi başlatılmadı.
-                      </div>
-                    ) : (
-                      (() => {
-                        const yuzde = il.toplam > 0 ? Math.round((il.tamamlanan / il.toplam) * 100) : 0;
-                        return (
-                          <>
-                            <div style={styles.adminIlerlemeUstSatir}>
-                              <span>
-                                Bugün · {k.department}
-                                {k.bolum ? ` · ${bolumBasligiBul(k.department, k.bolum)}` : ""} ·{" "}
-                                <strong>
-                                  {il.tamamlanan}/{il.toplam} - %{yuzde}
-                                </strong>
-                              </span>
+        <div style={styles.adminTablo} data-testid="ozet-liste">
+          {(() => {
+            const BOLUMSUZ = "Bölümsüz";
+            const depMap = new Map();
+            kullanicilar.forEach((k) => {
+              const d = k.department || "Departmansız";
+              const bl = k.bolum || BOLUMSUZ;
+              if (!depMap.has(d)) depMap.set(d, new Map());
+              const bm = depMap.get(d);
+              if (!bm.has(bl)) bm.set(bl, []);
+              bm.get(bl).push(k);
+            });
+            return [...depMap.entries()]
+              .sort((x, y) => x[0].localeCompare(y[0], "tr"))
+              .map(([dep, bm]) => {
+                const depAcik = acikDept === dep;
+                const depSayi = [...bm.values()].reduce((t, l) => t + l.length, 0);
+                return (
+                  <div key={dep}>
+                    <button
+                      data-testid="ozet-dept"
+                      style={{ ...styles.adminSatir, ...styles.adminSatirButon, fontWeight: 700 }}
+                      onClick={() => {
+                        setAcikDept(depAcik ? null : dep);
+                        setAcikBolum(null);
+                        setAcikKullanici(null);
+                      }}
+                    >
+                      <div style={{ flex: 1, textAlign: "left" }}>{dep}</div>
+                      <div style={{ opacity: 0.7, marginRight: 8 }}>{depSayi} kişi</div>
+                      <div style={styles.adminOkIsareti}>{depAcik ? "▲" : "▼"}</div>
+                    </button>
+                    {depAcik &&
+                      [...bm.entries()]
+                        .sort((x, y) => x[0].localeCompare(y[0], "tr"))
+                        .map(([bol, liste]) => {
+                          const bolAcik = acikBolum === bol;
+                          return (
+                            <div key={bol} style={{ paddingLeft: 14 }}>
+                              <button
+                                data-testid="ozet-bolum"
+                                style={{ ...styles.adminSatir, ...styles.adminSatirButon }}
+                                onClick={() => {
+                                  setAcikBolum(bolAcik ? null : bol);
+                                  setAcikKullanici(null);
+                                }}
+                              >
+                                <div style={{ flex: 1, textAlign: "left" }}>{bol}</div>
+                                <div style={{ opacity: 0.7, marginRight: 8 }}>{liste.length} kişi</div>
+                                <div style={styles.adminOkIsareti}>{bolAcik ? "▲" : "▼"}</div>
+                              </button>
+                              {bolAcik && (
+                                <div style={{ paddingLeft: 10 }}>
+                                  <div style={{ ...styles.adminSatir, ...styles.adminSatirBaslik }}>
+                                    <div style={styles.adminHucreKod}>ID</div>
+                                    <div style={styles.adminHucreIsim}>Kullanıcı</div>
+                                    <div style={styles.adminHucreDepartman}>Departman / Bölüm</div>
+                                  </div>
+                                  {liste.map((k) => {
+                                    const acik = acikKullanici === k.userCode;
+                                    const il = ilerlemeVerisi[k.userCode];
+                                    return (
+                                      <div key={k.userCode}>
+                                        <button data-testid="ozet-kullanici" style={{ ...styles.adminSatir, ...styles.adminSatirButon }} onClick={() => tikla(k)}>
+                                          <div style={styles.adminHucreKod}>{k.userCode}</div>
+                                          <div style={styles.adminHucreIsim}>{k.name}</div>
+                                          <div style={styles.adminHucreDepartman}>{k.department}{k.bolum ? ` · ${k.bolum}` : ""}</div>
+                                          <div style={styles.adminOkIsareti}>{acik ? "▲" : "▼"}</div>
+                                        </button>
+                                        {acik && (
+                                          <div style={styles.adminIlerlemePaneli}>
+                                            {!il || il.yukleniyor ? (
+                                              <div style={styles.adminIlerlemeYukleniyor}>Yükleniyor…</div>
+                                            ) : il.hata ? (
+                                              <div style={styles.adminIlerlemeHata}>İlerleme bilgisi alınamadı.</div>
+                                            ) : il.bulunamadi ? (
+                                              <div style={styles.adminIlerlemeBos}>
+                                                Bugün için "{k.department}" departmanında henüz bir kontrol listesi başlatılmadı.
+                                              </div>
+                                            ) : (
+                                              (() => {
+                                                const yuzde = il.toplam > 0 ? Math.round((il.tamamlanan / il.toplam) * 100) : 0;
+                                                return (
+                                                  <>
+                                                    <div style={styles.adminIlerlemeUstSatir}>
+                                                      <span>
+                                                        Bugün · {k.department}
+                                                        {k.bolum ? ` · ${bolumBasligiBul(k.department, k.bolum)}` : ""} ·{" "}
+                                                        <strong>
+                                                          {il.tamamlanan}/{il.toplam} - %{yuzde}
+                                                        </strong>
+                                                      </span>
+                                                    </div>
+                                                    <div style={styles.ilerlemeCubugu}>
+                                                      <div style={{ ...styles.ilerlemeDoluluk, width: `${yuzde}%` }} />
+                                                    </div>
+                                                    {il.tamamlandiMi && <div style={styles.adminIlerlemeTamamRozeti}>✓ Tamamlandı</div>}
+                                                  </>
+                                                );
+                                              })()
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
                             </div>
-                            <div style={styles.ilerlemeCubugu}>
-                              <div style={{ ...styles.ilerlemeDoluluk, width: `${yuzde}%` }} />
-                            </div>
-                            {il.tamamlandiMi && <div style={styles.adminIlerlemeTamamRozeti}>✓ Tamamlandı</div>}
-                          </>
-                        );
-                      })()
-                    )}
+                          );
+                        })}
                   </div>
-                )}
-              </div>
-            );
-          })}
+                );
+              });
+          })()}
         </div>
       )}
     </div>
