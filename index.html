@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.54";
+window.UYGULAMA_SURUMU = "1.55";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -13620,6 +13620,46 @@ function HKGecmis({ user, toastGoster, btn, kutu, girdi, RENK }) {
   );
 }
 
+const HK_KALEMLER = {
+  Temizlik: ["İlave oda temizliği", "Günlük oda temizliği", "Acil oda temizliği", "Banyo temizliği", "Balkon / teras temizliği", "Oda zemin temizliği", "Oda genel düzenleme", "Check-out sonrası özel temizlik", "Parfümsüz temizlik talebi", "Oda dezenfeksiyon talebi", "Oda kokulandırma", "Özel oda kokusu talebi", "Leke temizleme", "Dökülme / kirlenme temizliği"],
+  Havlu: ["İlave banyo havlusu", "İlave el havlusu", "İlave yüz havlusu", "İlave ayak havlusu", "İlave bornoz", "İlave banyo paspası", "Plaj havlusu", "İlave plaj havlusu", "Havlu değişimi", "Havlu teslimi", "Havlu teslim noktası bilgilendirmesi", "Plaj çantası", "Havlu kartı talebi"],
+  Amenity: ["Şampuan", "Saç kremi", "Duş jeli", "Sıvı sabun", "Katı sabun", "Vücut losyonu", "Duş bonesi", "Diş bakım seti", "Tıraş seti", "Dikiş seti", "Makyaj temizleme mendili", "Hijyen poşeti", "Kulak çubuğu / pamuk seti", "İlave tuvalet kâğıdı", "İlave kâğıt mendil", "Islak mendil", "İlave su", "İlave bardak", "İlave fincan", "İlave çay seti", "İlave kahve seti", "İlave kettle", "Kahve / çay malzemesi yenileme", "Oda içi sarf malzemesi yenileme"],
+  Yatak: ["İlave yastık", "İlave battaniye", "İlave yorgan", "İlave çarşaf", "İlave nevresim", "Yastık değişimi", "Yatak koruyucu", "Yatak sertliği / konfor talebi", "Yatak düzeninin değiştirilmesi", "Alerjiye uygun yatak düzenlemesi", "Özel yastık düzenlemesi", "Yatak tipinin değiştirilmesi", "Yatakların birleştirilmesi", "Yatakların ayrılması", "Gece yatak hazırlığı (Turn Down Service)"],
+  EkYatak: ["Bebek yatağı", "Bebek yatağı (Baby Cot)", "Bebek nevresim takımı", "Bebek battaniyesi", "Bebek havlusu", "Bebek küveti", "Bebek lazımlığı", "Bebek mama sandalyesi (Housekeeping koordinasyonunda)", "Bebek bakım ekipmanları", "İlave yatak talebi"],
+  Susleme: ["VIP oda hazırlığı", "Balayı oda süslemesi", "Doğum günü oda süslemesi", "Evlilik yıl dönümü süslemesi", "Özel gün dekorasyonu", "Çiçek aranjmanı"],
+  Camasir: ["Çamaşır yıkama", "Çamaşır kurutma", "Kuru temizleme", "Ütü hizmeti", "Ekspres çamaşır hizmeti", "Takım elbise temizliği", "Gömlek yıkama ve ütüleme", "Hassas tekstil temizliği", "Çamaşır teslim alma", "Temiz çamaşır teslimatı", "Ayakkabı cilalama seti", "Ayakkabı parlatma hizmeti"],
+  Kayip: ["Kayıp eşya bildirimi", "Bulunan eşya hakkında bilgi", "Eşya teslim talebi", "Eşya muhafaza talebi", "Çamaşır / tekstil eşyası kayıp bildirimi"],
+  Diger: ["İlave elbise askısı", "Çamaşır sepeti", "Valizlik", "İlave çöp kutusu", "Ütü masası", "Ütü", "Ayakkabı çekeceği", "Dikiş ve tamir seti", "Mobilya yerleşiminin değiştirilmesi", "Oda içi eşya düzenlemesi", "Perdelerin düzenlenmesi"],
+};
+const HK_KALEM_LISTE = Object.entries(HK_KALEMLER).flatMap(([tur, l]) => l.map((ad) => ({ ad, tur })));
+function hkKalemSade(x) {
+  return String(x || "").replace(/İ/g, "i").replace(/I/g, "ı").toLowerCase().replace(/ı/g, "i").replace(/ş/g, "s").replace(/ç/g, "c").replace(/ğ/g, "g").replace(/ö/g, "o").replace(/ü/g, "u");
+}
+function HKKalemSecimi({ deger, onSec, girdi, RENK }) {
+  const [metin, setMetin] = useState(deger ? deger.ad : "");
+  const [acik, setAcik] = useState(false);
+  const f = hkKalemSade(metin.trim());
+  const sonuc = HK_KALEM_LISTE.filter((k) => !f || f.split(/\s+/).every((p) => hkKalemSade(k.ad).indexOf(p) >= 0)).slice(0, 8);
+  const tam = HK_KALEM_LISTE.some((k) => hkKalemSade(k.ad) === f);
+  return (
+    <div style={{ position: "relative" }}>
+      <input data-testid="hk-f-kalem" placeholder="Talep edilen (yazarak arayın)" value={metin} style={girdi}
+        onFocus={() => setAcik(true)}
+        onChange={(e) => { setMetin(e.target.value); setAcik(true); if (deger) onSec(null); }} />
+      {acik && (sonuc.length > 0 || (f && !tam)) && (
+        <div data-testid="hk-kalem-liste" style={{ border: `1.5px solid ${RENK}`, borderRadius: 12, background: "#fff", marginTop: 4, maxHeight: 260, overflowY: "auto" }}>
+          {sonuc.map((k) => (
+            <div key={k.ad} data-testid="hk-kalem-secenek" onClick={() => { setMetin(k.ad); onSec(k); setAcik(false); }} style={{ padding: "10px 12px", borderBottom: "1px solid #EEE", fontSize: 14, cursor: "pointer" }}>{k.ad}</div>
+          ))}
+          {f && !tam && (
+            <div data-testid="hk-kalem-diger" onClick={() => { onSec({ ad: metin.trim(), tur: "Diger" }); setAcik(false); }} style={{ padding: "10px 12px", fontSize: 14, cursor: "pointer", color: RENK, fontWeight: 700 }}>Listede yok → “{metin.trim()}” olarak gönder</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function HKEkrani({ user, onGeri, toastGoster }) {
   const [sekme, setSekme] = useState("pano");
   const [pano, setPano] = useState(null);
@@ -13631,7 +13671,7 @@ function HKEkrani({ user, onGeri, toastGoster }) {
   const [soruMetin, setSoruMetin] = useState("");
   const [acikId, setAcikId] = useState(null);
   const [detay, setDetay] = useState(null);
-  const [form, setForm] = useState({ oda: "", tur: "Havlu", oncelik: "Normal", notu: "" });
+  const [form, setForm] = useState({ oda: "", tur: "Havlu", kalem: null, oncelik: "Normal", notu: "" });
   const [formAcik, setFormAcik] = useState(false);
   const [cikis, setCikis] = useState({ odalar: "", oncelik: "Normal" });
   const [rc, setRc] = useState({ eski: "", yeni: "" });
@@ -13696,10 +13736,10 @@ function HKEkrani({ user, onGeri, toastGoster }) {
     setSoru({ baslik, zorunlu, devam });
   }
   async function talepAc() {
-    const r = await islem("hk_talep_ac", { p_oda: form.oda, p_tur: form.tur, p_not: form.notu || null, p_oncelik: form.oncelik }, null);
+    const r = await islem("hk_talep_ac", { p_oda: form.oda, p_tur: form.kalem.tur, p_not: (`[${form.kalem.ad}]` + (form.notu ? " " + form.notu : "")).slice(0, 200), p_oncelik: form.oncelik }, null);
     if (r) {
       toastGoster(`Talep #${r.no} açıldı` + (r.benzer && r.benzer.length ? ` (bu odada açık benzer talep: #${r.benzer.join(", #")})` : ""));
-      setForm({ oda: "", tur: "Havlu", oncelik: "Normal", notu: "" });
+      setForm({ oda: "", tur: "Havlu", kalem: null, oncelik: "Normal", notu: "" });
       setFormAcik(false);
     }
   }
@@ -13883,14 +13923,12 @@ function HKEkrani({ user, onGeri, toastGoster }) {
               {formAcik && (
                 <div data-testid="hk-form">
                   <input data-testid="hk-f-oda" inputMode="numeric" placeholder="Oda no (ör. 1101)" value={form.oda} onChange={(e) => setForm({ ...form, oda: e.target.value.replace(/\D/g, "").slice(0, 4) })} style={girdi} />
-                  <select data-testid="hk-f-tur" value={form.tur} onChange={(e) => setForm({ ...form, tur: e.target.value })} style={girdi}>
-                    {HK_TURLER.map(([k, a]) => <option key={k} value={k}>{a}</option>)}
-                  </select>
+                  <HKKalemSecimi deger={form.kalem} onSec={(k) => setForm((f) => ({ ...f, kalem: k, tur: k ? k.tur : f.tur }))} girdi={girdi} RENK={RENK} />
                   <select data-testid="hk-f-oncelik" value={form.oncelik} onChange={(e) => setForm({ ...form, oncelik: e.target.value })} style={girdi}>
                     {HK_ONCELIK.map(([k, a]) => <option key={k} value={k}>{a}</option>)}
                   </select>
-                  <input data-testid="hk-f-not" placeholder="Not (ör. 2 adet havlu)" maxLength={200} value={form.notu} onChange={(e) => setForm({ ...form, notu: e.target.value })} style={girdi} />
-                  <button data-testid="hk-f-gonder" style={{ ...btn(RENK, true), width: "100%", marginTop: 8, opacity: form.oda.length < 3 ? 0.5 : 1 }} disabled={form.oda.length < 3} onClick={talepAc}>Talebi gönder</button>
+                  <input data-testid="hk-f-not" placeholder="Not (ör. 2 adet)" maxLength={200} value={form.notu} onChange={(e) => setForm({ ...form, notu: e.target.value })} style={girdi} />
+                  <button data-testid="hk-f-gonder" style={{ ...btn(RENK, true), width: "100%", marginTop: 8, opacity: form.oda.length < 3 || !form.kalem ? 0.5 : 1 }} disabled={form.oda.length < 3 || !form.kalem} onClick={talepAc}>Talebi gönder</button>
                 </div>
               )}
             </div>
