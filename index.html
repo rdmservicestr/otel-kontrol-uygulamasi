@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.55";
+window.UYGULAMA_SURUMU = "1.56";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -338,11 +338,76 @@ window.UYGULAMA_SURUMU = "1.55";
     return /^(\d)\1{5}$/.test(pin) || "0123456789".indexOf(pin) >= 0 || "9876543210".indexOf(pin) >= 0;
   }
 
+  // ---- Tek cihaz oturumu (sunucu: oturum_kaydet / oturum_nabiz / oturum_kapat; SQL kurulu değilse sessizce atlanır) ----
+  var HAREKETSIZ_MS = 20 * 60 * 1000;
+  var cihazBellek = null;
+  function cihazId() {
+    try {
+      var v = window.localStorage.getItem("kos_cihaz");
+      if (!v) {
+        v = (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID() : "c" + Date.now() + Math.random().toString(36).slice(2);
+        window.localStorage.setItem("kos_cihaz", v);
+      }
+      return v;
+    } catch (e) {
+      if (!cihazBellek) cihazBellek = "m" + Date.now() + Math.random().toString(36).slice(2);
+      return cihazBellek;
+    }
+  }
+  function lsYaz(k, v) { try { window.localStorage.setItem(k, v); } catch (e) {} }
+  function lsOku(k) { try { return window.localStorage.getItem(k); } catch (e) { return null; } }
+  async function oturumKaydet() {
+    try {
+      var r = await sb().rpc("oturum_kaydet", { p_cihaz: cihazId() });
+      if (!r.error) lsYaz("kos_oturum_kayitli", "1");
+    } catch (e) {}
+    lsYaz("kos_son_hareket", String(Date.now()));
+  }
+  async function oturumAtilmis(mesaj) {
+    window.__kosOturumMesaj = mesaj;
+    onbellek.clear();
+    try { await sb().auth.signOut(); } catch (e) {}
+    try { window.localStorage.removeItem("kos_oturum_kayitli"); } catch (e) {}
+  }
+
+  async function oturumKapatSunucu() {
+    try { await sb().rpc("oturum_kapat", { p_cihaz: cihazId() }); } catch (e) {}
+  }
+
   window.OtelAuth = {
+    HAREKETSIZ_MS: HAREKETSIZ_MS,
+    // "ok" | "atildi" (başka cihazdan giriş yapıldı). Bağlantı/SQL hatasında oturumu bozmaz.
+    async nabiz() {
+      try {
+        var r = await sb().rpc("oturum_nabiz", { p_cihaz: cihazId() });
+        if (r.error) return "ok";
+        if (r.data === false) {
+          if (lsOku("kos_oturum_kayitli") === "1") return "atildi";
+          await oturumKaydet();
+        }
+      } catch (e) {}
+      return "ok";
+    },
     pinZayifMi: pinZayifMi,
     async restore() {
-      try { return await profilYukle(); } catch (e) { return null; }
+      try {
+        var k = await profilYukle();
+        if (!k) return null;
+        var son = Number(lsOku("kos_son_hareket") || 0);
+        if (son && Date.now() - son > HAREKETSIZ_MS) {
+          await oturumKapatSunucu();
+          await oturumAtilmis("Uzun süre işlem yapılmadığı için oturumunuz kapatıldı. Lütfen yeniden giriş yapın.");
+          return null;
+        }
+        if ((await window.OtelAuth.nabiz()) === "atildi") {
+          await oturumAtilmis("Hesabınıza başka bir cihazdan giriş yapıldığı için bu cihazdaki oturum kapatıldı.");
+          return null;
+        }
+        lsYaz("kos_son_hareket", String(Date.now()));
+        return k;
+      } catch (e) { return null; }
     },
+    async oturumAtildi(mesaj) { await oturumAtilmis(mesaj); },
     async signIn(otel, kod, pin) {
       var r = await sb().auth.signInWithPassword({ email: otel + "-" + kod + "@" + EPOSTA_ALANI, password: pin });
       if (r.error) {
@@ -353,6 +418,7 @@ window.UYGULAMA_SURUMU = "1.55";
       }
       var kullanici = await profilYukle();
       if (!kullanici) throw new Error("Bu kullanıcı pasif veya tanımlı değil. Yöneticinize başvurun.");
+      await oturumKaydet();
       return kullanici;
     },
     async changePin(yeni) {
@@ -383,6 +449,8 @@ window.UYGULAMA_SURUMU = "1.55";
       await window.OtelAuth.changePin(yeni);
     },
     async signOut() {
+      await oturumKapatSunucu();
+      try { window.localStorage.removeItem("kos_oturum_kayitli"); } catch (e) {}
       onbellek.clear();
       try { await sb().auth.signOut(); } catch (e) {}
     },
@@ -2770,6 +2838,7 @@ function App() {
     try {
       const user = await window.OtelAuth.restore();
       if (user) await girisTamamla(user);
+      else if (window.__kosOturumMesaj) { setGirisHatasi(window.__kosOturumMesaj); window.__kosOturumMesaj = null; }
     } catch (e) {}
     setHazirlaniyor(false);
   }
@@ -2911,6 +2980,49 @@ function App() {
       setPinIsleniyor(false);
     }
   }
+
+  // Tek cihaz oturumu + 20 dk hareketsizlik: 30 sn'de bir kontrol, ekran geri gelince hemen kontrol
+  const oturumKontrolRef = useRef(null);
+  oturumKontrolRef.current = async () => {
+    const OA = window.OtelAuth;
+    let son = 0;
+    try { son = Number(window.localStorage.getItem("kos_son_hareket") || 0); } catch (e) {}
+    let mesaj = "";
+    if (son && Date.now() - son > OA.HAREKETSIZ_MS) mesaj = "Uzun süre işlem yapılmadığı için oturumunuz kapatıldı. Lütfen yeniden giriş yapın.";
+    else if ((await OA.nabiz()) === "atildi") mesaj = "Hesabınıza başka bir cihazdan giriş yapıldığı için bu cihazdaki oturum kapatıldı.";
+    if (mesaj) {
+      await OA.oturumAtildi(mesaj);
+      setCurrentUser(null);
+      window.__kosOtel = null;
+      setRecord(null);
+      setPassword("");
+      setModulSira([]);
+      setScreen("login");
+      setGirisHatasi(mesaj);
+    }
+  };
+  useEffect(() => {
+    if (!currentUser) return undefined;
+    let sonYazim = 0;
+    const hareket = () => {
+      const t = Date.now();
+      if (t - sonYazim < 5000) return;
+      sonYazim = t;
+      try { window.localStorage.setItem("kos_son_hareket", String(t)); } catch (e) {}
+    };
+    hareket();
+    const olaylar = ["touchstart", "pointerdown", "keydown", "scroll", "click"];
+    olaylar.forEach((o) => window.addEventListener(o, hareket, { passive: true, capture: true }));
+    const kontrol = () => oturumKontrolRef.current && oturumKontrolRef.current();
+    const zm = setInterval(kontrol, 30000);
+    const gorunur = () => { if (document.visibilityState === "visible") kontrol(); };
+    document.addEventListener("visibilitychange", gorunur);
+    return () => {
+      olaylar.forEach((o) => window.removeEventListener(o, hareket, { capture: true }));
+      clearInterval(zm);
+      document.removeEventListener("visibilitychange", gorunur);
+    };
+  }, [currentUser && currentUser.userCode, currentUser && currentUser.hotelCode]);
 
   async function handleLogout() {
     await window.OtelAuth.signOut();
