@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.56";
+window.UYGULAMA_SURUMU = "1.57";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -558,7 +558,7 @@ if ("serviceWorker" in navigator) {
 </script>
 
 <script id="uygulama-kaynak-kodu" type="text/plain">
-const { useState, useEffect, useRef } = React;
+const { useState, useEffect, useRef, useMemo } = React;
 
 /* ------------------------------------------------------------------
    VERİ TANIMLARI
@@ -8512,6 +8512,10 @@ function ArizaEkrani({ user, onGeri, toastGoster }) {
     );
   }
 
+  if (gorunum === "analitik") {
+    return <ARZAnalitik kayitlar={kayitlar} user={user} onGeri={() => setGorunum("liste")} toastGoster={toastGoster} />;
+  }
+
   if (gorunum === "performans") {
     return (
       <ARZPerformans
@@ -8578,6 +8582,11 @@ function ArizaEkrani({ user, onGeri, toastGoster }) {
       {(teknikPersonelMi || atamaYapabilirMi) && (
         <button style={{ ...styles.ikincilButon, marginTop: 10, width: "100%" }} onClick={() => setGorunum("performans")} data-testid="performans-btn">
           📊 {atamaYapabilirMi ? "Ekip Performansı" : "Performansım"}
+        </button>
+      )}
+      {atamaYapabilirMi && (
+        <button style={{ ...styles.ikincilButon, marginTop: 10, width: "100%", borderColor: "#B08D3E", background: "#FFF9EA" }} onClick={() => setGorunum("analitik")} data-testid="analitik-btn">
+          📈 Arıza Analitiği
         </button>
       )}
 
@@ -8875,6 +8884,468 @@ function ARZPerformans({ kayitlar, user, teknisyenler, yoneticiMi, teknikPersone
         </div>
       ) : (
         <KisiOzet k={benim} />
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------
+   ARIZA ANALİTİĞİ: tarih aralığına göre bildirilen tüm arızaların analizi, PDF ve Excel (CSV) çıktısı
+-------------------------------------------------------------------*/
+const ARZ_AN_ESIK_TEKRAR = 3;
+const ARZ_AN_PDF_SATIR = 15;
+function arzAnGunBas(t) { return new Date(`${t}T00:00:00`).getTime(); }
+function arzAnGunler(bas, bit) {
+  const l = [];
+  for (let g = bas; g <= bit && l.length < 400; g = lfGunEkle(g, 1)) l.push(g);
+  return l;
+}
+function arzAnFiltrele(kayitlar, f) {
+  return kayitlar.filter((k) => {
+    if (f.kategori && k.kategori !== f.kategori) return false;
+    if (f.alan && k.alan !== f.alan) return false;
+    if (f.oncelik && k.oncelik !== f.oncelik) return false;
+    if (f.durum && k.durum !== f.durum) return false;
+    if (f.dept && (k.bildirenDepartman || "") !== f.dept) return false;
+    if (f.teknisyen && !(k.atananTeknisyen && k.atananTeknisyen.userCode === f.teknisyen)) return false;
+    return true;
+  });
+}
+function arzAnFinalMi(k) { return k.durum === "Kontrol Bekliyor" || k.durum === "Kapatıldı"; }
+// Bir aralık için tüm ölçüler (bildirilen: bildirim tarihine göre; çözülen: çözüm tarihine göre)
+function arzAnOlcu(kayitlar, bas, bit, simdi) {
+  const b0 = arzAnGunBas(bas);
+  const b1 = arzAnGunBas(lfGunEkle(bit, 1));
+  const bildirilen = kayitlar.filter((k) => { const t = new Date(k.olusturmaZamani).getTime(); return t >= b0 && t < b1; });
+  const cozulenler = kayitlar.filter((k) => { if (!arzAnFinalMi(k) || !k.cozumZamani) return false; const t = new Date(k.cozumZamani).getTime(); return t >= b0 && t < b1; });
+  const calismalar = cozulenler.map((k) => arzSureler(k, simdi).calisma);
+  const beklemeler = bildirilen.filter((k) => k.baslamaZamani).map((k) => arzSureler(k, simdi).bekleme);
+  const donemSonuAcik = kayitlar.filter((k) => new Date(k.olusturmaZamani).getTime() < b1 && !(arzAnFinalMi(k) && k.cozumZamani && new Date(k.cozumZamani).getTime() < b1)).length;
+  let geriAcilan = 0;
+  kayitlar.forEach((k) => (k.auditLog || []).forEach((a) => {
+    const t = new Date(a.zaman).getTime();
+    if (/^Sorun devam ediyor/.test(a.islem || "") && t >= b0 && t < b1) geriAcilan++;
+  }));
+  return {
+    bildirilen, cozulenler, calismalar, beklemeler, donemSonuAcik, geriAcilan,
+    acil: bildirilen.filter((k) => k.oncelik === "Acil").length,
+    cozumOrani: bildirilen.length ? Math.round((bildirilen.filter(arzAnFinalMi).length / bildirilen.length) * 100) : 0,
+    ortCozum: arzOrtalama(calismalar), ortancaCozum: arzOrtanca(calismalar), ortMudahale: arzOrtalama(beklemeler),
+  };
+}
+function arzAnSay(liste, anahtar) {
+  const m = {};
+  liste.forEach((k) => { const a = anahtar(k) || "—"; m[a] = (m[a] || 0) + 1; });
+  return Object.entries(m).sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0]), "tr"));
+}
+function arzAnalizHesapla(tumKayitlar, bas, bit, f, simdi) {
+  const kayitlar = arzAnFiltrele(tumKayitlar, f);
+  const o = arzAnOlcu(kayitlar, bas, bit, simdi);
+  const gunSay = arzAnGunler(bas, bit).length;
+  const oncekiBit = lfGunEkle(bas, -1);
+  const oncekiBas = lfGunEkle(oncekiBit, -(gunSay - 1));
+  const onceki = arzAnOlcu(kayitlar, oncekiBas, oncekiBit, simdi);
+  const gunler = arzAnGunler(bas, bit).map((g) => {
+    const d = arzAnOlcu(kayitlar, g, g, simdi);
+    return { g, bildirilen: d.bildirilen.length, cozulen: d.cozulenler.length, acil: d.acil, ortCozum: d.cozulenler.length ? d.ortCozum : null };
+  });
+  const saat = Array.from({ length: 24 }, () => 0);
+  o.bildirilen.forEach((k) => { saat[new Date(k.olusturmaZamani).getHours()]++; });
+  const tek = {};
+  o.bildirilen.forEach((k) => {
+    const oda = String(k.odaNo || "").trim();
+    const anahtar = `${oda ? "Oda " + oda : k.alan || "—"}|${k.kategori}`;
+    const t = tek[anahtar] || (tek[anahtar] = { yer: oda ? `Oda ${oda}` : k.alan || "—", kategori: k.kategori, adet: 0, son: "" });
+    t.adet++;
+    if (k.olusturmaZamani > t.son) t.son = k.olusturmaZamani;
+  });
+  const tekrar = Object.values(tek).filter((t) => t.adet >= ARZ_AN_ESIK_TEKRAR).sort((a, b) => b.adet - a.adet);
+  const tk = {};
+  o.cozulenler.forEach((k) => {
+    if (!k.atananTeknisyen) return;
+    const kod = k.atananTeknisyen.userCode;
+    const t = tk[kod] || (tk[kod] = { ad: k.atananTeknisyen.name, adet: 0, calismalar: [], geri: 0 });
+    t.adet++;
+    t.calismalar.push(arzSureler(k, simdi).calisma);
+    t.geri += (k.auditLog || []).filter((a) => /^Sorun devam ediyor/.test(a.islem || "")).length;
+  });
+  const teknisyenler = Object.values(tk).sort((a, b) => b.adet - a.adet);
+  const enYogun = saat.reduce((m, n, i) => (n > saat[m] ? i : m), 0);
+  return {
+    o, onceki, gunler, saat, enYogun, tekrar, teknisyenler, kayitlar,
+    kategori: arzAnSay(o.bildirilen, (k) => k.kategori),
+    alan: arzAnSay(o.bildirilen, (k) => k.alan),
+    oncelik: arzAnSay(o.bildirilen, (k) => k.oncelik),
+    dept: arzAnSay(o.bildirilen, (k) => k.bildirenDepartman),
+    liste: [...o.bildirilen].sort((a, b) => (a.olusturmaZamani < b.olusturmaZamani ? 1 : -1)),
+  };
+}
+function arzAnDk(ms) { return ms ? arzSureYaz(ms) : "—"; }
+function arzAnSatir(k, simdi) {
+  const sr = arzSureler(k, simdi);
+  const z = (v) => (v ? new Date(v).toLocaleString("tr-TR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "");
+  return [
+    k.no, z(k.olusturmaZamani), k.alan || "", k.odaNo || "", k.kategori || "", k.oncelik || "", k.durum || "",
+    k.bildirenKullanici || "", k.bildirenDepartman || "", k.atananTeknisyen ? k.atananTeknisyen.name : "",
+    z(k.baslamaZamani), z(k.cozumZamani), z(k.kapanisZamani),
+    k.baslamaZamani || k.durum === "Kapatıldı" ? Math.round(sr.bekleme / 60000) : "", k.baslamaZamani ? Math.round(sr.calisma / 60000) : "",
+    (k.auditLog || []).filter((a) => /^Sorun devam ediyor/.test(a.islem || "")).length, (k.ekBildirimler || []).length, k.aciklama || "",
+  ];
+}
+const ARZ_AN_KOLONLAR = ["No", "Bildirim zamanı", "Alan", "Oda", "Kategori", "Öncelik", "Durum", "Bildiren", "Bildiren departman", "Teknisyen", "Başlama", "Çözüm", "Kapanış", "Başlamaya kadar bekleme (dk)", "Çalışma süresi (dk)", "Geri açılma", "Ek bildirim", "Açıklama"];
+function arzAnIndir(ad, satirlar) {
+  const esc = (v) => '"' + String(v ?? "").replace(/"/g, '""') + '"';
+  const csv = "﻿" + satirlar.map((s) => s.map(esc).join(";")).join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = ad;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+}
+function arzAnCsvListe(a, bas, bit, simdi) {
+  arzAnIndir(`ariza-analitik-liste-${bas}-${bit}.csv`, [ARZ_AN_KOLONLAR, ...a.liste.map((k) => arzAnSatir(k, simdi))]);
+}
+function arzAnCsvGunluk(a, bas, bit) {
+  arzAnIndir(`ariza-analitik-gunluk-${bas}-${bit}.csv`, [
+    ["Gün", "Bildirilen", "Çözülen", "Acil", "Ort. çözüm süresi (dk)"],
+    ...a.gunler.map((g) => [lfTarihYaz(g.g), g.bildirilen, g.cozulen, g.acil, g.ortCozum ? Math.round(g.ortCozum / 60000) : ""]),
+    ["TOPLAM", a.o.bildirilen.length, a.o.cozulenler.length, a.o.acil, a.o.cozulenler.length ? Math.round(a.o.ortCozum / 60000) : ""],
+  ]);
+}
+function arzAnPdf(a, bas, bit, filtreMetni, hotelName, kullaniciAdi, simdi) {
+  const { jsPDF } = window.jspdf;
+  const doc = kosPdf(new jsPDF({ unit: "pt", format: "a4" }));
+  const font = pavPdfFontYukle(doc);
+  const W = doc.internal.pageSize.getWidth();
+  const H = doc.internal.pageSize.getHeight();
+  const m = 36;
+  const iw = W - 2 * m;
+  let y = m;
+  let sayfa = 1;
+  const YESIL = [47, 125, 92], ALTIN = [176, 141, 62], KIRMIZI = [183, 71, 42], KOYU = [31, 45, 42], SOL = [107, 119, 112];
+  const yer = (h) => { if (y + h > H - 40) { doc.addPage(); sayfa++; y = m + 4; } };
+  const baslik = (t) => { yer(40); y += 14; doc.setFont(font, "bold"); doc.setFontSize(11); doc.setTextColor(...YESIL); doc.text(t, m, y); y += 10; };
+  doc.setFont(font, "bold"); doc.setFontSize(18); doc.setTextColor(...KOYU);
+  doc.text("Arıza Analitiği Raporu", m, y + 6);
+  doc.setFont(font, "normal"); doc.setFontSize(9); doc.setTextColor(...SOL);
+  doc.text(`${hotelName} · Teknik Servis`, m, y + 20);
+  doc.text(`${lfTarihYaz(bas)} – ${lfTarihYaz(bit)} (${a.gunler.length} gün)`, W - m, y + 6, { align: "right" });
+  doc.text(`Hazırlayan: ${kullaniciAdi} · ${new Date(simdi).toLocaleString("tr-TR")}`, W - m, y + 20, { align: "right" });
+  if (filtreMetni) doc.text(`Filtre: ${filtreMetni}`, m, y + 33);
+  y += filtreMetni ? 40 : 28;
+  doc.setDrawColor(...YESIL); doc.setLineWidth(1.5); doc.line(m, y, W - m, y); y += 6;
+
+  baslik("ÖZET");
+  const o = a.o, p = a.onceki;
+  const kartlar = [
+    [o.bildirilen.length, "Bildirilen arıza"], [`${o.cozulenler.length} (%${o.cozumOrani})`, "Çözülen (çözüm oranı)"], [o.donemSonuAcik, "Dönem sonu açık"], [o.acil, "Acil arıza"],
+    [arzAnDk(o.ortCozum), "Ort. çözüm süresi"], [arzAnDk(o.ortancaCozum), "Ortanca çözüm"], [arzAnDk(o.ortMudahale), "Ort. ilk müdahale"], [o.geriAcilan, "Geri açılan"],
+  ];
+  const kw = (iw - 3 * 8) / 4;
+  kartlar.forEach((k, i) => {
+    const x = m + (i % 4) * (kw + 8), yy = y + Math.floor(i / 4) * 44;
+    doc.setFillColor(251, 250, 246); doc.setDrawColor(226, 221, 208); doc.setLineWidth(0.6); doc.roundedRect(x, yy, kw, 38, 5, 5, "FD");
+    doc.setFont(font, "bold"); doc.setFontSize(13); doc.setTextColor(...KOYU); doc.text(String(k[0]), x + 7, yy + 17);
+    doc.setFont(font, "normal"); doc.setFontSize(7.5); doc.setTextColor(...SOL); doc.text(k[1], x + 7, yy + 30);
+  });
+  y += 94;
+  doc.setFontSize(8); doc.setTextColor(...SOL);
+  const fark = p.bildirilen.length ? Math.round(((o.bildirilen.length - p.bildirilen.length) / p.bildirilen.length) * 100) : null;
+  const ob = lfGunEkle(bas, -1);
+  doc.text(`Önceki dönem (${lfTarihYaz(lfGunEkle(ob, -(a.gunler.length - 1)))} – ${lfTarihYaz(ob)}): ${p.bildirilen.length} arıza bildirildi${fark !== null ? ` (şimdiki dönem %${Math.abs(fark)} ${fark >= 0 ? "fazla" : "az"})` : ""}; ortalama çözüm süresi ${arzAnDk(p.ortCozum)}.`, m, y);
+  y += 6;
+
+  const cubuk = (baslikMetni, veri, renk, x0, genis, maxN) => {
+    const liste = veri.slice(0, maxN || 8);
+    const mx = Math.max(1, ...liste.map((v) => v[1]));
+    doc.setFont(font, "bold"); doc.setFontSize(9); doc.setTextColor(...YESIL); doc.text(baslikMetni, x0, y);
+    let yy = y + 12;
+    liste.forEach((v) => {
+      doc.setFont(font, "normal"); doc.setFontSize(8); doc.setTextColor(...KOYU); doc.text(String(v[0]).slice(0, 22), x0, yy);
+      const bw = Math.max(2, (v[1] / mx) * (genis - 120));
+      doc.setFillColor(...(renk[v[0]] || renk._)); doc.roundedRect(x0 + 90, yy - 7, bw, 8, 2, 2, "F");
+      doc.text(String(v[1]), x0 + 94 + bw, yy); yy += 13;
+    });
+    return yy;
+  };
+
+  baslik("GÜNLÜK AKIŞ (bildirilen / çözülen)");
+  yer(130);
+  {
+    const gh = 90, n = a.gunler.length, mx = Math.max(1, ...a.gunler.map((g) => Math.max(g.bildirilen, g.cozulen)));
+    const bw = iw / n;
+    const adim = n > 16 ? Math.ceil(n / 16) : 1;
+    a.gunler.forEach((g, i) => {
+      const x = m + i * bw;
+      const h1 = (g.bildirilen / mx) * gh, h2 = (g.cozulen / mx) * gh;
+      doc.setFillColor(...ALTIN); doc.rect(x + bw * 0.12, y + gh - h1 + 8, bw * 0.36, h1, "F");
+      doc.setFillColor(...YESIL); doc.rect(x + bw * 0.52, y + gh - h2 + 8, bw * 0.36, h2, "F");
+      if (n <= 20) { doc.setFontSize(6.5); doc.setTextColor(...SOL); doc.text(String(g.bildirilen), x + bw * 0.3, y + gh - h1 + 5, { align: "center" }); doc.setTextColor(...YESIL); doc.text(String(g.cozulen), x + bw * 0.7, y + gh - h2 + 5, { align: "center" }); }
+      if (i % adim === 0) { doc.setFontSize(6.5); doc.setTextColor(...SOL); doc.text(g.g.slice(8) + "." + g.g.slice(5, 7), x + bw / 2, y + gh + 18, { align: "center" }); }
+    });
+    doc.setFontSize(7.5); doc.setFillColor(...ALTIN); doc.rect(m, y - 4, 7, 7, "F"); doc.setTextColor(...SOL); doc.text("Bildirilen", m + 10, y + 2);
+    doc.setFillColor(...YESIL); doc.rect(m + 60, y - 4, 7, 7, "F"); doc.text("Çözülen", m + 70, y + 2);
+    y += gh + 28;
+  }
+
+  baslik("SAATE GÖRE BİLDİRİM DAĞILIMI");
+  yer(100);
+  {
+    const gh = 60, mx = Math.max(1, ...a.saat), bw = iw / 24;
+    a.saat.forEach((n, i) => {
+      const h = (n / mx) * gh, x = m + i * bw;
+      doc.setFillColor(...(i === a.enYogun && n ? KIRMIZI : YESIL)); doc.rect(x + 1.5, y + gh - h + 8, bw - 3, h, "F");
+      doc.setFontSize(6.5); doc.setTextColor(...SOL);
+      if (n) doc.text(String(n), x + bw / 2, y + gh - h + 5, { align: "center" });
+      doc.text(String(i).padStart(2, "0"), x + bw / 2, y + gh + 18, { align: "center" });
+    });
+    y += gh + 28;
+    doc.setFontSize(8); doc.setTextColor(...SOL);
+    doc.text(o.bildirilen.length ? `En yoğun saat: ${String(a.enYogun).padStart(2, "0")}:00–${String((a.enYogun + 1) % 24).padStart(2, "0")}:00 (${a.saat[a.enYogun]} bildirim)` : "Bu aralıkta bildirim yok.", m, y);
+    y += 4;
+  }
+
+  const sekiz = { _: YESIL };
+  baslik("DAĞILIMLAR");
+  yer(130);
+  y += 8;
+  {
+    const y0 = y;
+    const y1 = cubuk("Kategoriye göre", a.kategori, sekiz, m, iw / 2 - 10, 8);
+    const sol = y1; y = y0;
+    const y2 = cubuk("Alana göre", a.alan, { _: ALTIN }, m + iw / 2 + 10, iw / 2 - 10, 8);
+    y = Math.max(sol, y2) + 8;
+    yer(70);
+    const y3a = y;
+    const y3 = cubuk("Önceliğe göre", a.oncelik, { Acil: KIRMIZI, Yüksek: ALTIN, Normal: YESIL, _: YESIL }, m, iw / 2 - 10, 4);
+    y = y3a;
+    const y4 = cubuk("Bildiren departman", a.dept, { _: YESIL }, m + iw / 2 + 10, iw / 2 - 10, 6);
+    y = Math.max(y3, y4);
+  }
+
+  const tablo = (kolonlar, genis, satirlar, kalin) => {
+    const tg = genis.reduce((s, x) => s + x, 0), g = genis.map((x) => (x / tg) * iw);
+    const bas1 = () => {
+      doc.setFillColor(238, 235, 224); doc.rect(m, y - 8, iw, 13, "F"); doc.setFont(font, "bold"); doc.setFontSize(7.5); doc.setTextColor(...KOYU);
+      let x = m + 3; kolonlar.forEach((k, i) => { doc.text(k, x, y + 1); x += g[i]; }); y += 12;
+    };
+    yer(30); bas1();
+    satirlar.forEach((s, ri) => {
+      const son = kalin && ri === satirlar.length - 1;
+      const hucre = s.map((v, i) => doc.splitTextToSize(String(v), g[i] - 5));
+      const yuk = Math.max(...hucre.map((h) => h.length)) * 9 + 3;
+      if (y + yuk > H - 40) { doc.addPage(); sayfa++; y = m + 10; bas1(); }
+      if (son) { doc.setFillColor(246, 241, 228); doc.rect(m, y - 8, iw, yuk, "F"); }
+      doc.setFont(font, son ? "bold" : "normal"); doc.setFontSize(7.5); doc.setTextColor(...KOYU);
+      let x = m + 3; hucre.forEach((h, i) => { doc.text(h, x, y); x += g[i]; });
+      doc.setDrawColor(239, 235, 224); doc.setLineWidth(0.4); doc.line(m, y + yuk - 7, W - m, y + yuk - 7);
+      y += yuk;
+    });
+  };
+  baslik("GÜN GÜN DÖKÜM");
+  tablo(["Gün", "Bildirilen", "Çözülen", "Acil", "Ort. çözüm süresi"], [90, 70, 70, 50, 110],
+    [...a.gunler.map((g) => [lfTarihYaz(g.g), g.bildirilen, g.cozulen, g.acil, g.ortCozum ? arzSureYaz(g.ortCozum) : "—"]),
+      ["TOPLAM", o.bildirilen.length, o.cozulenler.length, o.acil, arzAnDk(o.ortCozum)]], true);
+  baslik("TEKNİSYEN BAZINDA (çözülen işler)");
+  if (a.teknisyenler.length) {
+    const toplam = a.teknisyenler.reduce((s, t) => s + t.adet, 0);
+    tablo(["Teknisyen", "Çözülen", "Pay", "Ortanca süre", "Ort. süre", "Geri açılan"], [110, 55, 45, 80, 80, 60],
+      a.teknisyenler.map((t) => [t.ad, t.adet, `%${Math.round((t.adet / toplam) * 100)}`, arzAnDk(arzOrtanca(t.calismalar)), arzAnDk(arzOrtalama(t.calismalar)), t.geri]));
+  } else { doc.setFont(font, "normal"); doc.setFontSize(8); doc.setTextColor(...SOL); yer(14); y += 8; doc.text("Bu aralıkta çözülen iş yok.", m, y); y += 4; }
+  baslik(`TEKRARLAYAN ARIZALAR (aralıkta ${ARZ_AN_ESIK_TEKRAR}+ kez)`);
+  if (a.tekrar.length) tablo(["Oda / Alan", "Kategori", "Adet", "Son bildirim"], [100, 110, 50, 90], a.tekrar.map((t) => [t.yer, t.kategori, t.adet, new Date(t.son).toLocaleDateString("tr-TR")]));
+  else { doc.setFont(font, "normal"); doc.setFontSize(8); doc.setTextColor(...SOL); yer(14); y += 8; doc.text("Tekrarlayan arıza yok.", m, y); y += 4; }
+  baslik(`ARIZA LİSTESİ (ilk ${Math.min(ARZ_AN_PDF_SATIR, a.liste.length)} / ${a.liste.length} — tamamı Excel çıktısında)`);
+  tablo(["No", "Tarih", "Oda / Alan", "Kategori", "Öncelik", "Durum", "Teknisyen", "Süre"], [62, 70, 62, 70, 42, 62, 70, 50],
+    a.liste.slice(0, ARZ_AN_PDF_SATIR).map((k) => [k.no, new Date(k.olusturmaZamani).toLocaleString("tr-TR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }), k.odaNo ? `Oda ${k.odaNo}` : k.alan, k.kategori, k.oncelik, k.durum, k.atananTeknisyen ? k.atananTeknisyen.name : "—", k.baslamaZamani ? arzSureYaz(arzSureler(k, simdi).calisma) : "—"]));
+  doc.setFont(font, "normal"); doc.setFontSize(7); doc.setTextColor(...SOL); y += 10; yer(14);
+  doc.text('Süre = işe başlamadan çözüme; "Beklemede" ve kontrol bekleme süreleri çıkarılır (Ekip Performansı ile aynı yöntem).', m, y);
+  const toplamSayfa = doc.getNumberOfPages();
+  for (let i = 1; i <= toplamSayfa; i++) {
+    doc.setPage(i); doc.setFont(font, "normal"); doc.setFontSize(7.5); doc.setTextColor(...SOL);
+    doc.text("KOS - Kirman OS - Arıza Analitiği", m, H - 20); doc.text(`Sayfa ${i} / ${toplamSayfa}`, W - m, H - 20, { align: "right" });
+  }
+  doc.save(`ariza-analitik-${bas}-${bit}.pdf`);
+}
+
+function ARZAnalitik({ kayitlar, user, onGeri, toastGoster }) {
+  const bugun = arzYerelTarih(new Date().toISOString());
+  const [bas, setBas] = useState(lfGunEkle(bugun, -29));
+  const [bit, setBit] = useState(bugun);
+  const [f, setF] = useState({ kategori: "", alan: "", oncelik: "", teknisyen: "", durum: "", dept: "" });
+  const gecerli = bas && bit && bas <= bit && arzAnGunler(bas, bit).length <= 366;
+  const simdi = Date.now();
+  const a = useMemo(() => (gecerli ? arzAnalizHesapla(kayitlar, bas, bit, f, simdi) : null), [kayitlar, bas, bit, f.kategori, f.alan, f.oncelik, f.teknisyen, f.durum, f.dept]);
+  const teknOpsiyon = useMemo(() => {
+    const m = new Map();
+    kayitlar.forEach((k) => { if (k.atananTeknisyen) m.set(k.atananTeknisyen.userCode, k.atananTeknisyen.name); });
+    return [...m.entries()].sort((x, y) => x[1].localeCompare(y[1], "tr"));
+  }, [kayitlar]);
+  const deptOpsiyon = useMemo(() => [...new Set(kayitlar.map((k) => k.bildirenDepartman).filter(Boolean))].sort((x, y) => x.localeCompare(y, "tr")), [kayitlar]);
+  function kisayol(k) {
+    const b = arzYerelTarih(new Date().toISOString());
+    if (k === "bugun") { setBas(b); setBit(b); }
+    if (k === "dun") { const d = lfGunEkle(b, -1); setBas(d); setBit(d); }
+    if (k === "7") { setBas(lfGunEkle(b, -6)); setBit(b); }
+    if (k === "30") { setBas(lfGunEkle(b, -29)); setBit(b); }
+    if (k === "ay") { setBas(b.slice(0, 8) + "01"); setBit(b); }
+    if (k === "gecenay") { const son = lfGunEkle(b.slice(0, 8) + "01", -1); setBas(son.slice(0, 8) + "01"); setBit(son); }
+  }
+  const filtreMetni = [f.kategori && `Kategori: ${f.kategori}`, f.alan && `Alan: ${f.alan}`, f.oncelik && `Öncelik: ${f.oncelik}`, f.durum && `Durum: ${f.durum}`, f.dept && `Bildiren: ${f.dept}`, f.teknisyen && `Teknisyen: ${(teknOpsiyon.find((t) => t[0] === f.teknisyen) || [0, f.teknisyen])[1]}`].filter(Boolean).join(" · ");
+  const sec = (anahtar, etiket, secenekler) => (
+    <select data-testid={`an-f-${anahtar}`} style={{ ...styles.epostaInput, flex: 1, minWidth: 0, marginTop: 6 }} value={f[anahtar]} onChange={(e) => setF({ ...f, [anahtar]: e.target.value })}>
+      <option value="">{etiket}: Tümü</option>
+      {secenekler.map((s) => (Array.isArray(s) ? <option key={s[0]} value={s[0]}>{s[1]}</option> : <option key={s} value={s}>{s}</option>))}
+    </select>
+  );
+  const Kart = ({ sayi, etiket, alt, renk, id }) => (
+    <div style={{ ...styles.lfKpiKart, cursor: "default", textAlign: "left", padding: "10px 12px" }}>
+      <div style={{ ...styles.lfKpiSayi, fontSize: 22 }} data-testid={id}>{sayi}</div>
+      <div style={styles.lfKpiEtiket}>{etiket}</div>
+      {alt && <div style={{ fontSize: 11, fontWeight: 800, color: renk || "#6B7770", marginTop: 2 }}>{alt}</div>}
+    </div>
+  );
+  const Cubuk = ({ veri, renk, maks }) => {
+    const mx = Math.max(1, ...veri.map((v) => v[1]));
+    return veri.slice(0, maks || 8).map((v) => (
+      <div key={v[0]} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, margin: "4px 0" }}>
+        <span style={{ width: 100, flex: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v[0]}</span>
+        <div style={{ flex: 1 }}><div style={{ height: 10, borderRadius: 5, width: `${Math.max(3, (v[1] / mx) * 100)}%`, background: (renk && renk[v[0]]) || "#2F7D5C" }} /></div>
+        <strong style={{ width: 28, textAlign: "right" }}>{v[1]}</strong>
+      </div>
+    ));
+  };
+  const fark = a && a.onceki.bildirilen.length ? Math.round(((a.o.bildirilen.length - a.onceki.bildirilen.length) / a.onceki.bildirilen.length) * 100) : null;
+  const sureFark = a && a.onceki.ortCozum && a.o.ortCozum ? Math.round((a.o.ortCozum - a.onceki.ortCozum) / 60000) : null;
+  const kutu = { ...styles.lfBilgiKarti, marginTop: 12 };
+  return (
+    <div style={styles.icerik} data-testid="ariza-analitik">
+      <div style={styles.listeUstBaslik}>
+        <button style={styles.geriButon} onClick={onGeri} aria-label="Geri">←</button>
+        <div>
+          <div className="baslik-font" style={styles.listeBaslikYazi}>Arıza Analitiği</div>
+          <div style={styles.ilerlemeYazi}>{user.hotelName} · Teknik Servis</div>
+        </div>
+      </div>
+      <div style={kutu}>
+        <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280" }}>BAŞLANGIÇ</div>
+            <input data-testid="an-bas" type="date" style={styles.epostaInput} value={bas} max={bit} onChange={(e) => setBas(e.target.value)} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280" }}>BİTİŞ</div>
+            <input data-testid="an-bit" type="date" style={styles.epostaInput} value={bit} min={bas} max={bugun} onChange={(e) => setBit(e.target.value)} />
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+          {[["bugun", "Bugün"], ["dun", "Dün"], ["7", "Son 7 gün"], ["30", "Son 30 gün"], ["ay", "Bu ay"], ["gecenay", "Geçen ay"]].map(([k, e]) => (
+            <button key={k} data-testid={`an-k-${k}`} style={{ ...styles.gmSekmeButon, flex: "none", padding: "6px 12px" }} onClick={() => kisayol(k)}>{e}</button>
+          ))}
+        </div>
+        <div style={{ fontSize: 11, fontWeight: 800, color: "#6B7280", marginTop: 10 }}>FİLTRELER (isteğe bağlı)</div>
+        <div style={{ display: "flex", gap: 8 }}>{sec("kategori", "Kategori", ARZ_KATEGORILER)}{sec("alan", "Alan", ARZ_ALANLAR)}</div>
+        <div style={{ display: "flex", gap: 8 }}>{sec("oncelik", "Öncelik", ARZ_ONCELIKLER.map((x) => x.deger))}{sec("teknisyen", "Teknisyen", teknOpsiyon)}</div>
+        <div style={{ display: "flex", gap: 8 }}>{sec("durum", "Durum", ARZ_DURUMLAR)}{sec("dept", "Bildiren dept.", deptOpsiyon)}</div>
+        {(f.kategori || f.alan || f.oncelik || f.teknisyen || f.durum || f.dept) && (
+          <button style={{ ...styles.gmKucukButon, marginTop: 8 }} data-testid="an-temizle" onClick={() => setF({ kategori: "", alan: "", oncelik: "", teknisyen: "", durum: "", dept: "" })}>Filtreleri temizle</button>
+        )}
+      </div>
+      {!gecerli && <div style={styles.hataKutusu}>Tarih aralığı geçersiz (en fazla 366 gün, başlangıç bitişten sonra olamaz).</div>}
+      {a && (
+        <div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12 }}>
+            <Kart id="an-bildirilen" sayi={a.o.bildirilen.length} etiket="BİLDİRİLEN ARIZA" alt={fark === null ? null : `${fark >= 0 ? "▲" : "▼"} %${Math.abs(fark)} önceki dönem`} renk={fark > 0 ? "#B7472A" : "#2F7D5C"} />
+            <Kart id="an-cozulen" sayi={a.o.cozulenler.length} etiket="ÇÖZÜLEN" alt={`%${a.o.cozumOrani} çözüm oranı`} renk="#2F7D5C" />
+            <Kart id="an-ortcozum" sayi={arzAnDk(a.o.ortCozum)} etiket="ORT. ÇÖZÜM SÜRESİ" alt={sureFark === null ? null : `${sureFark <= 0 ? "▼" : "▲"} ${Math.abs(sureFark)} dk önceki dönem`} renk={sureFark > 0 ? "#B7472A" : "#2F7D5C"} />
+            <Kart id="an-mudahale" sayi={arzAnDk(a.o.ortMudahale)} etiket="ORT. İLK MÜDAHALE" />
+            <Kart id="an-acil" sayi={a.o.acil} etiket="ACİL ARIZA" />
+            <Kart id="an-geri" sayi={a.o.geriAcilan} etiket="GERİ AÇILAN" alt={a.o.cozulenler.length ? `%${((a.o.geriAcilan / a.o.cozulenler.length) * 100).toFixed(1)}` : null} renk="#B7472A" />
+            <Kart id="an-acik" sayi={a.o.donemSonuAcik} etiket="DÖNEM SONU AÇIK" />
+            <Kart id="an-ortanca" sayi={arzAnDk(a.o.ortancaCozum)} etiket="ORTANCA ÇÖZÜM" />
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <button data-testid="an-pdf" style={{ ...styles.anaButon, flex: 1, marginTop: 0 }} onClick={() => {
+              if (!(window.jspdf && window.jspdf.jsPDF)) return toastGoster("PDF oluşturucu hazırlanıyor, birkaç saniye sonra deneyin.");
+              try { arzAnPdf(a, bas, bit, filtreMetni, user.hotelName, user.name, Date.now()); } catch (e) { toastGoster("PDF oluşturulamadı: " + e.message); }
+            }}>📄 PDF Rapor</button>
+            <button data-testid="an-csv" style={{ ...styles.ikincilButon, flex: 1 }} onClick={() => arzAnCsvListe(a, bas, bit, Date.now())}>📊 Excel (arıza listesi)</button>
+          </div>
+          <button data-testid="an-csv-gun" style={{ ...styles.ikincilButon, width: "100%", marginTop: 8 }} onClick={() => arzAnCsvGunluk(a, bas, bit)}>📊 Excel (gün gün tablo)</button>
+          <div style={kutu}>
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>Günlük bildirilen / çözülen</div>
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 2, height: 110, overflowX: "auto" }} data-testid="an-gunluk">
+              {(() => {
+                const mx = Math.max(1, ...a.gunler.map((g) => Math.max(g.bildirilen, g.cozulen)));
+                return a.gunler.map((g) => (
+                  <div key={g.g} style={{ flex: "1 0 14px", display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center", height: "100%" }} title={`${lfTarihYaz(g.g)}: ${g.bildirilen} bildirilen, ${g.cozulen} çözülen`}>
+                    <div style={{ display: "flex", alignItems: "flex-end", gap: 1, height: 84 }}>
+                      <div style={{ width: 6, height: `${(g.bildirilen / mx) * 100}%`, minHeight: g.bildirilen ? 2 : 0, background: "#B08D3E" }} />
+                      <div style={{ width: 6, height: `${(g.cozulen / mx) * 100}%`, minHeight: g.cozulen ? 2 : 0, background: "#2F7D5C" }} />
+                    </div>
+                    <div style={{ fontSize: 8, marginTop: 2 }}>{g.g.slice(8)}</div>
+                  </div>
+                ));
+              })()}
+            </div>
+            <div style={{ ...styles.ilerlemeYazi, marginTop: 6 }}><span style={{ color: "#B08D3E" }}>■</span> Bildirilen &nbsp;<span style={{ color: "#2F7D5C" }}>■</span> Çözülen</div>
+          </div>
+          <div style={kutu}>
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>Saate göre bildirim dağılımı</div>
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 2, height: 90 }} data-testid="an-saat">
+              {a.saat.map((n, i) => {
+                const mx = Math.max(1, ...a.saat);
+                return (
+                  <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center", height: "100%" }}>
+                    <div style={{ fontSize: 8 }}>{n || ""}</div>
+                    <div style={{ width: "100%", height: `${(n / mx) * 100}%`, minHeight: n ? 2 : 0, background: n && i === a.enYogun ? "#B7472A" : "#2F7D5C", borderRadius: 2 }} />
+                    <div style={{ fontSize: 8, marginTop: 2 }}>{i % 3 === 0 ? String(i).padStart(2, "0") : ""}</div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ ...styles.ilerlemeYazi, marginTop: 6 }} data-testid="an-yogun">
+              {a.o.bildirilen.length ? `En yoğun saat: ${String(a.enYogun).padStart(2, "0")}:00–${String((a.enYogun + 1) % 24).padStart(2, "0")}:00 (${a.saat[a.enYogun]} bildirim)` : "Bu aralıkta bildirim yok."}
+            </div>
+          </div>
+          <div style={kutu}><div style={{ fontWeight: 700, marginBottom: 4 }}>Kategoriye göre</div><Cubuk veri={a.kategori} maks={10} /></div>
+          <div style={kutu}><div style={{ fontWeight: 700, marginBottom: 4 }}>Alana göre</div><Cubuk veri={a.alan} renk={{}} /></div>
+          <div style={kutu}><div style={{ fontWeight: 700, marginBottom: 4 }}>Önceliğe göre</div><Cubuk veri={a.oncelik} renk={{ Acil: "#B7472A", Yüksek: "#B08D3E", Normal: "#2F7D5C" }} /></div>
+          <div style={kutu}><div style={{ fontWeight: 700, marginBottom: 4 }}>Bildiren departman</div><Cubuk veri={a.dept} /></div>
+          <div style={{ ...kutu, overflowX: "auto" }}>
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>Teknisyen bazında (çözülen işler)</div>
+            {a.teknisyenler.length === 0 ? <div style={styles.ilerlemeYazi}>Bu aralıkta çözülen iş yok.</div> : (
+              <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }} data-testid="an-teknisyen">
+                <thead><tr style={{ textAlign: "left" }}><th>Kişi</th><th>Çözülen</th><th>Ortanca</th><th>Ort.</th><th>Geri</th></tr></thead>
+                <tbody>{a.teknisyenler.map((t) => (<tr key={t.ad}><td>{t.ad}</td><td>{t.adet}</td><td>{arzAnDk(arzOrtanca(t.calismalar))}</td><td>{arzAnDk(arzOrtalama(t.calismalar))}</td><td>{t.geri}</td></tr>))}</tbody>
+              </table>
+            )}
+          </div>
+          <div style={{ ...kutu, overflowX: "auto" }}>
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>⚠ Tekrarlayan arızalar (aralıkta {ARZ_AN_ESIK_TEKRAR}+ kez)</div>
+            {a.tekrar.length === 0 ? <div style={styles.ilerlemeYazi}>Tekrarlayan arıza yok.</div> : (
+              <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }} data-testid="an-tekrar">
+                <thead><tr style={{ textAlign: "left" }}><th>Oda / Alan</th><th>Kategori</th><th>Adet</th></tr></thead>
+                <tbody>{a.tekrar.map((t) => (<tr key={t.yer + t.kategori}><td>{t.yer}</td><td>{t.kategori}</td><td>{t.adet}</td></tr>))}</tbody>
+              </table>
+            )}
+          </div>
+          <div style={{ ...kutu, overflowX: "auto" }}>
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>Gün gün tablo</div>
+            <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }} data-testid="an-gun-tablo">
+              <thead><tr style={{ textAlign: "left" }}><th>Gün</th><th>Bildirilen</th><th>Çözülen</th><th>Acil</th><th>Ort. çözüm</th></tr></thead>
+              <tbody>
+                {a.gunler.map((g) => (<tr key={g.g}><td>{lfTarihYaz(g.g)}</td><td>{g.bildirilen}</td><td>{g.cozulen}</td><td>{g.acil}</td><td>{g.ortCozum ? arzSureYaz(g.ortCozum) : "—"}</td></tr>))}
+                <tr style={{ fontWeight: 800 }}><td>TOPLAM</td><td>{a.o.bildirilen.length}</td><td>{a.o.cozulenler.length}</td><td>{a.o.acil}</td><td>{arzAnDk(a.o.ortCozum)}</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div style={{ ...styles.ilerlemeYazi, marginTop: 10 }}>
+            Bildirilen: bildirim tarihine göre. Çözülen: çözüm tarihine göre. Süre = işe başlamadan çözüme, "Beklemede" ve kontrol bekleme süreleri çıkarılarak (Ekip Performansı ile aynı yöntem). Arıza listesinin tamamı Excel çıktısındadır.
+          </div>
+        </div>
       )}
     </div>
   );
