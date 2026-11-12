@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.57";
+window.UYGULAMA_SURUMU = "1.58";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -374,6 +374,12 @@ window.UYGULAMA_SURUMU = "1.57";
     try { await sb().rpc("oturum_kapat", { p_cihaz: cihazId() }); } catch (e) {}
   }
 
+  // Online ışığı (SQL 15_online.sql kurulu değilse sessizce atlanır)
+  var durumSonGonderilen = 0;
+  async function durumIsaretle(olay) {
+    try { await sb().rpc("durum_isaretle", { p_olay: olay }); } catch (e) {}
+  }
+
   window.OtelAuth = {
     HAREKETSIZ_MS: HAREKETSIZ_MS,
     // "ok" | "atildi" (başka cihazdan giriş yapıldı). Bağlantı/SQL hatasında oturumu bozmaz.
@@ -387,6 +393,12 @@ window.UYGULAMA_SURUMU = "1.57";
         }
       } catch (e) {}
       return "ok";
+    },
+    // Kullanıcı gerçekten işlem yaptıysa (son hareket değiştiyse) ışığı canlı tutar; en çok ~30 sn'de bir istek
+    durumAktif: function (sonHareket) {
+      if (!sonHareket || sonHareket === durumSonGonderilen) return;
+      durumSonGonderilen = sonHareket;
+      durumIsaretle("aktif");
     },
     pinZayifMi: pinZayifMi,
     async restore() {
@@ -404,6 +416,7 @@ window.UYGULAMA_SURUMU = "1.57";
           return null;
         }
         lsYaz("kos_son_hareket", String(Date.now()));
+        durumIsaretle("aktif");
         return k;
       } catch (e) { return null; }
     },
@@ -419,6 +432,7 @@ window.UYGULAMA_SURUMU = "1.57";
       var kullanici = await profilYukle();
       if (!kullanici) throw new Error("Bu kullanıcı pasif veya tanımlı değil. Yöneticinize başvurun.");
       await oturumKaydet();
+      durumIsaretle("aktif");
       return kullanici;
     },
     async changePin(yeni) {
@@ -450,6 +464,7 @@ window.UYGULAMA_SURUMU = "1.57";
     },
     async signOut() {
       await oturumKapatSunucu();
+      await durumIsaretle("cikis");
       try { window.localStorage.removeItem("kos_oturum_kayitli"); } catch (e) {}
       onbellek.clear();
       try { await sb().auth.signOut(); } catch (e) {}
@@ -2990,6 +3005,7 @@ function App() {
     let mesaj = "";
     if (son && Date.now() - son > OA.HAREKETSIZ_MS) mesaj = "Uzun süre işlem yapılmadığı için oturumunuz kapatıldı. Lütfen yeniden giriş yapın.";
     else if ((await OA.nabiz()) === "atildi") mesaj = "Hesabınıza başka bir cihazdan giriş yapıldığı için bu cihazdaki oturum kapatıldı.";
+    else if (OA.durumAktif) OA.durumAktif(son);
     if (mesaj) {
       await OA.oturumAtildi(mesaj);
       setCurrentUser(null);
@@ -6157,6 +6173,96 @@ function GMModulSekmesi({ user, toastGoster }) {
 // kontrol listesi ilerlemesi) gösterir. Yalnızca user.hotelCode'a ait
 // kullanıcılar listelenir. Bir kullanıcıya dokununca canlı ilerleme paneli
 // açılır (15 saniyede bir otomatik yenilenir): "7/70 - %10" gibi.
+// ---------------------------------------------------------------------
+// ONLINE IŞIĞI: canlı (parlak) yeşil = son 15 dk içinde işlem yaptı; açık yeşil = vardiyası içinde
+// giriş yaptı (A 08:00-15:59, B 16:00-23:59, C 00:00-07:59), Çıkış yapana ya da vardiya bitene kadar;
+// gri = çevrimdışı. Hesap sunucuda yapılır (durum_liste); SQL kurulu değilse nokta gösterilmez.
+// ---------------------------------------------------------------------
+const ONLINE_RENK = { canli: "#16E05A", acik: "#A5DFB5", yok: "#8E98A0" };
+const ONLINE_VARDIYA_ARALIK = { A: "08:00-15:59", B: "16:00-23:59", C: "00:00-07:59" };
+function onlineSaat(iso) {
+  try {
+    return new Date(iso).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Istanbul" });
+  } catch (e) {
+    return "";
+  }
+}
+function OnlineNokta({ durum, sonAktif }) {
+  const d = durum === "canli" || durum === "acik" ? durum : "yok";
+  const saat = sonAktif ? onlineSaat(sonAktif) : "";
+  const metin =
+    d === "canli"
+      ? `Online · şu an aktif${saat ? ` (son işlem ${saat})` : ""}`
+      : d === "acik"
+      ? `Online · vardiyada${saat ? ` (son işlem ${saat})` : ""}`
+      : "Çevrimdışı";
+  return (
+    <span
+      data-testid="online-nokta"
+      data-durum={d}
+      title={metin}
+      aria-label={metin}
+      role="img"
+      className={d === "canli" ? "kos-online-canli" : undefined}
+      style={{
+        display: "inline-block",
+        width: 12,
+        height: 12,
+        borderRadius: "50%",
+        flexShrink: 0,
+        marginRight: 8,
+        background: ONLINE_RENK[d],
+        border: d === "yok" ? "1.5px solid #5B656C" : d === "acik" ? "1.5px solid #6DBF86" : "1.5px solid #0BA83F",
+      }}
+    />
+  );
+}
+function OnlineStil() {
+  return (
+    <style>{`
+@keyframes kosCanli{0%,100%{box-shadow:0 0 4px 1px rgba(22,224,90,.65)}50%{box-shadow:0 0 10px 4px rgba(22,224,90,.95)}}
+.kos-online-canli{animation:kosCanli 2s ease-in-out infinite}
+@media (prefers-reduced-motion:reduce){.kos-online-canli{animation:none;box-shadow:0 0 6px 2px rgba(22,224,90,.8)}}
+`}</style>
+  );
+}
+function useOnlineDurum(hotelCode) {
+  const [harita, setHarita] = useState({});
+  const [hazir, setHazir] = useState(false);
+  const [vardiya, setVardiya] = useState("");
+  const yukle = async () => {
+    try {
+      const r = await window.OtelRpc.cagir("durum_liste", { p_hotel: hotelCode });
+      const m = {};
+      let v = "";
+      (Array.isArray(r) ? r : []).forEach((x) => {
+        m[x.user_code] = { durum: x.durum, sonAktif: x.son_aktif };
+        if (x.vardiya) v = x.vardiya;
+      });
+      setHarita(m);
+      setVardiya(v);
+      setHazir(true);
+    } catch (e) {
+      /* SQL kurulu değil ya da bağlantı sorunu: noktalar gösterilmez */
+    }
+  };
+  useEffect(() => {
+    yukle();
+    const t = setInterval(() => {
+      if (document.visibilityState === "visible") yukle();
+    }, 60000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hotelCode]);
+  return { harita, hazir, vardiya, yenile: yukle };
+}
+// Müdür/Asistan kendi departmanı, Genel Müdürlük tüm otel için ışığı elle yakıp söndürebilir (sunucu da denetler)
+function isikYonetebilir(user, k) {
+  if (!user || !k) return false;
+  if (user.department === "Genel Müdürlük") return true;
+  return deptMudurMu(user) && user.department === k.department;
+}
+
 function GMOzetSekmesi({ user, departman }) {
   const [yukleniyor, setYukleniyor] = useState(true);
   const [kullanicilar, setKullanicilar] = useState([]);
@@ -6164,6 +6270,26 @@ function GMOzetSekmesi({ user, departman }) {
   const [ilerlemeVerisi, setIlerlemeVerisi] = useState({});
   const [acikDept, setAcikDept] = useState(departman || null);
   const [acikBolum, setAcikBolum] = useState(null);
+  const online = useOnlineDurum(user.hotelCode);
+  const [sadeceOnline, setSadeceOnline] = useState(false);
+  const [isikMesgul, setIsikMesgul] = useState(false);
+  const [isikHata, setIsikHata] = useState("");
+  const onlineMi = (k) => {
+    const d = online.harita[k.userCode];
+    return !!d && d.durum !== "yok";
+  };
+
+  async function isikDegistir(k, deger) {
+    setIsikMesgul(true);
+    setIsikHata("");
+    try {
+      await window.OtelRpc.cagir("durum_manuel", { p_hotel: user.hotelCode, p_user: k.userCode, p_deger: deger });
+      await online.yenile();
+    } catch (e) {
+      setIsikHata((e && e.message) || "Işık değiştirilemedi.");
+    }
+    setIsikMesgul(false);
+  }
 
   useEffect(() => {
     yukle();
@@ -6243,10 +6369,30 @@ function GMOzetSekmesi({ user, departman }) {
         <div style={styles.bilgiKutusu}>Bu otelde henüz kullanıcı bulunmuyor.</div>
       ) : (
         <div style={styles.adminTablo} data-testid="ozet-liste">
+          <OnlineStil />
+          {online.hazir && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 4px", flexWrap: "wrap" }} data-testid="online-ozet">
+              <OnlineNokta durum="canli" />
+              <span style={{ fontSize: 13 }}>
+                <strong>{kullanicilar.filter((k) => onlineMi(k)).length}</strong> online ·{" "}
+                <strong>{kullanicilar.filter((k) => (online.harita[k.userCode] || {}).durum === "canli").length}</strong> şu an aktif
+                {online.vardiya ? ` · Vardiya ${online.vardiya} (${ONLINE_VARDIYA_ARALIK[online.vardiya]})` : ""}
+              </span>
+              <button
+                type="button"
+                data-testid="online-filtre"
+                aria-pressed={sadeceOnline}
+                onClick={() => setSadeceOnline((v) => !v)}
+                style={{ ...styles.gmKucukButon, marginLeft: "auto", background: sadeceOnline ? "#16323A" : "#fff", color: sadeceOnline ? "#fff" : "#16323A" }}
+              >
+                Sadece online
+              </button>
+            </div>
+          )}
           {(() => {
             const BOLUMSUZ = "Bölümsüz";
             const depMap = new Map();
-            kullanicilar.forEach((k) => {
+            kullanicilar.filter((k) => !sadeceOnline || onlineMi(k)).forEach((k) => {
               const d = k.department || "Departmansız";
               const bl = k.bolum || BOLUMSUZ;
               if (!depMap.has(d)) depMap.set(d, new Map());
@@ -6271,7 +6417,9 @@ function GMOzetSekmesi({ user, departman }) {
                       }}
                     >
                       <div style={{ flex: 1, textAlign: "left" }}>{dep}</div>
-                      <div style={{ opacity: 0.7, marginRight: 8 }}>{depSayi} kişi</div>
+                      <div style={{ opacity: 0.7, marginRight: 8 }}>
+                        {depSayi} kişi{online.hazir ? ` · ${[...bm.values()].reduce((t, l) => t + l.filter((k) => onlineMi(k)).length, 0)} online` : ""}
+                      </div>
                       <div style={styles.adminOkIsareti}>{depAcik ? "▲" : "▼"}</div>
                     </button>
                     {depAcik &&
@@ -6296,7 +6444,7 @@ function GMOzetSekmesi({ user, departman }) {
                               {bolAcik && (
                                 <div style={{ paddingLeft: 10 }}>
                                   <div style={{ ...styles.adminSatir, ...styles.adminSatirBaslik }}>
-                                    <div style={styles.adminHucreKod}>ID</div>
+                                    <div style={{ ...styles.adminHucreKod, paddingLeft: online.hazir ? 20 : 0 }}>ID</div>
                                     <div style={styles.adminHucreIsim}>Kullanıcı</div>
                                     <div style={styles.adminHucreDepartman}>Departman / Bölüm</div>
                                   </div>
@@ -6306,13 +6454,32 @@ function GMOzetSekmesi({ user, departman }) {
                                     return (
                                       <div key={k.userCode}>
                                         <button data-testid="ozet-kullanici" style={{ ...styles.adminSatir, ...styles.adminSatirButon }} onClick={() => tikla(k)}>
-                                          <div style={styles.adminHucreKod}>{k.userCode}</div>
+                                          <div style={{ ...styles.adminHucreKod, display: "flex", alignItems: "center" }}>
+                                            {online.hazir && <OnlineNokta durum={(online.harita[k.userCode] || {}).durum} sonAktif={(online.harita[k.userCode] || {}).sonAktif} />}
+                                            {k.userCode}
+                                          </div>
                                           <div style={styles.adminHucreIsim}>{k.name}</div>
                                           <div style={styles.adminHucreDepartman}>{k.department}{k.bolum ? ` · ${k.bolum}` : ""}</div>
                                           <div style={styles.adminOkIsareti}>{acik ? "▲" : "▼"}</div>
                                         </button>
                                         {acik && (
                                           <div style={styles.adminIlerlemePaneli}>
+                                            {online.hazir && isikYonetebilir(user, k) && (
+                                              <div data-testid="isik-yonetim" style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
+                                                <span style={{ fontSize: 12, fontWeight: 700 }}>Işık:</span>
+                                                <button type="button" data-testid="isik-yak" disabled={isikMesgul} style={styles.gmKucukButon} onClick={() => isikDegistir(k, "ac")}>
+                                                  Yak
+                                                </button>
+                                                <button type="button" data-testid="isik-sondur" disabled={isikMesgul} style={styles.gmKucukButon} onClick={() => isikDegistir(k, "kapat")}>
+                                                  Söndür
+                                                </button>
+                                                <button type="button" data-testid="isik-otomatik" disabled={isikMesgul} style={styles.gmKucukButon} onClick={() => isikDegistir(k, "otomatik")}>
+                                                  Otomatik
+                                                </button>
+                                                <span style={{ fontSize: 11, opacity: 0.7 }}>Vardiya sonuna kadar geçerli</span>
+                                                {isikHata && <span style={{ fontSize: 12, color: "#B7472A", width: "100%" }}>{isikHata}</span>}
+                                              </div>
+                                            )}
                                             {!il || il.yukleniyor ? (
                                               <div style={styles.adminIlerlemeYukleniyor}>Yükleniyor…</div>
                                             ) : il.hata ? (
