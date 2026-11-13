@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.61";
+window.UYGULAMA_SURUMU = "1.62";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -11420,6 +11420,16 @@ async function uynAlarmOnayla(kayit, user) {
   return kayit;
 }
 
+// İlk arama planlanan saatten UYN_GEC_ARAMA_DK dakikadan fazla sonra yapıldıysa gecikme dakikasını döndürür (yoksa null).
+// "Geciken" sayacı: şu an saati geçmiş ve aranmamış olanlar + bugün geç aranmış olanlar (sonuç "Cevap Verdi" olsa bile).
+const UYN_GEC_ARAMA_DK = 5;
+function uynGecAramaDk(k) {
+  const ilk = (k.denemeler || [])[0];
+  if (!ilk || !ilk.zaman) return null;
+  const fark = Math.round((new Date(ilk.zaman).getTime() - uynPlanZamani(k).getTime()) / 60000);
+  return fark > UYN_GEC_ARAMA_DK ? fark : null;
+}
+
 // Kart/liste rengi. Gri = saati geçmiş ve işlemi bitmiş; yeşil = ileri saat; kırmızı = 1 saat ve altı kala
 // ya da saati geçip henüz aranmamış (yanıp söner). rozet: durum rozetinin rengi.
 const UYN_GRI = "#737B84";
@@ -11615,6 +11625,7 @@ function UyandirmaEkrani({ user, onGeri, toastGoster }) {
         <div style={{ ...styles.lfKayitAciklama, color: d.renk === "#B08D3E" ? undefined : d.renk }}>{k.aciklama ? k.aciklama : "Açıklama yok"}</div>
         <div style={styles.lfKayitAltBilgi}>
           {formatTarihSadece(k.tarih)} · {k.no} · {(k.denemeler || []).length} arama{k.alarmOnay ? ` · 🔔 ${k.alarmOnay.kullanici}` : ""}
+          {uynGecAramaDk(k) !== null && <span data-testid="uyn-gec-isaret" style={{ color: "#B7472A", fontWeight: 700 }}>{` · ⚠ ${uynGecAramaDk(k)} dk geç arandı`}</span>}
         </div>
       </button>
     );
@@ -11683,7 +11694,7 @@ function UyandirmaEkrani({ user, onGeri, toastGoster }) {
           ["Bekleyen", bugunKayitlari.filter((k) => k.durum === "Bekliyor").length],
           ["Cevap Verdi", bugunKayitlari.filter((k) => k.durum === "Cevap Verdi").length],
           ["Cevap Yok", bugunKayitlari.filter((k) => k.durum === "Cevap Yok").length],
-          ["Geciken", simdiAranacaklar.length],
+          ["Geciken", new Set([...simdiAranacaklar.map((k) => k.no), ...bugunKayitlari.filter((k) => uynGecAramaDk(k) !== null).map((k) => k.no)]).size],
           ["İptal", bugunKayitlari.filter((k) => k.durum === "İptal").length],
         ].map(([etiket, sayi]) => (
           <div key={etiket} style={{ ...styles.lfKpiKart, cursor: "default" }}>
@@ -11944,6 +11955,11 @@ function UYNDetay({ kayit, user, aramaYapabilirMi, yoneticiMi, onGeri, onSonucIs
       <div style={{ ...styles.lfUyariKutusu, background: `${durumRengi}1A`, color: durumRengi }}>
         {kayit.durum === "Bekliyor" && geldi ? "⏰ ŞİMDİ ARANACAK" : `Durum: ${kayit.durum}`}
       </div>
+      {uynGecAramaDk(kayit) !== null && (
+        <div data-testid="uyn-gec-bilgi" style={{ fontSize: 13, marginTop: 8, color: "#B7472A", fontWeight: 700 }}>
+          ⚠ Geç arandı: planlanan {kayit.saat}, ilk arama {new Date(kayit.denemeler[0].zaman).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })} (+{uynGecAramaDk(kayit)} dk)
+        </div>
+      )}
       {kayit.alarmOnay && (
         <div data-testid="uyn-alarm-bilgi" style={{ fontSize: 12, marginTop: 8, opacity: 0.85 }}>
           🔔 Alarm alındı: {kayit.alarmOnay.kullanici} · {new Date(kayit.alarmOnay.zaman).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}
