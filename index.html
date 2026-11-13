@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.59";
+window.UYGULAMA_SURUMU = "1.61";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -2814,29 +2814,97 @@ function App() {
   // her ekranda uyarı bandı olarak gösterilir. Uygulama açıkken çalışır.
   const [uyandirmaGeciken, setUyandirmaGeciken] = useState([]);
   const oncekiUyandirmaSayisi = useRef(0);
+  // Uyandırma alarmı (saatten 5 dk önce): alıcılar Önbüro / Gece Müdürü / Room Service bölümü; yalnızca ışığı gri olmayanlar
+  const [uyandirmaAlarm, setUyandirmaAlarm] = useState([]);
+  const uynKayitRef = useRef([]);
+  const uynYerelOnayRef = useRef({});
+  const uynOnlineRef = useRef({ ok: true, zaman: 0 });
+  const uynAlarmImzaRef = useRef("");
+
+  function uynAlarmDegerlendir(user) {
+    if (!user || !uynAlarmAliciMi(user)) return;
+    const simdi = Date.now();
+    const kayitlar = uynKayitRef.current;
+    // Yakında uyandırma/arama bekleyen varsa 20 dk hareketsizlik çıkışı yapılmaz (alarm kaçmasın)
+    window.__uynOturumKoru = kayitlar.some((k) => k.durum === "Bekliyor" && uynPlanZamani(k).getTime() <= simdi + 30 * 60000);
+    const alarm = uynOnlineRef.current.ok
+      ? kayitlar
+          .filter((k) => !k.alarmOnay && !uynYerelOnayRef.current[k.no] && uynAlarmZamaniMi(k, simdi))
+          .sort((a, b) => uynPlanZamani(a) - uynPlanZamani(b))
+      : [];
+    const imza = alarm.map((k) => k.no).join(",");
+    if (imza !== uynAlarmImzaRef.current) {
+      uynAlarmImzaRef.current = imza;
+      setUyandirmaAlarm(alarm);
+    }
+  }
+  async function uynOnlineKontrol(user) {
+    const o = uynOnlineRef.current;
+    if (Date.now() - o.zaman < 55000) return;
+    o.zaman = Date.now();
+    try {
+      const r = await window.OtelRpc.cagir("durum_liste", { p_hotel: user.hotelCode });
+      const ben = (Array.isArray(r) ? r : []).find((x) => x.user_code === user.userCode);
+      o.ok = ben ? ben.durum !== "yok" : true;
+    } catch (e) {
+      o.ok = true; // SQL kurulu değil / bağlantı sorunu: alarm susmasın
+    }
+  }
+  async function uynAlarmAldim(liste) {
+    liste.forEach((k) => (uynYerelOnayRef.current[k.no] = true));
+    uynAlarmImzaRef.current = "";
+    setUyandirmaAlarm([]);
+    for (const k of liste) {
+      try {
+        const yeni = await uynAlarmOnayla(k, currentUser);
+        uynKayitRef.current = uynKayitRef.current.map((x) => (x.no === yeni.no ? yeni : x));
+      } catch (e) {}
+    }
+  }
 
   useEffect(() => {
-    if (!currentUser || !UYN_ARAMA_DEPARTMANLARI.includes(currentUser.department) || !uyandirmaKullanabilir(currentUser)) {
+    const alarmAlici = !!currentUser && uynAlarmAliciMi(currentUser);
+    const bannerAlici = !!currentUser && UYN_ARAMA_DEPARTMANLARI.includes(currentUser.department) && uyandirmaKullanabilir(currentUser);
+    if (!alarmAlici && !bannerAlici) {
       setUyandirmaGeciken([]);
+      setUyandirmaAlarm([]);
       oncekiUyandirmaSayisi.current = 0;
-      return;
+      uynAlarmImzaRef.current = "";
+      window.__uynOturumKoru = false;
+      return undefined;
     }
     let iptal = false;
     async function kontrolEt() {
       const kayitlar = await uynKayitlariGetir(currentUser.hotelCode);
       if (iptal) return;
-      const geciken = kayitlar
-        .filter(uynZamaniGeldiMi)
-        .sort((a, b) => uynPlanZamani(a) - uynPlanZamani(b));
-      setUyandirmaGeciken(geciken);
-      if (geciken.length > oncekiUyandirmaSayisi.current) uynBipSesi();
-      oncekiUyandirmaSayisi.current = geciken.length;
+      uynKayitRef.current = kayitlar;
+      if (bannerAlici) {
+        const geciken = kayitlar
+          .filter(uynZamaniGeldiMi)
+          .sort((a, b) => uynPlanZamani(a) - uynPlanZamani(b));
+        setUyandirmaGeciken(geciken);
+        if (geciken.length > oncekiUyandirmaSayisi.current) uynBipSesi();
+        oncekiUyandirmaSayisi.current = geciken.length;
+      }
+      if (alarmAlici) {
+        await uynOnlineKontrol(currentUser);
+        if (!iptal) uynAlarmDegerlendir(currentUser);
+      }
     }
     kontrolEt();
     const id = setInterval(kontrolEt, 20000);
+    // alarm penceresi (5 dk kala) saniyeye yakın yakalansın: 5 sn'de bir yerel değerlendirme
+    const hizli = alarmAlici ? setInterval(() => uynAlarmDegerlendir(currentUser), 5000) : null;
+    const gorunur = () => {
+      if (document.visibilityState === "visible") kontrolEt();
+    };
+    document.addEventListener("visibilitychange", gorunur);
     return () => {
       iptal = true;
       clearInterval(id);
+      if (hizli) clearInterval(hizli);
+      document.removeEventListener("visibilitychange", gorunur);
+      window.__uynOturumKoru = false;
     };
   }, [currentUser, screen]);
 
@@ -3003,7 +3071,7 @@ function App() {
     let son = 0;
     try { son = Number(window.localStorage.getItem("kos_son_hareket") || 0); } catch (e) {}
     let mesaj = "";
-    if (son && Date.now() - son > OA.HAREKETSIZ_MS) mesaj = "Uzun süre işlem yapılmadığı için oturumunuz kapatıldı. Lütfen yeniden giriş yapın.";
+    if (son && Date.now() - son > OA.HAREKETSIZ_MS && !window.__uynOturumKoru) mesaj = "Uzun süre işlem yapılmadığı için oturumunuz kapatıldı. Lütfen yeniden giriş yapın.";
     else if ((await OA.nabiz()) === "atildi") mesaj = "Hesabınıza başka bir cihazdan giriş yapıldığı için bu cihazdaki oturum kapatıldı.";
     else if (OA.durumAktif) OA.durumAktif(son);
     if (mesaj) {
@@ -4061,6 +4129,17 @@ html[data-tema="gece"] .telefon-govde button.uyn-giris-btn{background:linear-gra
 
         {currentUser && screen !== "login" && servisAliciMi(currentUser) && <ServisAlarmi onGit={() => setScreen("servis")} />}
         {currentUser && screen !== "login" && revirAlarmMi(currentUser) && <RevirAlarmi onGit={() => setScreen("revir")} />}
+        {currentUser && screen !== "login" && uyandirmaAlarm.length > 0 && (
+          <UyandirmaAlarmi
+            liste={uyandirmaAlarm}
+            gitGoster={uyandirmaKullanabilir(currentUser)}
+            onAldim={() => uynAlarmAldim(uyandirmaAlarm)}
+            onAldimGit={() => {
+              uynAlarmAldim(uyandirmaAlarm);
+              setScreen("uyandirma");
+            }}
+          />
+        )}
 
         {uyandirmaGeciken.length > 0 && screen !== "uyandirma" && screen !== "login" && (
           <button style={styles.uynBanner} onClick={() => setScreen("uyandirma")}>
@@ -10544,10 +10623,12 @@ function RoomServiceEkrani({ user, onGeri, toastGoster }) {
       return true;
     });
   }
-  if (filtre === "aktif") gosterilecekler = siparisler.filter(aktifMi);
-  if (filtre === "mutfagim") gosterilecekler = siparisler.filter((s) => aktifMi(s) && ["Yeni", "Onaylandı", "Hazırlanıyor"].includes(s.durum));
-  if (filtre === "teslimatlarim") gosterilecekler = siparisler.filter((s) => aktifMi(s) && ["Hazır", "Odaya Gönderildi"].includes(s.durum));
-  if (filtre === "tamamlanan") gosterilecekler = siparisler.filter((s) => s.durum === "Teslim Edildi" || s.durum === "İptal");
+  // Aktif / Mutfak / Teslimat / Tamamlanan yalnızca BUGÜNÜN siparişlerini gösterir; geçmiş "Tümü" sekmesindedir.
+  const rsBugunMu = (s) => rsAktifAn(s).toLocaleDateString("tr-TR") === bugun;
+  if (filtre === "aktif") gosterilecekler = siparisler.filter((s) => aktifMi(s) && rsBugunMu(s));
+  if (filtre === "mutfagim") gosterilecekler = siparisler.filter((s) => aktifMi(s) && rsBugunMu(s) && ["Yeni", "Onaylandı", "Hazırlanıyor"].includes(s.durum));
+  if (filtre === "teslimatlarim") gosterilecekler = siparisler.filter((s) => aktifMi(s) && rsBugunMu(s) && ["Hazır", "Odaya Gönderildi"].includes(s.durum));
+  if (filtre === "tamamlanan") gosterilecekler = siparisler.filter((s) => rsBugunMu(s) && (s.durum === "Teslim Edildi" || s.durum === "İptal"));
 
   if (gorunum === "yeni") {
     return <RSYeniSiparis user={user} onIptal={() => setGorunum("liste")} onKaydet={siparisOlustur} />;
@@ -10627,7 +10708,7 @@ function RoomServiceEkrani({ user, onGeri, toastGoster }) {
         ))}
       </div>
 
-      <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+      <div data-testid="rs-sekmeler" style={{ display: "flex", gap: 5, marginTop: 12, flexWrap: "nowrap" }}>
         {[
           ["aktif", "Aktif"],
           ["mutfagim", "Mutfak"],
@@ -10637,7 +10718,17 @@ function RoomServiceEkrani({ user, onGeri, toastGoster }) {
         ].map(([key, label]) => (
           <button
             key={key}
-            style={{ ...styles.gmSekmeButon, flex: "none", padding: "7px 14px", ...(filtre === key ? styles.gmSekmeButonAktif : {}) }}
+            data-testid={`rs-sekme-${key}`}
+            style={{
+              ...styles.gmSekmeButon,
+              flex: key === "hepsi" ? "2.6 1 auto" : "1 1 auto",
+              minWidth: key === "hepsi" ? 52 : 0,
+              padding: "7px 2px",
+              fontSize: 11.5,
+              whiteSpace: "nowrap",
+              textAlign: "center",
+              ...(filtre === key ? styles.gmSekmeButonAktif : {}),
+            }}
             onClick={() => setFiltre(key)}
           >
             {label}
@@ -10709,7 +10800,7 @@ function RoomServiceEkrani({ user, onGeri, toastGoster }) {
         {yukleniyor ? (
           <div style={styles.merkezYukleniyor}>Yükleniyor…</div>
         ) : gosterilecekler.length === 0 ? (
-          <div style={styles.bilgiKutusu}>Sipariş bulunamadı.</div>
+          <div style={styles.bilgiKutusu}>{filtre === "hepsi" ? "Sipariş bulunamadı." : "Bugün için sipariş yok. Geçmiş siparişler için Tümü sekmesini kullanın."}</div>
         ) : (
           gosterilecekler.map((s) => {
             const slaRengi = { yesil: "#2F7D5C", turuncu: "#B08D3E", kirmizi: "#B7472A", iptal: "#9CA3AF" }[rsSlaDurumu(s)];
@@ -11275,6 +11366,75 @@ function uynYarinTarihi() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+// Bugünden n gün sonrası/öncesi ("YYYY-MM-DD", yerel saat)
+function uynTarihKaydir(n) {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+// Uyandırma alarmı: saatten 5 dk önce, Önbüro / Gece Müdürü / Room Service bölümü çalışanlarında (ışığı gri olmayanlarda).
+const UYN_ALARM_DK = 5;
+function uynAlarmAliciMi(user) {
+  if (!user) return false;
+  if (UYN_ARAMA_DEPARTMANLARI.includes(user.department)) return true;
+  return String(user.bolum || "").trim().toLocaleLowerCase("tr-TR") === "room service";
+}
+// Alarm penceresi: [saat - 5 dk, saat)
+function uynAlarmZamaniMi(kayit, simdi) {
+  const plan = uynPlanZamani(kayit).getTime();
+  return kayit.durum === "Bekliyor" && simdi >= plan - UYN_ALARM_DK * 60000 && simdi < plan;
+}
+// "Aldım": kaydı sürüm denetimiyle günceller (ilk basan yazar), kim/ne zaman bilgisini kayda ve işlem geçmişine işler.
+async function uynAlarmOnayla(kayit, user) {
+  const anahtar = `uyandirma:${kayit.hotelCode}:${kayit.no}`;
+  const simdi = new Date();
+  const uygula = (g) => {
+    if (g.alarmOnay) return null;
+    const kalan = Math.max(0, Math.ceil((uynPlanZamani(g) - simdi) / 60000));
+    return {
+      ...g,
+      alarmOnay: { kullanici: user.name, userCode: user.userCode, zaman: simdi.toISOString() },
+      auditLog: [...(g.auditLog || []), { zaman: simdi.toISOString(), kullanici: user.name, islem: `Uyandırma alarmı alındı (uyandırmaya ${kalan} dk kala)` }],
+    };
+  };
+  for (let deneme = 0; deneme < 3; deneme++) {
+    if (window.storage && window.storage.getV && window.storage.setV) {
+      const r = await window.storage.getV(anahtar);
+      const g = r ? JSON.parse(r.value) : kayit;
+      const yeni = uygula(g);
+      if (!yeni) return g;
+      try {
+        await window.storage.setV(anahtar, JSON.stringify(yeni), r ? r.version : null);
+        return yeni;
+      } catch (e) {
+        if (!(e && e.message === "CAKISMA")) throw e;
+      }
+    } else {
+      const yeni = uygula(kayit);
+      if (!yeni) return kayit;
+      await uynKayitKaydet(yeni);
+      return yeni;
+    }
+  }
+  return kayit;
+}
+
+// Kart/liste rengi. Gri = saati geçmiş ve işlemi bitmiş; yeşil = ileri saat; kırmızı = 1 saat ve altı kala
+// ya da saati geçip henüz aranmamış (yanıp söner). rozet: durum rozetinin rengi.
+const UYN_GRI = "#737B84";
+function uynKartDurum(k, simdi) {
+  const kalanDk = Math.ceil((uynPlanZamani(k).getTime() - simdi) / 60000);
+  const gecti = kalanDk <= 0;
+  if (k.durum === "İptal") return { renk: UYN_GRI, rozet: UYN_GRI, etiket: "İptal", yanip: false };
+  if (k.durum === "Cevap Verdi") return { renk: UYN_GRI, rozet: "#2F7D5C", etiket: "Cevap Verdi", yanip: false };
+  if (k.durum === "Ulaşılamadı") return { renk: UYN_GRI, rozet: "#B7472A", etiket: "Ulaşılamadı", yanip: false };
+  if (k.durum === "Cevap Yok" && gecti) return { renk: "#B08D3E", rozet: "#B08D3E", etiket: "Cevap Yok", yanip: false };
+  if (gecti) return { renk: "#B7472A", rozet: "#B7472A", etiket: "ŞİMDİ ARANACAK", yanip: k.durum === "Bekliyor" };
+  if (kalanDk <= 60) return { renk: "#B7472A", rozet: "#B7472A", etiket: `${kalanDk} dk kaldı`, yanip: false };
+  return { renk: "#2F7D5C", rozet: "#2F7D5C", etiket: k.durum === "Bekliyor" ? "Bekliyor" : k.durum, yanip: false };
+}
+
 // Kısa uyarı sesi + titreşim (uygulama içi uyarı).
 function uynBipSesi() {
   try {
@@ -11306,6 +11466,11 @@ function UyandirmaEkrani({ user, onGeri, toastGoster }) {
   const [yukleniyor, setYukleniyor] = useState(true);
   const [secilenNo, setSecilenNo] = useState(null);
   const [filtre, setFiltre] = useState("bugun");
+  // "Tümü": geçmiş + gelecek arama (varsayılan: son 7 gün ve sonraki 7 gün)
+  const [gecBas, setGecBas] = useState(() => uynTarihKaydir(-7));
+  const [gecBit, setGecBit] = useState(() => uynTarihKaydir(7));
+  const [gecOda, setGecOda] = useState("");
+  const [gecDurum, setGecDurum] = useState("hepsi"); // hepsi | bekleyen | tamamlanan
   const [, setTick] = useState(0);
 
   const aramaYapabilirMi = UYN_ARAMA_DEPARTMANLARI.includes(user.department);
@@ -11404,9 +11569,56 @@ function UyandirmaEkrani({ user, onGeri, toastGoster }) {
   let gosterilecekler = [];
   if (filtre === "bugun") gosterilecekler = bugunKayitlari.slice().sort(artan);
   if (filtre === "yarin") gosterilecekler = kayitlar.filter((k) => k.tarih === yarin).sort(artan);
-  if (filtre === "tumu") gosterilecekler = kayitlar.slice().sort(azalan);
-  if (filtre === "tamamlanan")
-    gosterilecekler = kayitlar.filter((k) => UYN_KAPALI_DURUMLAR.includes(k.durum)).sort(azalan);
+  if (filtre === "tumu") {
+    const lo = gecBas && gecBit && gecBas > gecBit ? gecBit : gecBas;
+    const hi = gecBas && gecBit && gecBas > gecBit ? gecBas : gecBit;
+    const odaAra = gecOda.trim().toLocaleLowerCase("tr-TR");
+    gosterilecekler = kayitlar.filter((k) => {
+      if (lo && k.tarih < lo) return false;
+      if (hi && k.tarih > hi) return false;
+      if (odaAra && String(k.odaNo || "").trim().toLocaleLowerCase("tr-TR") !== odaAra) return false;
+      const kapali = UYN_KAPALI_DURUMLAR.includes(k.durum);
+      if (gecDurum === "bekleyen" && kapali) return false;
+      if (gecDurum === "tamamlanan" && !kapali) return false;
+      return true;
+    });
+  }
+  const simdiMs = Date.now();
+  const gelecekListe = filtre === "tumu" ? gosterilecekler.filter((k) => uynPlanZamani(k).getTime() >= simdiMs).sort(artan) : [];
+  const gecmisListe = filtre === "tumu" ? gosterilecekler.filter((k) => uynPlanZamani(k).getTime() < simdiMs).sort(azalan) : [];
+
+  function kartCiz(k) {
+    const d = uynKartDurum(k, simdiMs);
+    return (
+      <button
+        key={k.no}
+        data-testid="uyn-kart"
+        data-renk={d.renk}
+        data-yanip={d.yanip ? "1" : "0"}
+        style={{
+          ...styles.lfKayitKarti,
+          borderLeft: `5px solid ${d.renk}`,
+          ...(d.yanip ? { borderColor: "#B7472A", borderWidth: 2, borderLeftWidth: 5, animation: "uynYanipSon 1.2s ease-in-out infinite" } : {}),
+        }}
+        onClick={() => {
+          setSecilenNo(k.no);
+          setGorunum("detay");
+        }}
+      >
+        <div style={styles.lfKayitUst}>
+          <span style={{ ...styles.lfKayitNo, color: d.renk }}>
+            ⏰ {filtre === "tumu" ? `${formatTarihSadece(k.tarih)} ` : ""}
+            {k.saat} · Oda {k.odaNo}
+          </span>
+          <span style={{ ...styles.lfDurumRozeti, color: d.rozet, background: `${d.rozet}1A` }}>{d.etiket}</span>
+        </div>
+        <div style={{ ...styles.lfKayitAciklama, color: d.renk === "#B08D3E" ? undefined : d.renk }}>{k.aciklama ? k.aciklama : "Açıklama yok"}</div>
+        <div style={styles.lfKayitAltBilgi}>
+          {formatTarihSadece(k.tarih)} · {k.no} · {(k.denemeler || []).length} arama{k.alarmOnay ? ` · 🔔 ${k.alarmOnay.kullanici}` : ""}
+        </div>
+      </button>
+    );
+  }
 
   if (gorunum === "yeni") {
     return <UYNYeniTalep mevcutKayitlar={kayitlar} onIptal={() => setGorunum("liste")} onKaydet={talepOlustur} />;
@@ -11486,10 +11698,10 @@ function UyandirmaEkrani({ user, onGeri, toastGoster }) {
           ["bugun", "Bugün"],
           ["yarin", "Yarın"],
           ["tumu", "Tümü"],
-          ["tamamlanan", "Tamamlanan"],
         ].map(([key, label]) => (
           <button
             key={key}
+            data-testid={`uyn-sekme-${key}`}
             style={{ ...styles.gmSekmeButon, flex: "none", padding: "7px 14px", ...(filtre === key ? styles.gmSekmeButonAktif : {}) }}
             onClick={() => setFiltre(key)}
           >
@@ -11498,57 +11710,89 @@ function UyandirmaEkrani({ user, onGeri, toastGoster }) {
         ))}
       </div>
 
+      {filtre === "tumu" && (
+        <div data-testid="uyn-gecmis-panel" style={{ marginTop: 12 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {[
+              ["±7 gün", -7, 7],
+              ["Son 7 gün", -7, 0],
+              ["Sonraki 7 gün", 0, 7],
+              ["Sonraki 30 gün", 0, 30],
+            ].map(([ad, bas, bit]) => (
+              <button
+                key={ad}
+                type="button"
+                data-testid={`uyn-hizli-${ad}`}
+                style={{ ...styles.gmKucukButon, padding: "6px 10px" }}
+                onClick={() => {
+                  setGecBas(uynTarihKaydir(bas));
+                  setGecBit(uynTarihKaydir(bit));
+                }}
+              >
+                {ad}
+              </button>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+            <label style={{ flex: "1 1 130px", fontSize: 11, fontWeight: 700 }}>
+              Başlangıç
+              <input data-testid="uyn-bas" type="date" style={styles.epostaInput} value={gecBas} onChange={(e) => setGecBas(e.target.value)} />
+            </label>
+            <label style={{ flex: "1 1 130px", fontSize: 11, fontWeight: 700 }}>
+              Bitiş
+              <input data-testid="uyn-bit" type="date" style={styles.epostaInput} value={gecBit} onChange={(e) => setGecBit(e.target.value)} />
+            </label>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+            <label style={{ flex: "1 1 100px", fontSize: 11, fontWeight: 700 }}>
+              Oda no
+              <div style={{ display: "flex", gap: 4 }}>
+                <input data-testid="uyn-oda" type="text" inputMode="numeric" placeholder="örn. 412" style={styles.epostaInput} value={gecOda} onChange={(e) => setGecOda(e.target.value)} />
+                {gecOda && (
+                  <button type="button" data-testid="uyn-oda-temizle" aria-label="Oda filtresini temizle" style={styles.gmKucukButon} onClick={() => setGecOda("")}>
+                    ✕
+                  </button>
+                )}
+              </div>
+            </label>
+            <label style={{ flex: "1 1 100px", fontSize: 11, fontWeight: 700 }}>
+              Durum
+              <select data-testid="uyn-durum" style={styles.epostaInput} value={gecDurum} onChange={(e) => setGecDurum(e.target.value)}>
+                <option value="hepsi">Hepsi</option>
+                <option value="bekleyen">Bekleyen</option>
+                <option value="tamamlanan">Tamamlanan</option>
+              </select>
+            </label>
+          </div>
+          <div data-testid="uyn-gecmis-ozet" style={{ fontSize: 12, marginTop: 8, opacity: 0.8 }}>
+            {gosterilecekler.length} kayıt · {gelecekListe.length} gelecek · {gecmisListe.length} geçmiş
+            {gecOda.trim() ? ` · Oda ${gecOda.trim()}` : ""}
+          </div>
+        </div>
+      )}
+
       <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 14 }}>
         {yukleniyor ? (
           <div style={styles.merkezYukleniyor}>Yükleniyor…</div>
         ) : gosterilecekler.length === 0 ? (
           <div style={styles.bilgiKutusu}>Uyandırma kaydı bulunamadı.</div>
+        ) : filtre === "tumu" ? (
+          <>
+            {gelecekListe.length > 0 && (
+              <div data-testid="uyn-bolum-gelecek" style={{ fontSize: 12, fontWeight: 800, color: "#2F7D5C", letterSpacing: 0.5 }}>
+                GELECEK ({gelecekListe.length})
+              </div>
+            )}
+            {gelecekListe.map(kartCiz)}
+            {gecmisListe.length > 0 && (
+              <div data-testid="uyn-bolum-gecmis" style={{ fontSize: 12, fontWeight: 800, color: UYN_GRI, letterSpacing: 0.5, marginTop: gelecekListe.length ? 6 : 0 }}>
+                GEÇMİŞ ({gecmisListe.length})
+              </div>
+            )}
+            {gecmisListe.map(kartCiz)}
+          </>
         ) : (
-          gosterilecekler.map((k) => {
-            const geldi = uynZamaniGeldiMi(k);
-            const kalanDk = Math.round((uynPlanZamani(k) - new Date()) / 60000);
-            let renk = "#2F7D5C";
-            let etiket = k.durum;
-            if (k.durum === "Bekliyor") {
-              if (geldi) {
-                renk = "#B7472A";
-                etiket = "ŞİMDİ ARANACAK";
-              } else if (kalanDk <= 5) {
-                renk = "#B08D3E";
-                etiket = `${kalanDk} dk kaldı`;
-              }
-            } else if (k.durum === "Cevap Yok") {
-              renk = "#B08D3E";
-            } else if (k.durum === "Ulaşılamadı") {
-              renk = "#B7472A";
-            } else if (k.durum === "İptal") {
-              renk = "#9CA3AF";
-            }
-            return (
-              <button
-                key={k.no}
-                style={{
-                  ...styles.lfKayitKarti,
-                  ...(geldi ? { borderColor: "#B7472A", borderWidth: 2, animation: "uynYanipSon 1.2s ease-in-out infinite" } : {}),
-                }}
-                onClick={() => {
-                  setSecilenNo(k.no);
-                  setGorunum("detay");
-                }}
-              >
-                <div style={styles.lfKayitUst}>
-                  <span style={styles.lfKayitNo}>
-                    ⏰ {k.saat} · Oda {k.odaNo}
-                  </span>
-                  <span style={{ ...styles.lfDurumRozeti, color: renk, background: `${renk}1A` }}>{etiket}</span>
-                </div>
-                <div style={styles.lfKayitAciklama}>{k.aciklama ? k.aciklama : "Açıklama yok"}</div>
-                <div style={styles.lfKayitAltBilgi}>
-                  {formatTarihSadece(k.tarih)} · {k.no} · {(k.denemeler || []).length} arama
-                </div>
-              </button>
-            );
-          })
+          gosterilecekler.map(kartCiz)
         )}
       </div>
     </div>
@@ -11700,6 +11944,11 @@ function UYNDetay({ kayit, user, aramaYapabilirMi, yoneticiMi, onGeri, onSonucIs
       <div style={{ ...styles.lfUyariKutusu, background: `${durumRengi}1A`, color: durumRengi }}>
         {kayit.durum === "Bekliyor" && geldi ? "⏰ ŞİMDİ ARANACAK" : `Durum: ${kayit.durum}`}
       </div>
+      {kayit.alarmOnay && (
+        <div data-testid="uyn-alarm-bilgi" style={{ fontSize: 12, marginTop: 8, opacity: 0.85 }}>
+          🔔 Alarm alındı: {kayit.alarmOnay.kullanici} · {new Date(kayit.alarmOnay.zaman).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}
+        </div>
+      )}
 
       <div style={styles.lfBilgiKarti}>
         <div style={styles.lfBilgiSatiri}>
@@ -13245,6 +13494,76 @@ function servisSusturYaz(o) {
   try {
     window.localStorage.setItem("servis_sustur", JSON.stringify(o));
   } catch (e) {}
+}
+
+// Uyandırma alarmı: saatten 5 dk önce tam ekran, "Aldım" ile durur (kim aldığı kayda ve işlem geçmişine işlenir).
+function UyandirmaAlarmi({ liste, gitGoster, onAldim, onAldimGit }) {
+  const [, yenile] = useState(0);
+  const oncekiRef = useRef("");
+  const imza = liste.map((k) => k.no).join(",");
+  useEffect(() => {
+    const ac = () => servisSesAc();
+    document.addEventListener("pointerdown", ac);
+    const sn = setInterval(() => yenile((n) => n + 1), 5000);
+    return () => {
+      document.removeEventListener("pointerdown", ac);
+      clearInterval(sn);
+    };
+  }, []);
+  useEffect(() => {
+    servisAlarmSesi();
+    const t = setInterval(servisAlarmSesi, 4000);
+    if (imza !== oncekiRef.current) {
+      oncekiRef.current = imza;
+      try {
+        const metin = `${UYN_ALARM_DK} dk sonra uyandırma: ${liste.map((k) => `Oda ${k.odaNo} (${k.saat})`).join(", ")}`;
+        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+          if (navigator.serviceWorker && navigator.serviceWorker.ready) {
+            navigator.serviceWorker.ready.then((r) => r.showNotification("Uyandırma Servisi - Alarm", { body: metin, tag: "uyn-alarm", requireInteraction: true })).catch(() => {});
+          } else new Notification("Uyandırma Servisi - Alarm", { body: metin });
+        }
+      } catch (e) {}
+    }
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [imza]);
+  const simdi = Date.now();
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 10000, background: "rgba(127,29,29,0.96)", color: "#fff", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 20, boxSizing: "border-box", textAlign: "center" }} data-testid="uyn-alarm">
+      <div style={{ fontSize: 56 }}>⏰</div>
+      <div className="baslik-font" style={{ fontSize: 24, fontWeight: 800, marginTop: 8 }}>UYANDIRMA ALARMI</div>
+      <div style={{ marginTop: 14, width: "100%", maxWidth: 420, maxHeight: "40vh", overflowY: "auto" }}>
+        {liste.map((k) => {
+          const dk = Math.max(0, Math.ceil((uynPlanZamani(k).getTime() - simdi) / 60000));
+          return (
+            <div key={k.no} style={{ background: "rgba(255,255,255,0.14)", borderRadius: 12, padding: "10px 12px", marginBottom: 8, fontSize: 18, fontWeight: 800 }}>
+              Oda {k.odaNo} · {k.saat}
+              <div style={{ fontSize: 13, fontWeight: 500, opacity: 0.9 }}>
+                {dk > 0 ? `${dk} dk kaldı` : "şimdi"}
+                {k.aciklama ? ` · ${k.aciklama}` : ""}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <button
+        data-testid="uyn-alarm-aldim"
+        style={{ marginTop: 14, width: "100%", maxWidth: 420, padding: "14px 16px", borderRadius: 14, border: "none", background: "#fff", color: "#7F1D1D", fontSize: 18, fontWeight: 800 }}
+        onClick={onAldim}
+      >
+        ALDIM
+      </button>
+      {gitGoster && (
+        <button
+          data-testid="uyn-alarm-git"
+          style={{ marginTop: 10, width: "100%", maxWidth: 420, padding: "12px 16px", borderRadius: 14, border: "2px solid #fff", background: "transparent", color: "#fff", fontSize: 15, fontWeight: 700 }}
+          onClick={onAldimGit}
+        >
+          Aldım ve Uyandırma Servisi'ne git
+        </button>
+      )}
+    </div>
+  );
 }
 
 // Alıcılar (Misafir İlişkileri Müdürü, BT Müdürü, Genel Müdür Yardımcısı) için iade alarmı. Uygulama açıkken her ekranda çalışır.
