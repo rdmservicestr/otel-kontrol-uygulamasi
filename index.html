@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.63";
+window.UYGULAMA_SURUMU = "1.65";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -1900,7 +1900,7 @@ const PAV_AKTIF_DURUMLAR = ["Rezerve", "Kullanıldı"];
 // Renkler: Boş = yeşil, işlemde (sarı kilit) = sarı, rezerve = kırmızı, kullanıldı = koyu kırmızı
 const PAV_RENKLER = { bos: "#2F7D5C", kilit: "#D9A400", rezerve: "#C62828", kullanildi: "#7F1D1D" };
 const PAV_OTELLER = ["5557"]; // sunucuda da aynı kısıt var (11a_pavilion.sql > pavilion_oteller)
-const PAV_KALIN = ["8005", "8006", "8007", "8008"]; // numarası kalın (bold) yazılacak pavilionlar
+const PAV_JACUZZI = ["8004", "8005", "8006", "8007"]; // numarasının yanına jakuzi ikonu konacak pavilionlar
 // ---- Modül yetkileri (Otel Yönetim Paneli > Modüller) ----
 // Kullanıcının görebildiği modüller girişte sunucudan gelir (user.moduller). Sunucu fonksiyonu henüz
 // kurulmamışsa (user.moduller tanımsız) eski sabit kurallar geçerli olur; böylece geçiş sırasında hiçbir şey bozulmaz.
@@ -1924,7 +1924,15 @@ function pavKullanabilir(user) {
   return modulAcik(user, "pavilion", (u) => PAV_OTELLER.includes(u.hotelCode));
 }
 function pavNoStil(no) {
-  return { fontWeight: PAV_KALIN.includes(no) ? 900 : 400 };
+  return { fontWeight: 400 };
+}
+// Pavilion numarası + (jakuzili ise) ikon
+// PDF raporlarında emoji basılamadığı için yazıyla: "8004 (Jakuzi)"
+function pavPdfAd(no) {
+  return PAV_JACUZZI.includes(no) ? `${no} (Jakuzi)` : no;
+}
+function pavEtiket(no) {
+  return PAV_JACUZZI.includes(no) ? `${no} 🛁` : no;
 }
 function pavBasHarf(ad) {
   return String(ad || "")
@@ -12249,9 +12257,9 @@ function pavPdfGunluk(kayitlar, tarih, hotelName, kullaniciAdi) {
       doc.setFillColor(rr, gg, bb);
       doc.roundedRect(x, yy, kw, kh, 5, 5, "F");
       doc.setTextColor(255, 255, 255);
-      doc.setFont(font, PAV_KALIN.includes(p.no) ? "bold" : "normal");
+      doc.setFont(font, "normal");
       doc.setFontSize(12);
-      doc.text(p.no, x + 8, yy + 16);
+      doc.text(pavPdfAd(p.no), x + 8, yy + 16);
       doc.setFont(font, "normal");
       doc.setFontSize(8);
       doc.text(k ? `Oda ${k.odaNo} - ${pavKisiYaz(k)} kişi` : "BOŞ", x + 8, yy + 29);
@@ -12323,10 +12331,17 @@ function pavPdfGunluk(kayitlar, tarih, hotelName, kullaniciAdi) {
       doc.setFillColor(246, 245, 241);
       doc.rect(m, y, W - 2 * m, h, "F");
     }
-    doc.setFont(font, PAV_KALIN.includes(s.p.no) ? "bold" : "normal");
+    doc.setFont(font, "normal");
     doc.setFontSize(9);
     doc.setTextColor(22, 50, 58);
-    doc.text(s.p.no, xKonum[0] + 5, y + 13);
+    if (PAV_JACUZZI.includes(s.p.no)) {
+      doc.text(s.p.no, xKonum[0] + 5, y + 10);
+      doc.setFontSize(7);
+      doc.text("Jakuzi", xKonum[0] + 5, y + 18);
+      doc.setFontSize(9);
+    } else {
+      doc.text(s.p.no, xKonum[0] + 5, y + 13);
+    }
     doc.setFont(font, "bold");
     const [rr, gg, bb] = pavHexToRgb(pavDurumRengi(k));
     doc.setTextColor(rr, gg, bb);
@@ -12422,11 +12437,11 @@ function pavPdfHaftalik(kayitlar, baslangic, hotelName, kullaniciAdi) {
     y += 16;
 
     PAV_LISTESI.filter((p) => p.alan === alan).forEach((p) => {
-      doc.setFont(font, PAV_KALIN.includes(p.no) ? "bold" : "normal");
+      doc.setFont(font, "normal");
       doc.setFontSize(9);
       doc.setTextColor(22, 50, 58);
       doc.rect(m, y, etiketW, hH, "S");
-      doc.text(p.no, m + 6, y + 15);
+      doc.text(pavPdfAd(p.no), m + 6, y + 15);
       gunler.forEach((g, i) => {
         const k = pavAktifKayit(kayitlar, p.no, g);
         const x = m + etiketW + i * hW;
@@ -16646,7 +16661,7 @@ function PavilionEkrani({ user, onGeri, toastGoster }) {
       PAV_LISTESI.filter((p) => p.alan === alan).forEach((p) => {
         matrisSatirlari.push(
           <tr key={p.no}>
-            <td style={{ ...styles.pavTabloEtiket, ...pavNoStil(p.no) }}>{p.no}</td>
+            <td style={{ ...styles.pavTabloEtiket, ...pavNoStil(p.no) }}>{pavEtiket(p.no)}</td>
             {gunler.map((g) => {
               const k = pavAktifKayit(kayitlar, p.no, g);
               const kl = k ? null : pavKilitBul(kilitler, p.no, g);
@@ -16817,7 +16832,7 @@ function PavilionEkrani({ user, onGeri, toastGoster }) {
                       style={{ ...styles.pavKutu, borderColor: renk, background: `${renk}${k || kl ? "22" : "14"}` }}
                       onClick={() => (k ? doluyaTikla(k) : bosaTikla(p.no, tarih))}
                     >
-                      <div style={{ fontSize: 14, ...pavNoStil(p.no), color: "#16323A" }}>{p.no}</div>
+                      <div style={{ fontSize: 14, ...pavNoStil(p.no), color: "#16323A" }}>{pavEtiket(p.no)}</div>
                       <div style={{ fontSize: 10, fontWeight: 700, color: k ? PAV_RENKLER.rezerve : renk }}>
                         {k ? (k.durum === "Kullanıldı" ? "KULLANILDI ✓" : "REZERVE") : kl ? "İŞLEMDE" : "BOŞ"}
                       </div>
@@ -17086,7 +17101,7 @@ function PAVYeniRezervasyon({ kayitlar, onDeger, onIptal, onKaydet, onSonuc }) {
           <optgroup key={alan} label={alan}>
             {PAV_LISTESI.filter((p) => p.alan === alan).map((p) => (
               <option key={p.no} value={p.no} style={pavNoStil(p.no)}>
-                {p.no}
+                {pavEtiket(p.no)}
               </option>
             ))}
           </optgroup>
@@ -17318,7 +17333,7 @@ function PAVDetay({ kayit, grupGunleri, yetkiliMi, onGeri, onDurum, onDuzenle })
         </button>
         <div>
           <div className="baslik-font" style={styles.listeBaslikYazi}>
-            Pavilion {kayit.pavilionNo}
+            Pavilion {pavEtiket(kayit.pavilionNo)}
           </div>
           <div style={styles.ilerlemeYazi}>
             {kayit.alan} · {kayit.no}
