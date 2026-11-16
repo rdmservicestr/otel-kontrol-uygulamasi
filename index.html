@@ -45,7 +45,7 @@
 
 <script>
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.65";
+window.UYGULAMA_SURUMU = "1.66";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -12127,6 +12127,7 @@ function pavSatirCevir(r) {
     olusturmaZamani: r.olusturma_zamani,
     iptalNedeni: r.iptal_nedeni || "",
     grupNo: r.grup_no || null,
+    misafir: r.misafir || "",
     auditLog: [],
   };
 }
@@ -12146,6 +12147,23 @@ function pavAktifKayit(kayitlar, pavNo, tarih) {
   return (
     kayitlar.find((k) => k.pavilionNo === pavNo && k.tarih === tarih && PAV_AKTIF_DURUMLAR.includes(k.durum)) || null
   );
+}
+
+// Misafir adı: yazarken BÜYÜK harf (Türkçe), yalnızca harf/boşluk/. ' -
+function pavMisafirYaz(v) {
+  return String(v || "")
+    .toLocaleUpperCase("tr-TR")
+    .replace(/[^\p{L}\s.'\-]/gu, "")
+    .replace(/\s+/g, " ")
+    .replace(/^\s/, "")
+    .slice(0, 60);
+}
+// Kayıt için geçerli mi? En az iki kelime, en az 3 karakter. Sorun varsa mesaj döner, yoksa "".
+function pavMisafirHata(v) {
+  const t = String(v || "").trim().replace(/\s+/g, " ");
+  if (!t) return "İsim Soyisim zorunludur.";
+  if (t.length < 3 || !t.includes(" ")) return "İsim ve soyisim giriniz (en az iki kelime).";
+  return "";
 }
 
 function pavTarihEkle(tarih, gun) {
@@ -12246,7 +12264,7 @@ function pavPdfGunluk(kayitlar, tarih, hotelName, kullaniciAdi) {
     const kolon = 5;
     const bosluk = 8;
     const kw = (W - 2 * m - bosluk * (kolon - 1)) / kolon;
-    const kh = 48;
+    const kh = 58;
     liste.forEach((p, i) => {
       const r = Math.floor(i / kolon);
       const c = i % kolon;
@@ -12262,8 +12280,13 @@ function pavPdfGunluk(kayitlar, tarih, hotelName, kullaniciAdi) {
       doc.text(pavPdfAd(p.no), x + 8, yy + 16);
       doc.setFont(font, "normal");
       doc.setFontSize(8);
-      doc.text(k ? `Oda ${k.odaNo} - ${pavKisiYaz(k)} kişi` : "BOŞ", x + 8, yy + 29);
-      if (k) doc.text(`${pavPara(k.ucret)} €`, x + 8, yy + 40);
+      doc.text(k ? `Oda ${k.odaNo} - ${pavKisiYaz(k)} kişi` : "BOŞ", x + 8, yy + 28);
+      if (k && k.misafir) {
+        doc.setFont(font, "bold");
+        doc.text(doc.splitTextToSize(k.misafir, kw - 14)[0], x + 8, yy + 39);
+        doc.setFont(font, "normal");
+      }
+      if (k) doc.text(`${pavPara(k.ucret)} €`, x + 8, yy + 50);
     });
     const satirSayisi = Math.ceil(liste.length / kolon);
     y += satirSayisi * (kh + bosluk) + 14;
@@ -12296,11 +12319,12 @@ function pavPdfGunluk(kayitlar, tarih, hotelName, kullaniciAdi) {
     { b: "Pavilion", w: 56 },
     { b: "Durum", w: 62 },
     { b: "Oda", w: 42 },
+    { b: "Misafir", w: 92 },
     { b: "Kişi (Y+Ç)", w: 52 },
-    { b: "Ücret (€)", w: 66 },
-    { b: "Açıklama", w: W - 2 * m - 56 - 62 - 42 - 52 - 66 },
+    { b: "Ücret (€)", w: 60 },
+    { b: "Açıklama", w: W - 2 * m - 56 - 62 - 42 - 92 - 52 - 60 },
   ];
-  const xKonum = [0, 56, 118, 160, 212, 278].map((v) => m + v);
+  const xKonum = [0, 56, 118, 160, 252, 304, 364].map((v) => m + v);
 
   function baslikCiz() {
     doc.setFillColor(22, 50, 58);
@@ -12320,8 +12344,9 @@ function pavPdfGunluk(kayitlar, tarih, hotelName, kullaniciAdi) {
 
   satirlar.forEach((s, i) => {
     const k = s.k;
-    const aciklamaSatirlari = doc.splitTextToSize(k ? k.aciklama : "-", kolonlar[5].w - 10);
-    const h = Math.max(20, aciklamaSatirlari.length * 10 + 10);
+    const aciklamaSatirlari = doc.splitTextToSize(k ? k.aciklama : "-", kolonlar[6].w - 10);
+    const misafirSatirlari = doc.splitTextToSize(k && k.misafir ? k.misafir : "-", kolonlar[3].w - 8);
+    const h = Math.max(20, Math.max(aciklamaSatirlari.length, misafirSatirlari.length) * 10 + 10);
     if (y + h > H - 60) {
       doc.addPage();
       y = m;
@@ -12349,9 +12374,10 @@ function pavPdfGunluk(kayitlar, tarih, hotelName, kullaniciAdi) {
     doc.setFont(font, "normal");
     doc.setTextColor(40, 40, 40);
     doc.text(k ? String(k.odaNo) : "-", xKonum[2] + 5, y + 13);
-    doc.text(k ? pavKisiYaz(k) : "-", xKonum[3] + 5, y + 13);
-    doc.text(k ? pavPara(k.ucret) : "-", xKonum[4] + 5, y + 13);
-    doc.text(aciklamaSatirlari, xKonum[5] + 5, y + 13);
+    doc.text(misafirSatirlari, xKonum[3] + 4, y + 13);
+    doc.text(k ? pavKisiYaz(k) : "-", xKonum[4] + 5, y + 13);
+    doc.text(k ? pavPara(k.ucret) : "-", xKonum[5] + 5, y + 13);
+    doc.text(aciklamaSatirlari, xKonum[6] + 5, y + 13);
     y += h;
   });
 
@@ -12366,8 +12392,8 @@ function pavPdfGunluk(kayitlar, tarih, hotelName, kullaniciAdi) {
   doc.setTextColor(22, 50, 58);
   doc.text("TOPLAM", xKonum[0] + 5, y + 14);
   doc.text(`${doluSayisi} dolu`, xKonum[1] + 5, y + 14);
-  doc.text(toplamKisi, xKonum[3] + 5, y + 14);
-  doc.text(pavPara(toplamUcret), xKonum[4] + 5, y + 14);
+  doc.text(toplamKisi, xKonum[4] + 5, y + 14);
+  doc.text(pavPara(toplamUcret), xKonum[5] + 5, y + 14);
 
   const sayfaSayisi = doc.getNumberOfPages();
   for (let i = 1; i <= sayfaSayisi; i++) {
@@ -12410,7 +12436,7 @@ function pavPdfHaftalik(kayitlar, baslangic, hotelName, kullaniciAdi) {
 
   const etiketW = 80;
   const hW = (W - 2 * m - etiketW) / 7;
-  const hH = 23;
+  const hH = 27;
 
   // Başlık satırı
   doc.setFillColor(22, 50, 58);
@@ -12453,10 +12479,12 @@ function pavPdfHaftalik(kayitlar, baslangic, hotelName, kullaniciAdi) {
           doc.setFont(font, "bold");
           doc.setFontSize(8);
           doc.setTextColor(22, 50, 58);
-          doc.text(`Oda ${k.odaNo}  ${pavKisiYaz(k)} kişi`, x + 4, y + 10);
+          doc.text(`Oda ${k.odaNo}  ${pavKisiYaz(k)} kişi`, x + 4, y + 9);
           doc.setFont(font, "normal");
+          doc.setFontSize(6.5);
+          if (k.misafir) doc.text(doc.splitTextToSize(k.misafir, hW - 8)[0], x + 4, y + 17);
           doc.setFontSize(7);
-          doc.text(`${pavPara(k.ucret)} €`, x + 4, y + 19);
+          doc.text(`${pavPara(k.ucret)} €`, x + 4, y + 24);
         } else {
           doc.setFont(font, "normal");
           doc.setFontSize(8);
@@ -16365,8 +16393,47 @@ function PavilionEkrani({ user, onGeri, toastGoster }) {
   const [secGunler, setSecGunler] = useState([]);
   // Her rezervasyon denemesinin sonucu: { ok, baslik, satirlar } -> yeşil / kırmızı pop-up
   const [sonuc, setSonuc] = useState(null);
+  // Arama (isim / oda / PAV no)
+  const [arama, setArama] = useState("");
+  const [aramaSonuc, setAramaSonuc] = useState(null);
+  const [aramaMesgul, setAramaMesgul] = useState(false);
   const istekNo = useRef(0);
   const yetkiliMi = yonetici;
+
+  // Arama: yazmayı bıraktıktan 0,4 sn sonra sunucuda aranır (en az 2 karakter)
+  useEffect(() => {
+    const q = arama.trim().replace(/\s+/g, " ").toLocaleUpperCase("tr-TR");
+    if (q.length < 2) {
+      setAramaSonuc(null);
+      setAramaMesgul(false);
+      return undefined;
+    }
+    let iptal = false;
+    setAramaMesgul(true);
+    const t = setTimeout(async () => {
+      try {
+        const r = await window.OtelRpc.cagir("pavilion_ara", { p_q: q });
+        if (!iptal) setAramaSonuc((r || []).map(pavSatirCevir));
+      } catch (e) {
+        if (!iptal) {
+          setAramaSonuc([]);
+          setUyari(e && e.message ? e.message : "Arama yapılamadı.");
+        }
+      }
+      if (!iptal) setAramaMesgul(false);
+    }, 400);
+    return () => {
+      iptal = true;
+      clearTimeout(t);
+    };
+  }, [arama]);
+
+  function aramadanAc(k) {
+    setKayitlar((onceki) => [...onceki.filter((x) => x.id !== k.id), k]);
+    setTarih(k.tarih);
+    setSecilenNo(k.no);
+    setGorunum("detay");
+  }
 
   // Hafta ya da görünüm değişirse seçim temizlenir
   useEffect(() => {
@@ -16435,6 +16502,7 @@ function PavilionEkrani({ user, onGeri, toastGoster }) {
           p_cocuk: form.cocuk,
           p_toplam_ucret: form.ucret,
           p_aciklama: form.aciklama,
+          p_misafir: form.misafir,
         });
         const kay = (r && r.kayitlar) || [];
         setSonuc({
@@ -16442,6 +16510,7 @@ function PavilionEkrani({ user, onGeri, toastGoster }) {
           baslik: "REZERVASYON BAŞARILI",
           satirlar: [
             `Pavilion ${form.pavilionNo} · ${form.tarihler.length} gün · Oda ${form.odaNo}`,
+            `Misafir: ${form.misafir}`,
             ...kay.map((x) => `${pavTarihKisa(x.tarih)} ${pavGunAdi(x.tarih)} · ${x.no} · ${pavPara(x.ucret)} €`),
             `Toplam ${pavPara(form.ucret)} €`,
           ],
@@ -16459,12 +16528,14 @@ function PavilionEkrani({ user, onGeri, toastGoster }) {
           p_cocuk: form.cocuk,
           p_ucret: form.ucret,
           p_aciklama: form.aciklama,
+          p_misafir: form.misafir,
         });
         setSonuc({
           ok: true,
           baslik: "REZERVASYON BAŞARILI",
           satirlar: [
             `Pavilion ${form.pavilionNo} · ${pavTarihKisa(gun)} ${pavGunAdi(gun)} · Oda ${form.odaNo}`,
+            `Misafir: ${form.misafir}`,
             `${r && r.no ? r.no : ""} · ${pavPara(form.ucret)} €`,
           ],
         });
@@ -16542,6 +16613,7 @@ function PavilionEkrani({ user, onGeri, toastGoster }) {
       p_cocuk: yeni.cocuk,
       p_ucret: yeni.ucret,
       p_aciklama: yeni.aciklama,
+      p_misafir: yeni.misafir || null,
     });
     toastGoster("✓ Rezervasyon güncellendi");
     await yukle(false);
@@ -16725,6 +16797,48 @@ function PavilionEkrani({ user, onGeri, toastGoster }) {
         + Yeni Rezervasyon
       </button>
 
+      <div style={{ position: "relative", marginTop: 10 }}>
+        <input
+          data-testid="pav-ara"
+          aria-label="Ara"
+          style={{ ...styles.epostaInput, width: "100%", paddingRight: 36, boxSizing: "border-box" }}
+          value={arama}
+          maxLength={60}
+          onChange={(e) => setArama(e.target.value)}
+          placeholder="🔎 İsim, oda no veya PAV no ara"
+        />
+        {arama && (
+          <button
+            aria-label="Aramayı temizle"
+            onClick={() => setArama("")}
+            style={{ position: "absolute", right: 8, top: 8, border: "none", background: "transparent", fontSize: 18, cursor: "pointer", color: "#6B7280" }}
+          >
+            ×
+          </button>
+        )}
+      </div>
+      {aramaSonuc !== null && (
+        <div data-testid="pav-ara-sonuc" style={{ border: "1px solid #D9D4C5", borderRadius: 10, marginTop: 6, maxHeight: 280, overflowY: "auto", background: "#fff" }}>
+          {aramaSonuc.length === 0 ? (
+            <div style={{ padding: 12, fontSize: 12, color: "#6B7280" }}>{aramaMesgul ? "Aranıyor…" : "Sonuç yok (son 30 gün ve sonrası aranır)."}</div>
+          ) : (
+            aramaSonuc.map((k) => (
+              <button
+                key={k.id}
+                data-testid="pav-ara-satir"
+                onClick={() => aramadanAc(k)}
+                style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", border: "none", borderBottom: "1px solid #EEE9DB", background: "transparent", cursor: "pointer", fontSize: 12, color: "#16323A" }}
+              >
+                <strong>{k.misafir || "(isimsiz eski kayıt)"}</strong>
+                <div style={{ color: "#6B7280" }}>
+                  {pavEtiket(k.pavilionNo)} · {pavTarihKisa(k.tarih)} {pavGunAdi(k.tarih)} · Oda {k.odaNo} · {k.durum}
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+
       <div style={styles.pavTarihSatiri}>
         <button style={styles.pavTarihOk} onClick={() => setTarih(pavTarihEkle(tarih, tip === "haftalik" ? -7 : -1))}>
           ◀
@@ -16846,6 +16960,11 @@ function PavilionEkrani({ user, onGeri, toastGoster }) {
                           Oda {k.odaNo} · {pavKisiYaz(k)} kişi
                         </div>
                       )}
+                      {k && k.misafir && (
+                        <div data-testid="pav-kutu-misafir" style={{ fontSize: 10, fontWeight: 700, color: "#16323A", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" }}>
+                          {k.misafir}
+                        </div>
+                      )}
                       {k && <div style={{ fontSize: 10, color: "#6B7280" }}>{pavPara(k.ucret)} €</div>}
                       {k && (
                         <div style={{ fontSize: 10, fontWeight: 700, color: PAV_RENKLER.rezerve, marginTop: 1 }}>
@@ -16945,6 +17064,8 @@ function PAVYeniRezervasyon({ kayitlar, onDeger, onIptal, onKaydet, onSonuc }) {
   const [pavilionNo, setPavilionNo] = useState(onDeger.pavilionNo || "");
   const [tarih, setTarih] = useState(onDeger.tarih || bugunTarihi());
   const [odaNo, setOdaNo] = useState("");
+  const [misafir, setMisafir] = useState("");
+  const [odaUyari, setOdaUyari] = useState([]);
   const [yetiskin, setYetiskin] = useState("");
   const [cocuk, setCocuk] = useState("");
   const [ucret, setUcret] = useState("");
@@ -16965,6 +17086,29 @@ function PAVYeniRezervasyon({ kayitlar, onDeger, onIptal, onKaydet, onSonuc }) {
     : pavilionNo && tarih
     ? pavAktifKayit(kayitlar, pavilionNo, tarih)
     : null;
+  // Aynı oda aynı gün(ler)de başka pavilionda da rezerve mi? (yalnızca uyarı, engellemez)
+  useEffect(() => {
+    const o = odaNo.trim();
+    const gunler = coklu ? tarihler : tarih ? [tarih] : [];
+    if (!o || gunler.length === 0) {
+      setOdaUyari([]);
+      return undefined;
+    }
+    let iptal = false;
+    const t = setTimeout(async () => {
+      try {
+        const r = await window.OtelRpc.cagir("pavilion_oda_kontrol", { p_oda: o, p_tarihler: gunler });
+        if (!iptal) setOdaUyari((r || []).filter((x) => x.pavilion_no !== pavilionNo));
+      } catch (e) {
+        if (!iptal) setOdaUyari([]);
+      }
+    }, 500);
+    return () => {
+      iptal = true;
+      clearTimeout(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [odaNo, tarih, tarihlerAnahtar, pavilionNo]);
   function hataVer(m) {
     setHata(m);
     if (onSonuc) onSonuc({ ok: false, baslik: "REZERVASYON BAŞARISIZ", satirlar: [m] });
@@ -17039,6 +17183,11 @@ function PAVYeniRezervasyon({ kayitlar, onDeger, onIptal, onKaydet, onSonuc }) {
       hataVer("Oda numarası zorunludur.");
       return;
     }
+    const misafirHata = pavMisafirHata(misafir);
+    if (misafirHata) {
+      hataVer(misafirHata);
+      return;
+    }
     const yetiskinSayi = parseInt(yetiskin, 10);
     const cocukSayi = cocuk.trim() === "" ? 0 : parseInt(cocuk, 10);
     if (!yetiskinSayi || yetiskinSayi < 1 || yetiskinSayi > 99) {
@@ -17072,6 +17221,7 @@ function PAVYeniRezervasyon({ kayitlar, onDeger, onIptal, onKaydet, onSonuc }) {
         tarih,
         tarihler: coklu ? tarihler : undefined,
         odaNo: odaNo.trim(),
+        misafir: misafir.trim().replace(/\s+/g, " "),
         yetiskin: yetiskinSayi,
         cocuk: cocukSayi,
         ucret: ucretSayi,
@@ -17142,6 +17292,23 @@ function PAVYeniRezervasyon({ kayitlar, onDeger, onIptal, onKaydet, onSonuc }) {
 
       <Etiket>ODA NUMARASI (zorunlu)</Etiket>
       <input style={styles.epostaInput} value={odaNo} onChange={(e) => setOdaNo(e.target.value)} placeholder="örn. 325" />
+      {odaUyari.length > 0 && (
+        <div data-testid="pav-oda-uyari" style={{ ...styles.hataKutusu, background: "#FEF3C7", color: "#92400E", borderColor: "#D9A400" }}>
+          ⚠ Oda {odaNo.trim()} aynı gün başka pavilionda da rezerve:{" "}
+          {odaUyari.map((x) => `${pavEtiket(x.pavilion_no)} (${pavTarihKisa(x.tarih)}${x.misafir ? " · " + x.misafir : ""})`).join(", ")}
+        </div>
+      )}
+
+      <Etiket>İSİM SOYİSİM (zorunlu)</Etiket>
+      <input
+        aria-label="İsim Soyisim"
+        style={styles.epostaInput}
+        value={misafir}
+        maxLength={60}
+        autoCapitalize="characters"
+        onChange={(e) => setMisafir(pavMisafirYaz(e.target.value))}
+        placeholder="örn. AHMET YILMAZ"
+      />
 
       <div style={{ display: "flex", gap: 10 }}>
         <div style={{ flex: 1 }}>
@@ -17272,6 +17439,7 @@ function PAVDetay({ kayit, grupGunleri, yetkiliMi, onGeri, onDurum, onDuzenle })
   const [islem, setIslem] = useState(false);
   const [duzenle, setDuzenle] = useState(false);
   const [odaNo, setOdaNo] = useState(kayit.odaNo);
+  const [misafir, setMisafir] = useState(kayit.misafir || "");
   const [yetiskin, setYetiskin] = useState(String(kayit.yetiskin));
   const [cocuk, setCocuk] = useState(String(kayit.cocuk));
   const [ucret, setUcret] = useState(String(kayit.ucret));
@@ -17296,6 +17464,10 @@ function PAVDetay({ kayit, grupGunleri, yetkiliMi, onGeri, onDurum, onDuzenle })
       setHata("Oda numarası zorunludur.");
       return;
     }
+    if (misafir.trim() && pavMisafirHata(misafir)) {
+      setHata(pavMisafirHata(misafir));
+      return;
+    }
     const yetiskinSayi = parseInt(yetiskin, 10);
     const cocukSayi = cocuk.trim() === "" ? 0 : parseInt(cocuk, 10);
     if (!yetiskinSayi || yetiskinSayi < 1 || yetiskinSayi > 99) {
@@ -17317,7 +17489,7 @@ function PAVDetay({ kayit, grupGunleri, yetkiliMi, onGeri, onDurum, onDuzenle })
     }
     setIslem(true);
     try {
-      await onDuzenle(kayit, { odaNo: odaNo.trim(), yetiskin: yetiskinSayi, cocuk: cocukSayi, ucret: ucretSayi, aciklama: aciklama.trim() });
+      await onDuzenle(kayit, { odaNo: odaNo.trim(), misafir: misafir.trim().replace(/\s+/g, " "), yetiskin: yetiskinSayi, cocuk: cocukSayi, ucret: ucretSayi, aciklama: aciklama.trim() });
       setDuzenle(false);
     } catch (e) {
       setHata(e && e.message ? e.message : "Kayıt güncellenemedi.");
@@ -17353,6 +17525,10 @@ function PAVDetay({ kayit, grupGunleri, yetkiliMi, onGeri, onDurum, onDuzenle })
       {!duzenle && (
         <div style={styles.lfBilgiKarti}>
           <div style={styles.lfBilgiSatiri}>
+            <span>Misafir</span>
+            <strong data-testid="pav-detay-misafir">{kayit.misafir || "—"}</strong>
+          </div>
+          <div style={styles.lfBilgiSatiri}>
             <span>Oda Numarası</span>
             <strong>{kayit.odaNo}</strong>
           </div>
@@ -17385,6 +17561,14 @@ function PAVDetay({ kayit, grupGunleri, yetkiliMi, onGeri, onDurum, onDuzenle })
         <div style={styles.gmMaddeSatiri}>
           <Etiket>ODA NUMARASI</Etiket>
           <input style={styles.epostaInput} value={odaNo} onChange={(e) => setOdaNo(e.target.value)} />
+          <Etiket>İSİM SOYİSİM{kayit.misafir ? "" : " (eski kayıt: isteğe bağlı)"}</Etiket>
+          <input
+            aria-label="İsim Soyisim"
+            style={styles.epostaInput}
+            value={misafir}
+            maxLength={60}
+            onChange={(e) => setMisafir(pavMisafirYaz(e.target.value))}
+          />
           <Etiket>YETİŞKİN SAYISI</Etiket>
           <input
             aria-label="Yetişkin sayısı"
