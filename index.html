@@ -152,7 +152,7 @@ window.KOS_EN = {"🔔 Yeni sürüm var (v":"🔔 New version available (v","Gü
 })();
 
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.69";
+window.UYGULAMA_SURUMU = "1.70";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -2934,6 +2934,13 @@ function App() {
   const [girisYukleniyor, setGirisYukleniyor] = useState(false);
 
   const [currentUser, setCurrentUser] = useState(null);
+  // Sekme/pencere başlığı: RDM Operation · BOP / POP / KOS
+  useEffect(() => {
+    try {
+      const m = currentUser ? markaBul(currentUser.hotelCode) : null;
+      document.title = UYGULAMA_ADI + (m ? " · " + m.kisa : "");
+    } catch (e) {}
+  }, [currentUser]);
   const [record, setRecord] = useState(null); // bugünün kontrol listesi kaydı
   const [kayitYukleniyor, setKayitYukleniyor] = useState(false);
   const [listeHatasi, setListeHatasi] = useState("");
