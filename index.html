@@ -152,7 +152,7 @@ window.KOS_EN = {"🔔 Yeni sürüm var (v":"🔔 New version available (v","Gü
 })();
 
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.71";
+window.UYGULAMA_SURUMU = "1.72";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -2887,15 +2887,22 @@ function App() {
   const [anaMenuSor, setAnaMenuSor] = useState(false);
   const ekranRef = useRef("login");
   ekranRef.current = screen;
+  const [adminAnahtar, setAdminAnahtar] = useState(0);
+  const adminRef = useRef(false);
   useEffect(() => {
+    const anaEkranaDon = () => {
+      // Admin'in ana ekranı yönetim paneli; Kontrol Listesi'ne hiç gitmez.
+      if (adminRef.current) { setAdminAnahtar((n) => n + 1); setScreen("admin"); }
+      else setScreen("home");
+    };
     const anaMenu = () => {
       if (formKirliMi()) setAnaMenuSor(true);
-      else setScreen("home");
+      else anaEkranaDon();
     };
     const geri = () => {
       const d = document.querySelector(".telefon-govde [data-geri]");
       if (d) d.click();
-      else setScreen("home");
+      else anaEkranaDon();
     };
     window.addEventListener("kos-ana-menu", anaMenu);
     window.addEventListener("kos-geri", geri);
@@ -2945,6 +2952,11 @@ function App() {
   const [girisYukleniyor, setGirisYukleniyor] = useState(false);
 
   const [currentUser, setCurrentUser] = useState(null);
+  adminRef.current = !!(currentUser && currentUser.department === "Admin");
+  // Admin'de Kontrol Listesi akışı yoktur: bu ekranlara düşerse yönetim paneline döner.
+  useEffect(() => {
+    if (adminRef.current && ["home", "checklist", "history", "kontrolMerkezi"].includes(screen)) setScreen("admin");
+  }, [screen, currentUser]);
   // Sekme/pencere başlığı: RDM Operation · BOP / POP / KOS
   useEffect(() => {
     try {
@@ -4340,7 +4352,7 @@ html[data-tema="gece"] .telefon-govde button.uyn-giris-btn{background:linear-gra
             jsPdfHazirMi={jsPdfHazirMi}
           />
         ) : screen === "admin" ? (
-          <AdminEkrani onCikis={handleLogout} onPinDegistir={pinEkraniAc} />
+          <AdminEkrani key={adminAnahtar} onCikis={handleLogout} onPinDegistir={pinEkraniAc} />
         ) : screen === "gorevAta" ? (
           <GorevAtaEkrani user={currentUser} onGeri={() => setScreen("home")} toastGoster={toastGoster} />
         ) : screen === "deptPanel" && deptMudurMu(currentUser) ? (
@@ -4403,7 +4415,7 @@ html[data-tema="gece"] .telefon-govde button.uyn-giris-btn{background:linear-gra
           </button>
         )}
 
-        {currentUser && screen !== "login" && screen !== "home" && screen !== "pinDegistir" && !hazirlaniyor && (
+        {currentUser && screen !== "login" && screen !== "home" && screen !== "admin" && screen !== "pinDegistir" && !hazirlaniyor && (
           <>
             <div style={{ height: 84 }} aria-hidden="true" />
             <AltGeriCubugu />
@@ -4417,7 +4429,7 @@ html[data-tema="gece"] .telefon-govde button.uyn-giris-btn{background:linear-gra
               <div style={{ fontSize: 13, color: "#6B7280", marginBottom: 16, lineHeight: 1.5 }}>{__tx(__t("Yazdığınız bilgiler kaydedilmemiş olabilir. Ana menüye dönerseniz kaybolur."))}</div>
               <div style={{ display: "flex", gap: 10 }}>
                 <button style={{ ...styles.altCubukDugme, height: 46 }} data-testid="ana-menu-kal" onClick={() => setAnaMenuSor(false)}>{__tx(__t("Burada kal"))}</button>
-                <button style={{ ...styles.altCubukDugme, height: 46, background: "#16323A", color: "#fff" }} data-testid="ana-menu-git" onClick={() => { setAnaMenuSor(false); setScreen("home"); }}>{__tx(__t("Ana menüye dön"))}</button>
+                <button style={{ ...styles.altCubukDugme, height: 46, background: "#16323A", color: "#fff" }} data-testid="ana-menu-git" onClick={() => { setAnaMenuSor(false); if (adminRef.current) { setAdminAnahtar((n) => n + 1); setScreen("admin"); } else setScreen("home"); }}>{__tx(__t("Ana menüye dön"))}</button>
               </div>
             </div>
           </div>
