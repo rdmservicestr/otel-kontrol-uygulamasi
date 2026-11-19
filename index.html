@@ -152,7 +152,7 @@ window.KOS_EN = {"🔔 Yeni sürüm var (v":"🔔 New version available (v","Gü
 })();
 
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.75";
+window.UYGULAMA_SURUMU = "1.76";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -400,6 +400,38 @@ window.UYGULAMA_SURUMU = "1.75";
       await okumaHazirla(r.data.map(function (x) { return x.value; }));
       var keys = r.data.map(function (x) { oYaz(x.key, JSON.stringify(depoCoz(x.value))); return x.key; });
       return { keys: keys, prefix: prefix };
+    },
+
+    // listZ: sayfalı (1000 sınırı yok) liste. since verilirse yalnız o andan sonra değişenler (delta); updated_at döner.
+    async listZ(prefix, since) {
+      prefix = prefix || "";
+      var otel = anahtarOtel(prefix), SAYFA = 1000, tum = [], bas = 0;
+      for (;;) {
+        var q = sb().from("kv_store").select("key,value,updated_at").eq("hotel_code", otel).like("key", likeKacis(prefix) + "%");
+        if (since) q = q.gt("updated_at", since);
+        var r = await q.order(since ? "updated_at" : "key", { ascending: true }).range(bas, bas + SAYFA - 1);
+        if (r.error) throw new Error(hataMesaji(r.error));
+        tum = tum.concat(r.data);
+        if (r.data.length < SAYFA || tum.length >= 20000) break;
+        bas += SAYFA;
+      }
+      await okumaHazirla(tum.map(function (x) { return x.value; }));
+      var son = since || null;
+      var items = tum.map(function (x) {
+        var str = JSON.stringify(depoCoz(x.value));
+        oYaz(x.key, str);
+        if (x.updated_at && (!son || x.updated_at > son)) son = x.updated_at;
+        return { key: x.key, value: str };
+      });
+      return { items: items, son: son };
+    },
+
+    // sonAnahtarlar: yalnız anahtarlar (değer yok), ters sıralı ilk n — numara türetmek için hafif sorgu
+    async sonAnahtarlar(prefix, n) {
+      var r = await sb().from("kv_store").select("key").eq("hotel_code", anahtarOtel(prefix)).like("key", likeKacis(prefix) + "%")
+        .order("key", { ascending: false }).limit(n || 50);
+      if (r.error) throw new Error(hataMesaji(r.error));
+      return r.data.map(function (x) { return x.key; });
     },
   };
 
@@ -8443,14 +8475,32 @@ async function arzKayitlariGetir(hotelCode) {
   return kayitlar;
 }
 
+// Delta: ilk çağrıda (son=null) tüm kayıtlar (sayfalı), sonra yalnız değişenler. 10 sn örtüşme, geç commit edilen yazımı kaçırmasın.
+async function arzKayitlariDelta(hotelCode, son) {
+  if (!window.storage.listZ) return { kayitlar: await arzKayitlariGetir(hotelCode), son: null, tam: true };
+  const since = son ? new Date(Date.parse(son) - 10000).toISOString() : null;
+  const r = await window.storage.listZ(`ariza:${hotelCode}:`, since);
+  const kayitlar = [];
+  for (const it of r.items) {
+    try { kayitlar.push(JSON.parse(it.value)); } catch (e) {}
+  }
+  return { kayitlar, son: r.son || son || null, tam: !since };
+}
+function arzYeniSirala(liste) {
+  return liste.slice().sort((a, b) => (a.olusturmaZamani < b.olusturmaZamani ? 1 : -1));
+}
+
 // Yeni arıza: numara sunucudaki en büyük numaradan türetilir ve kayıt "yalnızca yoksa" yazılır;
 // aynı anda başka biri aynı numarayı aldıysa bir sonraki numara denenir.
 async function arzYeniKaydet(taslak) {
-  for (let deneme = 0; deneme < 6; deneme++) {
+  for (let deneme = 0; deneme < 12; deneme++) {
     const yil = new Date().getFullYear();
-    const liste = await window.storage.list(`ariza:${taslak.hotelCode}:`, true);
+    // yalnız anahtarlar (değer/fotoğraf yok, 1000 sınırı yok); eski ortamda tam liste
+    const anahtarlar = window.storage.sonAnahtarlar
+      ? await window.storage.sonAnahtarlar(`ariza:${taslak.hotelCode}:ARZ-${yil}-`, 50)
+      : ((await window.storage.list(`ariza:${taslak.hotelCode}:`, true)) || {}).keys || [];
     let enBuyuk = 0;
-    for (const k of (liste && liste.keys) || []) {
+    for (const k of anahtarlar) {
       const m = String(k).match(/ARZ-(\d{4})-(\d+)$/);
       if (m && Number(m[1]) === yil) enBuyuk = Math.max(enBuyuk, Number(m[2]));
     }
@@ -8734,6 +8784,8 @@ function ArizaEkrani({ user, onGeri, toastGoster }) {
   const atamaYapabilirMi = arzYoneticiMi(user);
   const [tFiltre, setTFiltre] = useState({ bas: "", bit: "", alan: "", oda: "", durum: "", kategori: "", ara: "" });
   const yenileSayac = useRef(0);
+  const sonRef = useRef(null);
+  const tamZamanRef = useRef(0);
   const gorunumRef = useRef("liste");
   gorunumRef.current = gorunum;
 
@@ -8757,8 +8809,20 @@ function ArizaEkrani({ user, onGeri, toastGoster }) {
   async function sessizYukle() {
     const no = ++yenileSayac.current;
     try {
-      const veri = await arzKayitlariGetir(user.hotelCode);
-      if (no === yenileSayac.current) setKayitlar(veri); // eski cevap yeniyi ezmesin
+      const tamGerek = !sonRef.current || Date.now() - tamZamanRef.current > 30 * 60 * 1000; // fotoğraf bağlantıları tazelensin
+      const r = await arzKayitlariDelta(user.hotelCode, tamGerek ? null : sonRef.current);
+      if (no !== yenileSayac.current) return; // eski cevap yeniyi ezmesin
+      sonRef.current = r.son;
+      if (r.tam) {
+        tamZamanRef.current = Date.now();
+        setKayitlar(arzYeniSirala(r.kayitlar));
+      } else if (r.kayitlar.length) {
+        setKayitlar((onceki) => {
+          const harita = new Map(onceki.map((k) => [k.no, k]));
+          r.kayitlar.forEach((k) => harita.set(k.no, k));
+          return arzYeniSirala([...harita.values()]);
+        });
+      }
     } catch (e) {}
   }
 
@@ -8766,8 +8830,12 @@ function ArizaEkrani({ user, onGeri, toastGoster }) {
     setYukleniyor(true);
     const no = ++yenileSayac.current;
     try {
-      const veri = await arzKayitlariGetir(user.hotelCode);
-      if (no === yenileSayac.current) setKayitlar(veri);
+      const r = await arzKayitlariDelta(user.hotelCode, null);
+      if (no === yenileSayac.current) {
+        sonRef.current = r.son;
+        tamZamanRef.current = Date.now();
+        setKayitlar(arzYeniSirala(r.kayitlar));
+      }
       return true;
     } catch (e) {
       toastGoster(__t("⚠ Arıza listesi alınamadı. İnternetinizi kontrol edin."));
@@ -15223,9 +15291,9 @@ function HKEkrani({ user, onGeri, toastGoster }) {
     try {
       const p = await window.OtelRpc.cagir("hk_pano");
       setPano(p);
-      const [t, o] = await Promise.all([window.OtelRpc.cagir("hk_talep_listele", { p_filtre: filtre, p_limit: 200 }), window.OtelRpc.cagir("hk_oda_listele")]);
-      setTalepler(t);
-      setOdalar(o);
+      // Talep ve oda listeleri yalnız ilgili sekme açıkken çekilir (egress tasarrufu); pano sayıları hk_pano'dan gelir
+      if (sekme === "talep") setTalepler(await window.OtelRpc.cagir("hk_talep_listele", { p_filtre: filtre, p_limit: 200 }));
+      if (sekme === "oda") setOdalar(await window.OtelRpc.cagir("hk_oda_listele"));
       if (!sessiz) setHata("");
     } catch (e) {
       if (!sessiz) setHata(e.message);
@@ -15233,13 +15301,16 @@ function HKEkrani({ user, onGeri, toastGoster }) {
   }
   useEffect(() => {
     yukle(false);
-    const t = setInterval(() => yukle(true), 15000);
+    const t = setInterval(() => { if (!document.hidden) yukle(true); }, 30000);
     const sn = setInterval(() => yenile((n) => n + 1), 30000);
+    const gorunur = () => { if (!document.hidden) yukle(true); };
+    document.addEventListener("visibilitychange", gorunur);
     return () => {
       clearInterval(t);
       clearInterval(sn);
+      document.removeEventListener("visibilitychange", gorunur);
     };
-  }, [filtre]);
+  }, [filtre, sekme]);
   async function raporYukle() {
     try {
       setHata("");
