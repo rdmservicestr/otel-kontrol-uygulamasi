@@ -152,7 +152,7 @@ window.KOS_EN = {"🔔 Yeni sürüm var (v":"🔔 New version available (v","Gü
 })();
 
 /* ===== Supabase depolama katmanı + giriş (window.storage ve window.OtelAuth) ===== */
-window.UYGULAMA_SURUMU = "1.80";
+window.UYGULAMA_SURUMU = "1.81";
 (function () {
   var SB_URL = "https://sxudiskddwgdmuidchzm.supabase.co";
   var SB_KEY = "sb_publishable_PYTHyoTYqLWrU2rxuGq57w_owrx_qOq"; // yalnızca publishable/anon anahtar; secret key ASLA buraya yazılmaz
@@ -12975,16 +12975,26 @@ function pavPdfHaftalik(kayitlar, baslangic, hotelName, kullaniciAdi) {
 -------------------------------------------------------------------*/
 const ALACARTE_VIP_TIPLERI = ["Normal", "VIP-1", "VIP-2", "Balayı", "Doğumgünü", "Repeat", "Yıldönümü", "Acenteci", "GM", "Owner"];
 const ALACARTE_KILIT_SN = 60;
-const ALACARTE_OTELLER = ["5557"];
-const ALACARTE_DEPARTMANLAR = ["Önbüro", "Misafir Deneyimi & Kalite", "Yiyecek & İçecek", "Genel Müdürlük"];
+const ALACARTE_OTELLER = ["5557", "5555"];
+const ALACARTE_DEPARTMANLAR = ["Önbüro", "Misafir Deneyimi & Kalite", "Yiyecek & İçecek", "Genel Müdürlük", "Gece Müdürü"];
 const ALACARTE_SAATLER = ["19:00", "19:15", "19:30", "19:45", "20:00"];
-const ALACARTE_RESTORANLAR = [
-  { ad: "Lalezar", renk: "#9A3412" },
-  { ad: "Taco", renk: "#B45309" },
-  { ad: "Shenzen", renk: "#B91C1C" },
-  { ad: "Mope", renk: "#0F766E" },
-  { ad: "Fangri", renk: "#1D4ED8" },
-];
+const ALACARTE_RESTORANLAR_OTEL = {
+  "5557": [
+    { ad: "Lalezar", renk: "#9A3412" },
+    { ad: "Taco", renk: "#B45309" },
+    { ad: "Shenzen", renk: "#B91C1C" },
+    { ad: "Mope", renk: "#0F766E" },
+    { ad: "Fangri", renk: "#1D4ED8" },
+  ],
+  "5555": [
+    { ad: "Lanthe Restaurant", renk: "#9A3412" },
+    { ad: "Lanthe Beach", renk: "#1D4ED8" },
+  ],
+};
+// "Lalezar" -> "Lalezar Restaurant"; adında zaten Restaurant/Beach geçenler olduğu gibi kalır
+function alacarteRestAd(ad) {
+  return /restaurant|beach/i.test(ad) ? ad : ad + " Restaurant";
+}
 function alacarteKullanabilir(user) {
   return modulAcik(user, "alacarte", (u) => ALACARTE_OTELLER.includes(u.hotelCode) && ALACARTE_DEPARTMANLAR.includes(u.department));
 }
@@ -13078,7 +13088,7 @@ function alacartePdf(restoranlar, tarih, rez, masalar, hotelName, kullaniciAdi) 
     doc.setFont(font, "bold");
     doc.setFontSize(12);
     doc.setTextColor(22, 50, 58);
-    doc.text(__t("{0} Restaurant", [ad]), m, y);
+    doc.text(alacarteRestAd(ad), m, y);
     y += 14;
     doc.setFont(font, "normal");
     doc.setFontSize(9);
@@ -13132,6 +13142,7 @@ function alacartePdf(restoranlar, tarih, rez, masalar, hotelName, kullaniciAdi) 
 
 
 function AlacarteEkrani({ user, onGeri, toastGoster }) {
+  const ALACARTE_RESTORANLAR = ALACARTE_RESTORANLAR_OTEL[user.hotelCode] || [];
   const [tarih, setTarih] = useState(bugunTarihi());
   const [restoran, setRestoran] = useState(null);
   const [veri, setVeri] = useState(null);
@@ -13420,7 +13431,7 @@ function AlacarteEkrani({ user, onGeri, toastGoster }) {
         } catch (e) {}
       }
       const doc = alacartePdf(restoranlar, tarih, rez, masalar, user.hotelName, user.name);
-      const ad = `alacarte-${restoranlar.length === 1 ? restoranlar[0].toLowerCase() : "tum-restoranlar"}-${tarih}.pdf`;
+      const ad = `alacarte-${restoranlar.length === 1 ? restoranlar[0].toLowerCase().replace(/\s+/g, "-") : "tum-restoranlar"}-${tarih}.pdf`;
       try {
         doc.save(ad);
       } catch (e) {}
@@ -13431,7 +13442,7 @@ function AlacarteEkrani({ user, onGeri, toastGoster }) {
       if (epostaGonder) {
         const konu = encodeURIComponent(`${user.hotelName} - Alacarte Rezervasyon Listesi - ${alacarteTarihYaz(tarih)}`);
         const govde = encodeURIComponent(
-          `Merhaba,\n\n${alacarteTarihYaz(tarih)} tarihli ${restoranlar.length === 1 ? restoranlar[0] + " Restaurant" : "tüm Alacarte restoranları"} rezervasyon listesi PDF olarak cihaza indirildi.\nLütfen e-posta uygulamasında az önce indirilen "${ad}" dosyasını bu mesaja ekleyip gönderin.\n\nOtel: ${user.hotelName}\nHazırlayan: ${user.name}`
+          `Merhaba,\n\n${alacarteTarihYaz(tarih)} tarihli ${restoranlar.length === 1 ? alacarteRestAd(restoranlar[0]) : "tüm Alacarte restoranları"} rezervasyon listesi PDF olarak cihaza indirildi.\nLütfen e-posta uygulamasında az önce indirilen "${ad}" dosyasını bu mesaja ekleyip gönderin.\n\nOtel: ${user.hotelName}\nHazırlayan: ${user.name}`
         );
         window.location.href = `mailto:${adres}?subject=${konu}&body=${govde}`;
         setPdfMesaj(__t("PDF indirildi ve e-posta uygulamanız açıldı. İndirilen dosyayı mesaja ekleyip gönderin."));
@@ -13659,7 +13670,7 @@ function AlacarteEkrani({ user, onGeri, toastGoster }) {
               const dolu = aktifRez(r.ad).length;
               return (
                 <button key={r.ad} onClick={() => (kapaliKaydi(r.ad) ? setHata(__t("{0} bu tarihte rezervasyona kapalı{1}.", [r.ad, kapaliKaydi(r.ad).neden ? " (" + kapaliKaydi(r.ad).neden + ")" : ""])) : setRestoran(r.ad))} style={{ width: "100%", textAlign: "left", marginBottom: 8, padding: "14px 16px", borderRadius: 14, border: `2px solid ${kapaliKaydi(r.ad) ? "#9CA3AF" : r.renk}`, opacity: kapaliKaydi(r.ad) ? 0.6 : 1, background: "#fff", color: r.renk, cursor: "pointer" }}>
-                  <div style={{ fontSize: 17, fontWeight: 800 }}>{__tx(r.ad)} {__t("Restaurant")}</div>
+                  <div style={{ fontSize: 17, fontWeight: 800 }}>{__tx(alacarteRestAd(r.ad))}</div>
                   {kapaliKaydi(r.ad) ? (
                     <div style={{ fontSize: 13, color: "#B91C1C", fontWeight: 800, marginTop: 2 }}>
                       {__t("🔒 KAPALI")}{kapaliKaydi(r.ad).neden ? ` · ${kapaliKaydi(r.ad).neden}` : ""}
